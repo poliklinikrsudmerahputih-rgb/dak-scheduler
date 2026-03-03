@@ -2,30 +2,24 @@
 import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
-import { useRouter } from "next/navigation"; // TAMBAHAN UNTUK REDIRECT
+import { useRouter } from "next/navigation";
 import { 
   Users, Stethoscope, Share2, ChevronDown, ShieldCheck, 
-  Activity, UserCheck, Clock, AlertCircle, Cpu, LogOut
+  Activity, UserCheck, Clock, AlertCircle, Cpu
 } from "lucide-react";
 
 export default function DashboardUtama() {
-  const router = useRouter(); // Inisialisasi router
+  const router = useRouter();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
   const [tahun, setTahun] = useState(new Date().getFullYear());
 
-  // FUNGSI LOGOUT
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  };
-
   const fetchDashboard = () => {
     setLoading(true);
     fetch(`/api/dashboard?bulan=${bulan}&tahun=${tahun}`)
       .then((res) => {
-        // JIKA SESSION HABIS / BELUM LOGIN, LEMPAR KE LOGIN
+        // Proteksi jika session habis
         if (res.status === 401) {
           router.push("/login");
           return;
@@ -66,7 +60,7 @@ export default function DashboardUtama() {
   return (
     <div className="max-w-[1600px] mx-auto p-4 md:p-10 space-y-8 bg-slate-50 min-h-screen pb-20 font-sans">
       
-      {/* --- HEADER PREMIUM --- */}
+      {/* --- HEADER PREMIUM (TANPA TOMBOL LOGOUT) --- */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-slate-900 p-8 md:p-12 rounded-[3rem] shadow-2xl text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 p-10 opacity-5">
           <Cpu size={200} />
@@ -86,9 +80,7 @@ export default function DashboardUtama() {
         </div>
 
         <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto relative z-10">
-          <button onClick={handleLogout} className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all">
-            <LogOut size={14} /> Logout
-          </button>
+          {/* TOMBOL LOGOUT DI SINI SUDAH DIHAPUS SESUAI PERINTAH */}
           <div className="relative flex-1 lg:flex-none">
             <select 
               value={bulan} 

@@ -17,7 +17,7 @@ export default function SignupPage() {
 
     try {
       // Pastikan URL API ini sesuai dengan folder di VS Code Bapak
-      const res = await fetch("/api/auth/signup", {
+      const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

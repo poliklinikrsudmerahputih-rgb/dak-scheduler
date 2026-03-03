@@ -1,3 +1,4 @@
+// src/app/layout.js
 import "./globals.css";
 
 export const metadata = {
@@ -7,7 +8,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="id">
+    // Tambahkan suppressHydrationWarning di sini
+    <html lang="id" suppressHydrationWarning>
       <body className="antialiased">
         {children}
       </body>

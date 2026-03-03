@@ -1,10 +1,10 @@
 "use server";
-import { turso } from "../../lib/turso";
+// PERBAIKAN: Menggunakan @ agar otomatis mengarah ke folder src/lib
+import { turso } from "@/lib/turso"; 
 import { revalidatePath } from "next/cache";
 
 /**
  * Fungsi Utama: Menyimpan (Insert) atau Memperbarui (Update) Jadwal Dokter
- * Kunci utamanya adalah "id". Jika id ada, maka sistem menjalankan Update.
  */
 export async function simpanDokter(formData) {
   const id = formData.get("id"); 
@@ -32,19 +32,18 @@ export async function simpanDokter(formData) {
       });
     }
 
-    // Memaksa Next.js menyegarkan data pada route /dokter agar tabel terupdate
+    // Menggunakan revalidatePath agar Sidebar & Tabel Dokter terupdate otomatis
     revalidatePath("/dokter");
     return { success: true };
 
   } catch (e) {
     console.error("Database Error Detail:", e);
-    // Mengembalikan pesan error yang ramah agar bisa di-alert di frontend
     return { success: false, error: "Gagal memproses data ke database Turso." };
   }
 }
 
 /**
- * Fungsi Tambahan: Menghapus Jadwal Dokter secara Permanen
+ * Fungsi Tambahan: Menghapus Jadwal Dokter
  */
 export async function hapusDokter(id) {
   if (!id) return { success: false, error: "ID data tidak valid." };
@@ -59,6 +58,6 @@ export async function hapusDokter(id) {
     return { success: true };
   } catch (e) {
     console.error("Gagal menghapus jadwal:", e);
-    return { success: false, error: "Data gagal dihapus. Periksa koneksi database Anda." };
+    return { success: false, error: "Data gagal dihapus." };
   }
 }

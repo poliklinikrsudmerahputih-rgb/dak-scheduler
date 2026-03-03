@@ -1,7 +1,6 @@
 import { createClient } from "@libsql/client";
 import { NextResponse } from "next/server";
 
-// Konfigurasi koneksi ke Turso
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
@@ -9,26 +8,24 @@ const client = createClient({
 
 export async function POST(req) {
   try {
-    // 1. Menerima data dari frontend
     const { nama, username, password, pertanyaan, jawaban } = await req.json();
 
-    // 2. Cek apakah username sudah ada (Proteksi Double Akun)
+    // 1. Cek apakah username sudah ada di tabel USERS
     const existingUser = await client.execute({
-      sql: "SELECT id FROM sdm WHERE username = ?",
+      sql: "SELECT id FROM users WHERE username = ?",
       args: [username]
     });
 
     if (existingUser.rows.length > 0) {
       return NextResponse.json({ 
         success: false, 
-        error: "Username ini sudah terdaftar di sistem!" 
+        error: "Username ini sudah terdaftar!" 
       }, { status: 400 });
     }
 
-    // 3. Simpan data ke tabel sdm
-    // Nama kolom disesuaikan dengan Turso Bapak: pertanyaan_keamanan & jawaban_keamanan
+    // 2. Simpan ke tabel USERS (Bukan SDM)
     await client.execute({
-      sql: `INSERT INTO sdm (
+      sql: `INSERT INTO users (
         nama, 
         username, 
         password, 
@@ -36,16 +33,13 @@ export async function POST(req) {
         pertanyaan_keamanan, 
         jawaban_keamanan
       ) VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [nama, username, password, "staff", pertanyaan, jawaban]
+      args: [nama, username, password, "admin", pertanyaan, jawaban]
     });
 
     return NextResponse.json({ success: true });
 
   } catch (error) {
-    console.error("Signup Database Error:", error);
-    return NextResponse.json({ 
-      success: false, 
-      error: "Gagal menyimpan: Pastikan koneksi database benar." 
-    }, { status: 500 });
+    console.error("Signup Error:", error);
+    return NextResponse.json({ success: false, error: "Gagal menyimpan akun." }, { status: 500 });
   }
 }

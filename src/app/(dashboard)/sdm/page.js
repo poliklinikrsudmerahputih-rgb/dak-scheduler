@@ -99,6 +99,7 @@ export default function MasterSDM() {
               <option value="Terapis Gigi">Terapis Gigi</option>
               <option value="Fisioterapis">Fisioterapis</option>
               <option value="Psikologi Klinis">Psikologi Klinis</option>
+              <option value="Admin">Admin</option>
             </select>
           </div>
 

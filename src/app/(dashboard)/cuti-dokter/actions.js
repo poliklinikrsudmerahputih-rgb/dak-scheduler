@@ -1,5 +1,5 @@
 "use server";
-import { turso } from "../../lib/turso";
+import { turso } from "@/lib/turso"; 
 import { revalidatePath } from "next/cache";
 
 export async function simpanCutiDokter(formData) {

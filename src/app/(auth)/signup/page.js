@@ -1,11 +1,14 @@
 "use client";
 import React, { useState } from "react";
-import { UserPlus, ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
+import { UserPlus, ShieldCheck, ArrowLeft, Loader2, Hospital } from "lucide-react";
 import Link from "next/link";
 
 export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ type: "", text: "" });
+
+  // Daftar ruangan sesuai unit kerja di RS
+  const daftarRuangan = ["POLIKLINIK", "IGD", "ICU", "RAWAT INAP", "KAMAR OPERASI", "LABORATORIUM", "FARMASI"];
 
   async function handleSignup(e) {
     e.preventDefault();
@@ -16,7 +19,6 @@ export default function SignupPage() {
     const payload = Object.fromEntries(formData);
 
     try {
-      // Pastikan URL API ini sesuai dengan folder di VS Code Bapak
       const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -62,10 +64,22 @@ export default function SignupPage() {
             )}
 
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic font-bold">Informasi Akun</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Informasi Akun</label>
               <input name="nama" placeholder="NAMA LENGKAP" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
               <input name="username" placeholder="USERNAME / ID" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
               <input name="password" type="password" placeholder="BUAT PASSWORD" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
+            </div>
+
+            {/* TAMBAHAN: PILIHAN RUANGAN (PENGGANTI RLS) */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-black text-blue-600 uppercase ml-2 tracking-widest italic flex items-center gap-1">
+                <Hospital size={10} /> Pilih Unit Kerja / Ruangan
+              </label>
+              <select name="ruangan" className="w-full bg-blue-50 border-none rounded-2xl p-4 text-xs font-black uppercase focus:ring-2 focus:ring-blue-500 outline-none text-blue-700" required>
+                {daftarRuangan.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
             </div>
             
             <div className="pt-4 border-t border-slate-50">
@@ -91,10 +105,6 @@ export default function SignupPage() {
             </Link>
           </div>
         </div>
-
-        <p className="text-center text-[8px] font-black text-slate-300 uppercase tracking-[0.5em] italic">
-          DAK-SYSTEM v.2.5 | Daniel Ari Kristianto
-        </p>
       </div>
     </div>
   );

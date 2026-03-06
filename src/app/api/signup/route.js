@@ -8,9 +8,10 @@ const client = createClient({
 
 export async function POST(req) {
   try {
-    const { nama, username, password, pertanyaan, jawaban } = await req.json();
+    // 1. Tangkap data dari Form (Termasuk 'ruangan' yang baru kita tambahkan)
+    const { nama, username, password, ruangan, pertanyaan, jawaban } = await req.json();
 
-    // 1. Cek apakah username sudah ada di tabel USERS
+    // 2. Cek apakah username sudah ada
     const existingUser = await client.execute({
       sql: "SELECT id FROM users WHERE username = ?",
       args: [username]
@@ -23,23 +24,36 @@ export async function POST(req) {
       }, { status: 400 });
     }
 
-    // 2. Simpan ke tabel USERS (Bukan SDM)
+    // 3. Simpan ke tabel USERS dengan kolom RUANGAN (Sangat Penting!)
+    // Pastikan urutan kolom dan urutan args sama persis
     await client.execute({
       sql: `INSERT INTO users (
         nama, 
         username, 
         password, 
+        ruangan,
         role, 
         pertanyaan_keamanan, 
         jawaban_keamanan
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [nama, username, password, "admin", pertanyaan, jawaban]
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        nama, 
+        username, 
+        password, 
+        ruangan || "POLIKLINIK", // Beri default jika user lupa pilih
+        "admin", 
+        pertanyaan, 
+        jawaban
+      ]
     });
 
     return NextResponse.json({ success: true });
 
   } catch (error) {
     console.error("Signup Error:", error);
-    return NextResponse.json({ success: false, error: "Gagal menyimpan akun." }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: "Gagal menyimpan akun ke database DAK." 
+    }, { status: 500 });
   }
 }

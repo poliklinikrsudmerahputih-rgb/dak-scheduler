@@ -18,12 +18,15 @@ export default function DashboardLayout({ children }) {
 
   // FUNGSI LOGOUT (PENTING)
   const handleLogout = async () => {
-    const confirmLogout = confirm("Apakah Anda yakin ingin keluar dari sistem DAK-PRO?");
+    const confirmLogout = confirm("Apakah Anda yakin ingin keluar dari DAK-PRO?");
     if (confirmLogout) {
       try {
-        await fetch("/api/auth/logout", { method: "POST" });
-        router.push("/login"); // Lempar ke halaman login
-        router.refresh(); // Segarkan route agar sidebar hilang
+        const res = await fetch("/api/logout", { method: "POST" });
+        if (res.ok) {
+          // PENTING: Gunakan window.location.replace agar user tidak bisa klik "Back" 
+          // dan memaksa Middleware mengecek ulang status login
+          window.location.replace("/login"); 
+        }
       } catch (error) {
         console.error("Logout gagal:", error);
       }

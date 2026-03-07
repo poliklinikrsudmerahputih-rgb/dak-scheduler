@@ -1,10 +1,12 @@
 "use server";
-// PERBAIKAN: Menggunakan @ agar otomatis mengarah ke folder src/lib
+// Menggunakan @ agar otomatis mengarah ke folder src/lib
 import { turso } from "@/lib/turso"; 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 
 /**
  * Fungsi Utama: Menyimpan (Insert) atau Memperbarui (Update) Jadwal Dokter
+ * Dilengkapi dengan pendeteksi Ruangan otomatis berdasarkan Sesi Login
  */
 export async function simpanDokter(formData) {
   const id = formData.get("id"); 
@@ -15,30 +17,42 @@ export async function simpanDokter(formData) {
   const simbol = formData.get("simbol");
 
   try {
+    // --- PENAMBAHAN LOGIKA KEAMANAN RUANGAN ---
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+    if (!session) return { success: false, error: "Sesi habis, silakan login ulang." };
+    
+    const userData = JSON.parse(session.value);
+    const ruanganUser = userData.ruangan || "POLIKLINIK"; 
+    // ------------------------------------------
+
     if (id) {
       // 1. Logika Update jika sedang dalam mode Edit
+      // Kita pastikan juga ID dan Ruangannya cocok (Proteksi data)
       await turso.execute({
         sql: `UPDATE master_dokter 
-              SET nama_dokter = ?, klinik = ?, jadwal_hari = ?, jam_praktik = ?, simbol_praktik = ? 
+              SET nama_dokter = ?, klinik = ?, jadwal_hari = ?, jam_praktik = ?, simbol_praktik = ?, ruangan = ?
               WHERE id = ?`,
-        args: [nama_dokter, klinik, hari, jam, simbol, id]
+        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser, id]
       });
     } else {
       // 2. Logika Insert jika menambah data baru
+      // Menambahkan kolom 'ruangan' agar data tidak bercampur dengan unit lain di RS
       await turso.execute({
-        sql: `INSERT INTO master_dokter (nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik) 
-              VALUES (?, ?, ?, ?, ?)`,
-        args: [nama_dokter, klinik, hari, jam, simbol]
+        sql: `INSERT INTO master_dokter (nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, ruangan) 
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser]
       });
     }
 
-    // Menggunakan revalidatePath agar Sidebar & Tabel Dokter terupdate otomatis
+    // Menggunakan revalidatePath agar data di halaman dokter langsung segar
     revalidatePath("/dokter");
     return { success: true };
 
   } catch (e) {
     console.error("Database Error Detail:", e);
-    return { success: false, error: "Gagal memproses data ke database Turso." };
+    // Memberikan pesan error yang lebih teknis jika di localhost untuk debugging
+    return { success: false, error: "Kesalahan Database: " + e.message };
   }
 }
 

@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
-import { Save, Printer, Loader2, FileText } from "lucide-react";
+import { Save, Printer, Loader2, FileText, ShieldCheck, AlertTriangle } from "lucide-react";
 import { id } from "date-fns/locale";
 
 export default function BuatJadwal() {
@@ -10,6 +10,7 @@ export default function BuatJadwal() {
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
   const [tahun, setTahun] = useState(new Date().getFullYear());
   const [daftarSDM, setDaftarSDM] = useState([]);
+  const [dataCutiSDM, setDataCutiSDM] = useState([]); 
   const [dataMasterDokter, setDataMasterDokter] = useState([]);
   const [isiJadwal, setIsiJadwal] = useState({});
   const [loading, setLoading] = useState(false);
@@ -25,6 +26,16 @@ export default function BuatJadwal() {
     pembuat_nip: "199303042019031006",
     tgl_cetak: format(new Date(), "yyyy-MM-dd")
   });
+
+  // DEFINISI URUTAN PROFESI SESUAI MASTER SDM
+  const urutanProfesi = {
+    "Bidan": 1,
+    "Psikologi Klinis": 2,
+    "Perawat": 3,
+    "Terapis Gigi": 4,
+    "Fisioterapis": 5,
+    "Admin": 6
+  };
 
   const hariLibur2026 = [
     "2026-01-01", "2026-01-16", "2026-02-16", "2026-02-17", "2026-03-18",
@@ -45,21 +56,32 @@ export default function BuatJadwal() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [resSDM, resDkt, resJadwal] = await Promise.all([
+        const [resSDM, resDkt, resJadwal, resCuti] = await Promise.all([
           fetch("/api/sdm"),
           fetch("/api/dokter"),
-          fetch(`/api/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}`)
+          fetch(`/api/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}`),
+          fetch("/api/cuti-sdm")
         ]);
         const dSDM = await resSDM.json();
         const dDkt = await resDkt.json();
         const dJadwal = await resJadwal.json();
+        const dCuti = await resCuti.json();
 
         if (dSDM.length > 0 && dSDM[0].ruangan) {
           setHeader(prev => ({ ...prev, ruangan: dSDM[0].ruangan }));
         }
 
-        setDaftarSDM(Array.isArray(dSDM) ? dSDM.sort((a, b) => (a.jabatan || "").localeCompare(b.jabatan || "")) : []);
+        // LOGIKA SORTIR BERDASARKAN URUTAN PROFESI
+        const sortedSDM = Array.isArray(dSDM) ? dSDM.sort((a, b) => {
+          const orderA = urutanProfesi[a.jabatan] || 99;
+          const orderB = urutanProfesi[b.jabatan] || 99;
+          if (orderA !== orderB) return orderA - orderB;
+          return (a.nama || "").localeCompare(b.nama || "");
+        }) : [];
+
+        setDaftarSDM(sortedSDM);
         setDataMasterDokter(Array.isArray(dDkt) ? dDkt : []);
+        setDataCutiSDM(Array.isArray(dCuti) ? dCuti : []);
 
         const mapJadwal = {};
         if (Array.isArray(dJadwal)) {
@@ -74,6 +96,17 @@ export default function BuatJadwal() {
     }
     fetchData();
   }, [bulan, tahun, hasMounted]);
+
+  const getAutoCutiValue = (namaSdm, tgl) => {
+    const targetDate = format(new Date(tahun, bulan - 1, tgl), "yyyy-MM-dd");
+    const foundCuti = dataCutiSDM.find(c => 
+      c.nama_sdm === namaSdm && 
+      c.status_acc === "Disetujui" &&
+      targetDate >= c.tgl_mulai && 
+      targetDate <= c.tgl_selesai
+    );
+    return foundCuti ? foundCuti.jenis_cuti : null;
+  };
 
   const semuaSimbol = [
     ...new Set(dataMasterDokter.map(d => d.simbol_praktik).filter(s => s)),
@@ -94,7 +127,8 @@ export default function BuatJadwal() {
   const hitungTotalMasuk = (tgl, kategori) => {
     let total = 0;
     daftarSDM.forEach(sdm => {
-      const val = isiJadwal[`${sdm.id}-${tgl}`];
+      const autoVal = getAutoCutiValue(sdm.nama, tgl);
+      const val = autoVal || isiJadwal[`${sdm.id}-${tgl}`];
       const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
       if (val && !statusAbsensi.includes(val)) {
         if (kategori === "perawat" && isPerawat) total++;
@@ -176,7 +210,6 @@ export default function BuatJadwal() {
           table { width: 100% !important; border: 1pt solid black !important; table-layout: auto !important; }
           th, td { border: 0.5pt solid black !important; font-size: 6px !important; padding: 1px !important; white-space: nowrap !important; }
         }
-        /* FITUR RESIZE KOLOM ALA EXCEL */
         .resizable-col {
           resize: horizontal;
           overflow: hidden;
@@ -184,10 +217,6 @@ export default function BuatJadwal() {
           display: inline-block;
           vertical-align: middle;
           cursor: col-resize;
-        }
-        .resizable-col::-webkit-scrollbar {
-          width: 4px;
-          height: 4px;
         }
       `}</style>
 
@@ -198,9 +227,8 @@ export default function BuatJadwal() {
       )}
 
       <div className="p-2 lg:p-6">
-        {/* --- SETTINGS --- */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 mb-6 no-print">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="space-y-3">
               <label className="text-xs font-black text-blue-600 uppercase italic">Unit & Waktu</label>
               <input type="text" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold uppercase" value={header.institusi} onChange={e => setHeader({ ...header, institusi: e.target.value.toUpperCase() })} />
@@ -221,15 +249,22 @@ export default function BuatJadwal() {
             <div className="space-y-3 border-l pl-6">
               <label className="text-xs font-black text-blue-600 uppercase italic">Otoritas Pembuat</label>
               <input type="text" placeholder="Nama Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_nama} onChange={e => setHeader({ ...header, pembuat_nama: e.target.value })} />
-              {/* INPUT JABATAN PEMBUAT SUDAH TERSEDIA */}
               <input type="text" placeholder="Jabatan Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_jabatan} onChange={e => setHeader({ ...header, pembuat_jabatan: e.target.value })} />
               <input type="text" placeholder="NIP Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_nip} onChange={e => setHeader({ ...header, pembuat_nip: e.target.value })} />
               <input type="date" className="w-full p-2 bg-blue-50 rounded-xl text-xs font-bold text-blue-700" value={header.tgl_cetak} onChange={e => setHeader({ ...header, tgl_cetak: e.target.value })} />
             </div>
+            <div className="border-l pl-6 flex flex-col justify-center gap-2">
+               <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+                  <div className="flex items-center gap-2 text-amber-700 mb-1">
+                    <AlertTriangle size={14}/>
+                    <span className="text-[10px] font-black uppercase tracking-tighter">Auto-Sync Cuti</span>
+                  </div>
+                  <p className="text-[9px] text-amber-600 leading-tight">Input terkunci otomatis jika staf sedang cuti (ACC). Warna merah menandakan data sinkronisasi.</p>
+               </div>
+            </div>
           </div>
         </div>
 
-        {/* --- AREA JADWAL --- */}
         <div id="area-jadwal" className="print-area bg-white p-4 rounded-[2rem] shadow-xl overflow-hidden" suppressHydrationWarning>
           <div style={{ textAlign: 'center', marginBottom: '15px' }}>
             <h1 style={{ fontSize: '14pt', fontWeight: '900', margin: '0' }}>{header.institusi}</h1>
@@ -252,7 +287,6 @@ export default function BuatJadwal() {
                     const isRed = cekTanggalMerah(i + 1);
                     return (
                       <th key={i} style={{ border: '1pt solid black', padding: '0', color: isRed ? '#f87171' : 'white' }}>
-                        {/* DIV RESIZABLE UNTUK TARIK GARIS KOLOM */}
                         <div className="resizable-col no-print" style={{ padding: '4px', fontSize: '8pt' }}>
                           {i + 1}<br />{namaHariSingkat[(hariPertama + i) % 7]}
                         </div>
@@ -268,7 +302,8 @@ export default function BuatJadwal() {
                 {daftarSDM.map((sdm, idx) => {
                   const rekap = { dinas: {}, off: 0 };
                   for (let i = 1; i <= jumlahHari; i++) {
-                    const val = isiJadwal[`${sdm.id}-${i}`];
+                    const autoVal = getAutoCutiValue(sdm.nama, i);
+                    const val = autoVal || isiJadwal[`${sdm.id}-${i}`];
                     if (val) {
                       if (statusAbsensi.includes(val)) rekap.off++;
                       else rekap.dinas[val] = (rekap.dinas[val] || 0) + 1;
@@ -284,17 +319,26 @@ export default function BuatJadwal() {
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i + 1;
                         const isRed = cekTanggalMerah(tgl);
-                        const val = isiJadwal[`${sdm.id}-${tgl}`] || "";
+                        const autoVal = getAutoCutiValue(sdm.nama, tgl);
+                        const val = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
                         return (
-                          <td key={i} style={{ border: '1pt solid black', padding: '0', backgroundColor: isRed ? '#fef2f2' : 'transparent' }}>
+                          <td key={i} style={{ border: '1pt solid black', padding: '0', backgroundColor: autoVal ? '#fee2e2' : isRed ? '#fef2f2' : 'transparent' }}>
                             <input
                               className="no-print"
                               value={val}
-                              onChange={(e) => setIsiJadwal({ ...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase() })}
+                              onChange={(e) => !autoVal && setIsiJadwal({ ...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase() })}
+                              readOnly={!!autoVal}
                               list="simbol-list"
-                              style={{ width: '100%', minWidth: '100%', textAlign: 'center', border: 'none', background: 'transparent', fontWeight: 'bold', fontSize: '9px', color: isRed ? '#dc2626' : 'black', padding: '8px 2px' }}
+                              style={{ 
+                                width: '100%', textAlign: 'center', border: 'none', background: 'transparent', 
+                                fontWeight: autoVal ? '900' : 'bold', fontSize: '9px', 
+                                color: autoVal ? '#b91c1c' : isRed ? '#dc2626' : 'black', 
+                                padding: '8px 2px', cursor: autoVal ? 'not-allowed' : 'text'
+                              }}
                             />
-                            <span className="hidden print:block" style={{ fontWeight: 'bold', fontSize: '7pt', color: isRed ? '#dc2626' : 'black' }}>{val || "."}</span>
+                            <span className="hidden print:block" style={{ fontWeight: 'bold', fontSize: '7pt', color: autoVal ? '#b91c1c' : isRed ? '#dc2626' : 'black' }}>
+                               {val || "."}
+                            </span>
                           </td>
                         );
                       })}

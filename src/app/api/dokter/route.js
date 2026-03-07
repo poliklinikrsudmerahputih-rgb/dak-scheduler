@@ -2,6 +2,9 @@ import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
+// Memaksa agar API selalu mengambil data terbaru dari Database (tidak ambil dari cache browser)
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -14,7 +17,12 @@ export async function GET() {
     const userData = JSON.parse(session.value);
     const userRuangan = userData.ruangan || "POLIKLINIK";
 
-    // PERBAIKAN: ORDER BY nama_dokter (sesuai kolom di Turso Bapak)
+    /**
+     * PENJELASAN QUERY:
+     * 1. Filter berdasarkan ruangan user (RLS).
+     * 2. Mengakomodasi data lama yang mungkin kolom 'ruangan'-nya masih kosong.
+     * 3. Diurutkan secara alfabetis agar tampilan awal di Master Dokter rapi.
+     */
     const result = await turso.execute({
       sql: `
         SELECT * FROM master_dokter 
@@ -26,11 +34,18 @@ export async function GET() {
       args: [userRuangan]
     });
 
+    // Mengembalikan data rows (mentah) ke page.js
     return NextResponse.json(result.rows);
+    
   } catch (error) {
     console.error("Gagal ambil data dokter:", error);
+    
+    // Memberikan pesan error yang lebih spesifik jika terjadi masalah pada tabel Turso
     return NextResponse.json(
-      { error: "Gagal memuat data dokter. Periksa kolom nama_dokter!" }, 
+      { 
+        error: "Gagal memuat data dokter.", 
+        detail: error.message 
+      }, 
       { status: 500 }
     );
   }

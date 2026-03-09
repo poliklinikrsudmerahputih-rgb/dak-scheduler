@@ -1,50 +1,46 @@
 import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
-import { format, addDays } from "date-fns";
+import { format } from "date-fns";
 import { id } from "date-fns/locale";
 
-// Memaksa data selalu fresh (Penting untuk dashboard publik)
+// Memaksa data selalu fresh agar inputan langsung muncul
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   
-  // Ambil parameter dari request (Dropdown View)
   const pTanggal = parseInt(searchParams.get("tanggal")) || new Date().getDate();
   const pBulan = parseInt(searchParams.get("bulan")) || (new Date().getMonth() + 1);
   const pTahun = parseInt(searchParams.get("tahun")) || new Date().getFullYear();
 
-  // Logic Tanggal untuk Besok (Prediksi)
   const targetDate = new Date(pTahun, pBulan - 1, pTanggal);
-  const besokObj = addDays(targetDate, 1);
-  const tglBesok = besokObj.getDate();
-  const blnBesok = besokObj.getMonth() + 1;
-  const thnBesok = besokObj.getFullYear();
-  
-  // Format Hari Indo untuk Filter Dokter Berdasarkan Jadwal Hari
-  const namaHariIndo = format(targetDate, "eeee", { locale: id });
   const formatTglTarget = format(targetDate, "yyyy-MM-dd");
+  const namaHariIndo = format(targetDate, "eeee", { locale: id });
 
   try {
-    // 1. Ambil Summary (Total SDM & Dokter)
+    // 1. Ambil Summary Statis
     const sdmCount = await turso.execute("SELECT COUNT(*) as total FROM sdm");
     const dokterCount = await turso.execute("SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter");
 
-    // 2. Ambil Jadwal Dinas (Tarik kolom jumlah_pasien)
+    // 2. Ambil Jadwal Perawat (Siapa bantu Simbol apa)
     const resJadwal = await turso.execute({
-      sql: `SELECT j.*, s.nama, s.jabatan 
+      sql: `SELECT j.*, s.nama 
             FROM jadwal_dinas j 
             JOIN sdm s ON j.sdm_id = s.id 
-            WHERE (j.bulan = ? AND j.tahun = ?) OR (j.bulan = ? AND j.tahun = ?)`,
-      args: [pBulan, pTahun, blnBesok, thnBesok]
+            WHERE j.tanggal = ? AND j.bulan = ? AND j.tahun = ?`,
+      args: [pTanggal, pBulan, pTahun]
     });
     const semuaJadwal = resJadwal.rows;
 
-    /**
-     * 3. DATA CUTI SDM & DOKTER (PERBAIKAN UTAMA):
-     * - Untuk SDM: Kita HAPUS filter "status_acc = 'Disetujui'"
-     * - Agar pengajuan yang statusnya NULL / 'Menunggu' tetap dikirim ke View
-     */
+    // 3. AMBIL DATA DARI TABEL BARU (Data Pasien Spesifik Poli)
+    const resPasienPoli = await turso.execute({
+      sql: `SELECT * FROM jumlah_pasien_poli 
+            WHERE tanggal = ? AND bulan = ? AND tahun = ?`,
+      args: [pTanggal, pBulan, pTahun]
+    });
+    const dataPasienPoli = resPasienPoli.rows;
+
+    // 4. Ambil Data Cuti SDM & Dokter
     const [resSdmCuti, resDokterCuti] = await Promise.all([
       turso.execute({
         sql: `SELECT * FROM cuti_sdm 
@@ -58,29 +54,26 @@ export async function GET(request) {
       })
     ]);
 
-    // 4. Ambil Dokter yang harusnya praktik di hari tersebut
+    // 5. Ambil Master Dokter yang praktik hari ini
     const resMasterDokter = await turso.execute({
       sql: "SELECT * FROM master_dokter WHERE jadwal_hari = ?",
       args: [namaHariIndo]
     });
 
-    // 5. PROSES MAPPING DATA KE VIEW
+    /**
+     * 6. PROSES MAPPING DATA KE KOTAK DOKTER
+     */
     const dokterPraktik = resMasterDokter.rows.map(dok => {
-      // Cari asisten di tanggal pilihan
-      const asistenRow = semuaJadwal.find(p => 
-        p.tanggal === pTanggal && 
-        p.bulan === pBulan &&
-        p.simbol.trim().toUpperCase() === dok.simbol_praktik.trim().toUpperCase()
+      // Cari data pasien spesifik poli ini di tabel baru
+      const recordPasien = dataPasienPoli.find(p => 
+        p.nama_dokter === dok.nama_dokter && p.klinik === dok.klinik
       );
 
-      // Cari asisten besok (Prediksi)
-      const asistenBesok = semuaJadwal.find(p => 
-        p.tanggal === tglBesok && 
-        p.bulan === blnBesok &&
-        p.simbol.trim().toUpperCase() === dok.simbol_praktik.trim().toUpperCase()
+      // Cari tim perawat berdasarkan simbol
+      const tim = semuaJadwal.filter(j => 
+        j.simbol.trim().toUpperCase() === dok.simbol_praktik.trim().toUpperCase()
       );
 
-      // Cek status cuti dokter (Hanya yang disetujui biasanya)
       const isCuti = resDokterCuti.rows.some(c => 
         c.nama_dokter === dok.nama_dokter && 
         formatTglTarget >= c.tgl_mulai && 
@@ -90,26 +83,46 @@ export async function GET(request) {
       return {
         ...dok,
         isCuti,
-        asisten: asistenRow ? asistenRow.nama : "---",
-        sdm_id_asisten: asistenRow ? asistenRow.sdm_id : null,
-        jumlah_pasien: asistenRow ? (asistenRow.jumlah_pasien || 0) : 0,
-        asistenBesok: asistenBesok ? asistenBesok.nama : "Belum Ada Jadwal"
+        jumlah_pasien_poli: recordPasien ? recordPasien.jumlah : 0,
+        timAsisten: tim.map(t => ({
+          id: t.sdm_id,
+          nama: t.nama
+        }))
       };
     });
 
-    // 6. Format Izin Dokter untuk Sidebar Monitoring
-    const dataCutiDokterMapped = resDokterCuti.rows.map(c => ({
-      nama_dokter: c.nama_dokter,
-      jenis_cuti: c.jenis_cuti,
-      tgl_mulai: format(new Date(c.tgl_mulai), "dd MMM"),
-      tgl_selesai: format(new Date(c.tgl_selesai), "dd MMM")
-    }));
+    /**
+     * 7. PROSES HITUNG BEBAN KERJA UNTUK LEADERBOARD
+     * MODIFIKASI: Menambahkan 'id' agar fitur Swap bisa berjalan
+     */
+    const perawatUnik = [...new Set(semuaJadwal.map(j => j.sdm_id))];
+    const leaderboardBeban = perawatUnik.map(idSdm => {
+      const infoSdm = semuaJadwal.find(j => j.sdm_id === idSdm);
+      
+      let totalBeban = 0;
+      const daftarPoliDibantu = [];
 
-    // 7. Format Izin SDM (Semua Status)
+      dokterPraktik.forEach(dp => {
+        if (dp.timAsisten.some(as => as.id === idSdm)) {
+          const bebanPoli = Math.round(dp.jumlah_pasien_poli / dp.timAsisten.length);
+          totalBeban += bebanPoli;
+          daftarPoliDibantu.push(`${dp.klinik} (${dp.nama_dokter})`);
+        }
+      });
+
+      return {
+        id: idSdm, // <--- KUNCI UTAMA UNTUK FITUR TUKAR ASISTEN
+        nama: infoSdm.nama,
+        total_pasien: totalBeban,
+        detail_poli: daftarPoliDibantu.join(", ")
+      };
+    }).filter(p => p.nama !== 'ADMIN');
+
+    // 8. Format Izin SDM
     const dataCutiSdmMapped = resSdmCuti.rows.map(s => ({
       nama_sdm: s.nama_sdm,
       jenis_cuti: s.jenis_cuti,
-      status_acc: s.status_acc || "Menunggu", // Handle jika status null
+      status_acc: s.status_acc || "Menunggu",
       tgl_mulai: format(new Date(s.tgl_mulai), "dd MMM"),
       tgl_selesai: format(new Date(s.tgl_selesai), "dd MMM")
     }));
@@ -118,13 +131,13 @@ export async function GET(request) {
       summary: {
         totalSDM: sdmCount.rows[0]?.total || 0,
         totalDokter: dokterCount.rows[0]?.total || 0,
-        perawatMasuk: semuaJadwal.filter(r => r.tanggal === pTanggal && r.bulan === pBulan && !["L","CT","CS","OFF"].includes(r.simbol.trim().toUpperCase())).length,
+        perawatMasuk: semuaJadwal.length,
         sdmIzinCount: resSdmCuti.rows.length,
         tanggal_hari_ini: pTanggal 
       },
-      sdmCuti: dataCutiSdmMapped, // MENGIRIM SEMUA STATUS KE VIEW
-      dokterCuti: dataCutiDokterMapped,
-      dokterPraktik: dokterPraktik
+      sdmCuti: dataCutiSdmMapped,
+      dokterPraktik: dokterPraktik,
+      leaderboard: leaderboardBeban
     });
 
   } catch (error) {

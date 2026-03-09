@@ -2,7 +2,6 @@ import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-// PENTING: Memaksa Next.js agar selalu mengambil data terbaru dari Turso (Bukan Cache)
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
@@ -11,58 +10,102 @@ export async function GET(request) {
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
 
-    // Proteksi Sesi Login
+    // 1. Proteksi Sesi Login
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 1. Parameter Filter Waktu (Bulan & Tahun) dari Frontend MasterSDM
+    // 2. Parameter Filter Waktu
     const bulan = parseInt(searchParams.get("bulan")) || (new Date().getMonth() + 1);
     const tahun = parseInt(searchParams.get("tahun")) || new Date().getFullYear();
 
-    // 2. Identifikasi Ruangan User untuk Keamanan Data (Fitur Utama)
+    // 3. Identifikasi Ruangan User
     let userRuangan = "POLIKLINIK"; 
     try {
       const userData = JSON.parse(session.value);
       userRuangan = userData.ruangan || "POLIKLINIK";
     } catch (e) {
-      console.warn("Format cookie lama terdeteksi, menggunakan default POLIKLINIK");
+      console.warn("Format cookie lama");
     }
 
     /**
-     * 3. QUERY MASTER SDM & DETAIL ANALYTICS:
-     * - s.* : Mengambil semua profil SDM (Nama, NIP, WA, dll).
-     * - SUM(j.jumlah_pasien) : Akumulasi total pasien yang diinput bulan tersebut.
-     * - GROUP_CONCAT(DISTINCT j.simbol) : Menggabungkan kode klinik unik (Poli Mata, Poli Dalam, dll).
-     * - LEFT JOIN : Menampilkan staf meskipun mereka belum ada jadwal/input pasien bulan ini.
-     * - WHERE Clause : Membatasi data hanya sesuai Ruangan User (Fitur Keamanan Bapak).
+     * 4. QUERY CERDAS (SINKRON DENGAN SISTEM SWAP & POLI BARU)
+     * Kita tidak lagi SUM(j.jumlah_pasien) secara mentah.
+     * Kita mengambil jadwal (simbol) dan mencocokkannya dengan tabel jumlah_pasien_poli.
      */
-    const result = await turso.execute({
-      sql: `
-        SELECT 
-          s.*, 
-          COALESCE(SUM(j.jumlah_pasien), 0) as total_pasien,
-          GROUP_CONCAT(DISTINCT j.simbol) as daftar_klinik
-        FROM sdm s
-        LEFT JOIN jadwal_dinas j ON s.id = j.sdm_id 
-          AND j.bulan = ? 
-          AND j.tahun = ?
-        WHERE (s.ruangan = ? OR s.ruangan IS NULL OR s.ruangan = '')
-        GROUP BY s.id
-        ORDER BY s.nama ASC
-      `,
-      args: [bulan, tahun, userRuangan]
+    
+    // Ambil data dasar SDM sesuai ruangan
+    const resSdm = await turso.execute({
+      sql: `SELECT * FROM sdm WHERE (ruangan = ? OR ruangan IS NULL OR ruangan = '') ORDER BY nama ASC`,
+      args: [userRuangan]
+    });
+    const daftarSdm = resSdm.rows;
+
+    // Ambil SEMUA Jadwal & Angka Pasien Poli di bulan ini untuk perhitungan pooling
+    const [resJadwal, resPasienPoli, resMasterDokter] = await Promise.all([
+      turso.execute({
+        sql: "SELECT * FROM jadwal_dinas WHERE bulan = ? AND tahun = ?",
+        args: [bulan, tahun]
+      }),
+      turso.execute({
+        sql: "SELECT * FROM jumlah_pasien_poli WHERE bulan = ? AND tahun = ?",
+        args: [bulan, tahun]
+      }),
+      turso.execute("SELECT nama_dokter, klinik, simbol_praktik FROM master_dokter")
+    ]);
+
+    const semuaJadwal = resJadwal.rows;
+    const dataPasienPoli = resPasienPoli.rows;
+    const masterDokter = resMasterDokter.rows;
+
+    // 5. PROSES PERHITUNGAN BEBAN (Logic Sinkronisasi)
+    const sdmFinal = daftarSdm.map(sdm => {
+      // Cari semua jadwal sdm ini di bulan tsb
+      const jadwalSdm = semuaJadwal.filter(j => j.sdm_id === sdm.id);
+      
+      let totalBeban = 0;
+      let setKlinik = new Set();
+
+      jadwalSdm.forEach(hari => {
+        // Cari dokter mana yang menggunakan simbol hari ini
+        const dokterHariIni = masterDokter.filter(d => 
+          d.simbol_praktik.trim().toUpperCase() === hari.simbol.trim().toUpperCase()
+        );
+
+        dokterHariIni.forEach(dok => {
+          setKlinik.add(dok.simbol_praktik);
+
+          // Cari angka pasien yang diinput di Dashboard untuk dokter ini pada tanggal ini
+          const recordPasien = dataPasienPoli.find(p => 
+            p.nama_dokter === dok.nama_dokter && 
+            p.klinik === dok.klinik && 
+            p.tanggal === hari.tanggal
+          );
+
+          if (recordPasien && recordPasien.jumlah > 0) {
+            // Hitung berapa asisten yang bertugas di simbol/poli yang sama di hari itu (untuk pembagian beban)
+            const jumlahAsistenDiPoli = semuaJadwal.filter(j => 
+              j.tanggal === hari.tanggal && 
+              j.simbol.trim().toUpperCase() === dok.simbol_praktik.trim().toUpperCase()
+            ).length;
+
+            // Beban = Pasien Poli / Jumlah Asisten di Poli tsb
+            totalBeban += Math.round(recordPasien.jumlah / (jumlahAsistenDiPoli || 1));
+          }
+        });
+      });
+
+      return {
+        ...sdm,
+        total_pasien: totalBeban, // Ini sekarang dinamis mengikuti Dashboard & Swap
+        daftar_klinik: Array.from(setKlinik).join(", ")
+      };
     });
 
-    /**
-     * Mengembalikan array objek utuh yang sekarang berisi field 'daftar_klinik'
-     * Contoh isi daftar_klinik: "MAT, DAL, ANAK"
-     */
-    return NextResponse.json(result.rows || []);
+    return NextResponse.json(sdmFinal);
 
   } catch (error) {
     console.error("CRITICAL ERROR API SDM:", error);
-    // Mengembalikan array kosong [] agar frontend .map() tidak crash jika db error
     return NextResponse.json([], { status: 500 });
   }
 }

@@ -1,7 +1,8 @@
 "use client";
+
 import React, { useState, useEffect } from "react";
 import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
-import { Save, Printer, Loader2, FileText, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Save, Printer, Loader2, FileText, AlertTriangle } from "lucide-react";
 import { id } from "date-fns/locale";
 
 export default function BuatJadwal() {
@@ -27,29 +28,20 @@ export default function BuatJadwal() {
     tgl_cetak: format(new Date(), "yyyy-MM-dd")
   });
 
-  // DEFINISI URUTAN PROFESI SESUAI MASTER SDM
-  const urutanProfesi = {
-    "Bidan": 1,
-    "Psikologi Klinis": 2,
-    "Perawat": 3,
-    "Terapis Gigi": 4,
-    "Fisioterapis": 5,
-    "Admin": 6
-  };
-
-  const hariLibur2026 = [
-    "2026-01-01", "2026-01-16", "2026-02-16", "2026-02-17", "2026-03-18",
-    "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-03-23",
-    "2026-03-24", "2026-04-03", "2026-04-05", "2026-05-01", "2026-05-14",
-    "2026-05-15", "2026-05-27", "2026-05-28", "2026-03-31", "2026-06-01",
-    "2026-06-16", "2026-08-17", "2026-08-25", "2026-12-24", "2026-12-25"
-  ];
-
+  // --- 2. DATA MASTER ---
+  const urutanProfesi = { "Bidan": 1, "Psikologi Klinis": 2, "Perawat": 3, "Terapis Gigi": 4, "Fisioterapis": 5, "Admin": 6 };
   const statusAbsensi = ["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"];
+  const namaHariLengkap = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const namaHariSingkat = ["M", "SN", "SL", "R", "K", "J", "S"];
+  const daftarBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  const hariLibur2026 = ["2026-01-01", "2026-01-16", "2026-02-16", "2026-02-17", "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-03-23", "2026-03-24", "2026-04-03", "2026-04-05", "2026-05-01", "2026-05-14", "2026-05-15", "2026-05-27", "2026-05-28", "2026-03-31", "2026-06-01", "2026-06-16", "2026-08-17", "2026-08-25", "2026-12-24", "2026-12-25"];
 
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
+  const tanggalPilihan = new Date(tahun, bulan - 1);
+  const jumlahHari = getDaysInMonth(tanggalPilihan);
+  const hariPertama = getDay(startOfMonth(tanggalPilihan));
+
+  // --- 3. FETCHING DATA ---
+  useEffect(() => { setHasMounted(true); }, []);
 
   useEffect(() => {
     if (!hasMounted) return;
@@ -57,8 +49,7 @@ export default function BuatJadwal() {
       setLoading(true);
       try {
         const [resSDM, resDkt, resJadwal, resCuti] = await Promise.all([
-          fetch("/api/sdm"),
-          fetch("/api/dokter"),
+          fetch("/api/sdm"), fetch("/api/dokter"),
           fetch(`/api/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}`),
           fetch("/api/cuti-sdm")
         ]);
@@ -67,18 +58,7 @@ export default function BuatJadwal() {
         const dJadwal = await resJadwal.json();
         const dCuti = await resCuti.json();
 
-        if (dSDM.length > 0 && dSDM[0].ruangan) {
-          setHeader(prev => ({ ...prev, ruangan: dSDM[0].ruangan }));
-        }
-
-        // LOGIKA SORTIR BERDASARKAN URUTAN PROFESI
-        const sortedSDM = Array.isArray(dSDM) ? dSDM.sort((a, b) => {
-          const orderA = urutanProfesi[a.jabatan] || 99;
-          const orderB = urutanProfesi[b.jabatan] || 99;
-          if (orderA !== orderB) return orderA - orderB;
-          return (a.nama || "").localeCompare(b.nama || "");
-        }) : [];
-
+        const sortedSDM = Array.isArray(dSDM) ? dSDM.sort((a, b) => (urutanProfesi[a.jabatan] || 99) - (urutanProfesi[b.jabatan] || 99)) : [];
         setDaftarSDM(sortedSDM);
         setDataMasterDokter(Array.isArray(dDkt) ? dDkt : []);
         setDataCutiSDM(Array.isArray(dCuti) ? dCuti : []);
@@ -88,36 +68,26 @@ export default function BuatJadwal() {
           dJadwal.forEach(item => { mapJadwal[`${item.sdm_id}-${item.tanggal}`] = item.simbol; });
         }
         setIsiJadwal(mapJadwal);
-      } catch (error) {
-        console.error("Gagal sinkronisasi data:", error);
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error("Gagal sinkronisasi data:", error); }
+      finally { setLoading(false); }
     }
     fetchData();
   }, [bulan, tahun, hasMounted]);
 
+  // --- 4. LOGIKA HELPER ---
   const getAutoCutiValue = (namaSdm, tgl) => {
     const targetDate = format(new Date(tahun, bulan - 1, tgl), "yyyy-MM-dd");
-    const foundCuti = dataCutiSDM.find(c => 
-      c.nama_sdm === namaSdm && 
-      c.status_acc === "Disetujui" &&
-      targetDate >= c.tgl_mulai && 
-      targetDate <= c.tgl_selesai
-    );
+    const foundCuti = dataCutiSDM.find(c => c.nama_sdm === namaSdm && c.status_acc === "Disetujui" && targetDate >= c.tgl_mulai && targetDate <= c.tgl_selesai);
     return foundCuti ? foundCuti.jenis_cuti : null;
   };
 
-  const semuaSimbol = [
-    ...new Set(dataMasterDokter.map(d => d.simbol_praktik).filter(s => s)),
-    ...statusAbsensi
-  ];
-
-  const daftarBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-  const namaHariSingkat = ["M", "SN", "SL", "R", "K", "J", "S"];
-  const tanggalPilihan = new Date(tahun, bulan - 1);
-  const jumlahHari = getDaysInMonth(tanggalPilihan);
-  const hariPertama = getDay(startOfMonth(tanggalPilihan));
+  const getSimbolHarian = (tgl, currentVal) => {
+    const dayIndex = (hariPertama + tgl - 1) % 7;
+    const hariTarget = namaHariLengkap[dayIndex];
+    const simbolSesuaiHari = dataMasterDokter.filter(d => d.jadwal_hari === hariTarget && d.simbol_praktik).map(d => d.simbol_praktik);
+    const semuaSimbolMaster = dataMasterDokter.filter(d => d.simbol_praktik).map(d => d.simbol_praktik);
+    return [...new Set([...simbolSesuaiHari, currentVal, ...semuaSimbolMaster])].filter(s => s && !statusAbsensi.includes(s));
+  };
 
   const cekTanggalMerah = (tgl) => {
     const d = new Date(tahun, bulan - 1, tgl);
@@ -127,10 +97,9 @@ export default function BuatJadwal() {
   const hitungTotalMasuk = (tgl, kategori) => {
     let total = 0;
     daftarSDM.forEach(sdm => {
-      const autoVal = getAutoCutiValue(sdm.nama, tgl);
-      const val = autoVal || isiJadwal[`${sdm.id}-${tgl}`];
-      const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
+      const val = getAutoCutiValue(sdm.nama, tgl) || isiJadwal[`${sdm.id}-${tgl}`];
       if (val && !statusAbsensi.includes(val)) {
+        const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
         if (kategori === "perawat" && isPerawat) total++;
         if (kategori === "lain" && !isPerawat) total++;
       }
@@ -138,53 +107,50 @@ export default function BuatJadwal() {
     return total;
   };
 
+  // --- 5. FUNGSI AKSI ---
   const handleSimpan = async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/jadwal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bulan, tahun, ruangan: header.ruangan, dataJadwal: isiJadwal })
       });
       if (res.ok) alert("✅ Jadwal Berhasil Disimpan!");
-      else alert("❌ Gagal menyimpan.");
-    } catch (e) { alert("❌ Koneksi Database Terputus."); }
+    } catch (e) { alert("❌ Koneksi Gagal."); }
     finally { setLoading(false); }
   };
 
   const downloadWord = () => {
-    const tableHtml = document.querySelector("#area-jadwal table").outerHTML;
+    const areaJadwal = document.querySelector("#area-jadwal").cloneNode(true);
+    
+    // Konversi select ke teks biasa agar muncul di Word
+    areaJadwal.querySelectorAll("select").forEach(select => {
+      const textNode = document.createTextNode(select.value || ".");
+      select.parentNode.replaceChild(textNode, select);
+    });
+    
+    // Hapus tombol atau elemen no-print lainnya
+    areaJadwal.querySelectorAll(".no-print").forEach(el => el.remove());
+
+    const tableHtml = areaJadwal.querySelector("table").outerHTML;
     const wordHeader = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head><meta charset='utf-8'><title>Jadwal Dinas</title>
-      <style>
+      <head><meta charset='utf-8'><style>
         @page Section1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 0.5cm; }
         div.Section1 { page: Section1; }
-        table { border-collapse: collapse; width: 100%; font-family: 'Arial Narrow', Arial; table-layout: auto; }
-        th, td { border: 0.5pt solid black; padding: 2px; font-size: 7pt; text-align: center; white-space: nowrap; }
-        .ttd-table { border: none !important; margin-top: 20px; width: 100%; }
-        .ttd-cell { border: none !important; width: 50%; font-size: 9pt; text-align: center; vertical-align: top; }
+        table { border-collapse: collapse; width: 100%; font-family: 'Arial Narrow', Arial; }
+        th, td { border: 0.5pt solid black; padding: 2px; font-size: 7.5pt; text-align: center; }
+        /* Style Blok Merah Hari Libur di Word */
+        .bg-red-word { background-color: #FFDADA !important; mso-shading: red; mso-pattern: gray-15 auto; }
         .underline { text-decoration: underline; font-weight: bold; }
-      </style>
-      </head><body><div class="Section1">
-        <div style="text-align:center;">
-          <h1 style="font-size:14pt; margin:0;">${header.institusi}</h1>
-          <h2 style="font-size:12pt; margin:0;">JADWAL DINAS ${header.ruangan}</h2>
-          <p style="font-size:9pt; font-weight:bold;">PERIODE: ${daftarBulan[bulan - 1]} ${tahun}</p>
-        </div>
-        <br/>
+      </style></head><body><div class="Section1">
+        <div style="text-align:center;"><b>${header.institusi}</b><br/><b>JADWAL DINAS ${header.ruangan}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
         ${tableHtml}
-        <table class="ttd-table">
+        <br/>
+        <table style="width:100%; border:none;">
           <tr>
-            <td class="ttd-cell">
-              Mengetahui,<br/>${header.atasan_jabatan}<br/><br/><br/><br/>
-              <span class="underline">${header.atasan_nama}</span><br/>NIP. ${header.atasan_nip}
-            </td>
-            <td class="ttd-cell">
-              Temanggung, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>
-              ${header.pembuat_jabatan}<br/><br/><br/><br/>
-              <span class="underline">${header.pembuat_nama}</span><br/>NIP. ${header.pembuat_nip}
-            </td>
+            <td style="border:none; width:50%; text-align:center;">Mengetahui,<br/>${header.atasan_jabatan}<br/><br/><br/><br/><span class="underline">${header.atasan_nama}</span><br/>NIP. ${header.atasan_nip}</td>
+            <td style="border:none; width:50%; text-align:center;">Temanggung, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${header.pembuat_jabatan}<br/><br/><br/><br/><span class="underline">${header.pembuat_nama}</u><br/>NIP. ${header.pembuat_nip}</td>
           </tr>
         </table>
       </div></body></html>
@@ -193,7 +159,7 @@ export default function BuatJadwal() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Jadwal_${header.ruangan}_${daftarBulan[bulan - 1]}.doc`;
+    link.download = `Jadwal_${header.ruangan}.doc`;
     link.click();
   };
 
@@ -204,19 +170,9 @@ export default function BuatJadwal() {
       <style jsx global>{`
         @media print {
           @page { size: landscape; margin: 3mm; }
-          body { background: white; }
-          .print-area { width: 100% !important; transform: scale(1); }
           .no-print { display: none !important; }
-          table { width: 100% !important; border: 1pt solid black !important; table-layout: auto !important; }
-          th, td { border: 0.5pt solid black !important; font-size: 6px !important; padding: 1px !important; white-space: nowrap !important; }
-        }
-        .resizable-col {
-          resize: horizontal;
-          overflow: hidden;
-          min-width: 45px;
-          display: inline-block;
-          vertical-align: middle;
-          cursor: col-resize;
+          table { width: 100% !important; border: 1pt solid black !important; }
+          th, td { border: 0.5pt solid black !important; font-size: 6px !important; padding: 1px !important; }
         }
       `}</style>
 
@@ -227,72 +183,68 @@ export default function BuatJadwal() {
       )}
 
       <div className="p-2 lg:p-6">
+        {/* PANEL INPUT OTORITAS LENGKAP */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 mb-6 no-print">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-[11px] font-bold uppercase">
             <div className="space-y-3">
-              <label className="text-xs font-black text-blue-600 uppercase italic">Unit & Waktu</label>
-              <input type="text" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold uppercase" value={header.institusi} onChange={e => setHeader({ ...header, institusi: e.target.value.toUpperCase() })} />
-              <input type="text" className="w-full p-2 bg-slate-100 rounded-xl text-xs font-black text-blue-700 uppercase" value={header.ruangan} readOnly />
+              <label className="text-blue-600 italic">Unit & Periode</label>
+              <input type="text" className="w-full p-2 bg-slate-50 border rounded-xl" value={header.institusi} onChange={e => setHeader({...header, institusi: e.target.value.toUpperCase()})} />
               <div className="flex gap-2">
-                <select value={bulan} onChange={(e) => setBulan(parseInt(e.target.value))} className="w-full p-2 bg-slate-50 rounded-xl font-bold uppercase text-xs">
-                  {daftarBulan.map((b, i) => <option key={i} value={i + 1}>{b}</option>)}
+                <select value={bulan} onChange={e => setBulan(parseInt(e.target.value))} className="w-full p-2 border rounded-xl">
+                  {daftarBulan.map((b, i) => <option key={i} value={i+1}>{b}</option>)}
                 </select>
-                <input type="number" value={tahun} onChange={(e) => setTahun(parseInt(e.target.value))} className="w-full p-2 bg-slate-50 rounded-xl font-bold text-xs" />
+                <input type="number" value={tahun} onChange={e => setTahun(parseInt(e.target.value))} className="w-full p-2 border rounded-xl" />
               </div>
             </div>
+
             <div className="space-y-3 border-l pl-6">
-              <label className="text-xs font-black text-slate-400 uppercase italic">Otoritas Mengetahui</label>
-              <input type="text" placeholder="Nama Atasan" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.atasan_nama} onChange={e => setHeader({ ...header, atasan_nama: e.target.value })} />
-              <input type="text" placeholder="Jabatan Atasan" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.atasan_jabatan} onChange={e => setHeader({ ...header, atasan_jabatan: e.target.value })} />
-              <input type="text" placeholder="NIP Atasan" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.atasan_nip} onChange={e => setHeader({ ...header, atasan_nip: e.target.value })} />
+              <label className="text-slate-400 italic">Atasan (Mengetahui)</label>
+              <input type="text" placeholder="Nama Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_nama} onChange={e => setHeader({...header, atasan_nama: e.target.value})} />
+              <input type="text" placeholder="Jabatan Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_jabatan} onChange={e => setHeader({...header, atasan_jabatan: e.target.value})} />
+              <input type="text" placeholder="NIP Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_nip} onChange={e => setHeader({...header, atasan_nip: e.target.value})} />
             </div>
+
             <div className="space-y-3 border-l pl-6">
-              <label className="text-xs font-black text-blue-600 uppercase italic">Otoritas Pembuat</label>
-              <input type="text" placeholder="Nama Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_nama} onChange={e => setHeader({ ...header, pembuat_nama: e.target.value })} />
-              <input type="text" placeholder="Jabatan Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_jabatan} onChange={e => setHeader({ ...header, pembuat_jabatan: e.target.value })} />
-              <input type="text" placeholder="NIP Pembuat" className="w-full p-2 bg-slate-50 rounded-xl text-xs font-bold" value={header.pembuat_nip} onChange={e => setHeader({ ...header, pembuat_nip: e.target.value })} />
-              <input type="date" className="w-full p-2 bg-blue-50 rounded-xl text-xs font-bold text-blue-700" value={header.tgl_cetak} onChange={e => setHeader({ ...header, tgl_cetak: e.target.value })} />
+              <label className="text-blue-600 italic">Pembuat Jadwal</label>
+              <input type="text" placeholder="Nama Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_nama} onChange={e => setHeader({...header, pembuat_nama: e.target.value})} />
+              <input type="text" placeholder="Jabatan Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_jabatan} onChange={e => setHeader({...header, pembuat_jabatan: e.target.value})} />
+              <input type="text" placeholder="NIP Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_nip} onChange={e => setHeader({...header, pembuat_nip: e.target.value})} />
             </div>
-            <div className="border-l pl-6 flex flex-col justify-center gap-2">
-               <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
-                  <div className="flex items-center gap-2 text-amber-700 mb-1">
-                    <AlertTriangle size={14}/>
-                    <span className="text-[10px] font-black uppercase tracking-tighter">Auto-Sync Cuti</span>
-                  </div>
-                  <p className="text-[9px] text-amber-600 leading-tight">Input terkunci otomatis jika staf sedang cuti (ACC). Warna merah menandakan data sinkronisasi.</p>
-               </div>
+
+            <div className="space-y-3 border-l pl-6">
+              <label className="text-slate-400 italic">Tanggal Cetak</label>
+              <input type="date" className="w-full p-2 bg-blue-50 border rounded-xl" value={header.tgl_cetak} onChange={e => setHeader({...header, tgl_cetak: e.target.value})} />
+              <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex gap-2 items-start">
+                <AlertTriangle size={16} className="text-amber-600 mt-1" />
+                <p className="text-[9px] text-amber-700 leading-tight"><b>Fitur:</b> Word Pro kini menyertakan blok merah pada hari libur.</p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div id="area-jadwal" className="print-area bg-white p-4 rounded-[2rem] shadow-xl overflow-hidden" suppressHydrationWarning>
-          <div style={{ textAlign: 'center', marginBottom: '15px' }}>
-            <h1 style={{ fontSize: '14pt', fontWeight: '900', margin: '0' }}>{header.institusi}</h1>
-            <h2 style={{ fontSize: '12pt', fontWeight: 'bold', margin: '0', color: '#2563eb' }}>JADWAL DINAS {header.ruangan}</h2>
-            <p style={{ fontSize: '9pt', fontWeight: 'bold', margin: '2px 0' }}>PERIODE: {daftarBulan[bulan - 1]} {tahun}</p>
+        {/* TABEL JADWAL */}
+        <div id="area-jadwal" className="bg-white p-5 rounded-[2rem] shadow-xl overflow-hidden print-area">
+          <div className="text-center mb-5">
+            <h1 className="text-xl font-black uppercase tracking-tight">{header.institusi}</h1>
+            <h2 className="text-lg font-bold text-blue-600 uppercase tracking-tighter">JADWAL DINAS {header.ruangan}</h2>
+            <p className="font-bold text-sm">PERIODE: {daftarBulan[bulan-1].toUpperCase()} {tahun}</p>
           </div>
 
-          <div className="overflow-x-auto border border-black scrollbar-thin scrollbar-thumb-slate-300">
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
+          <div className="overflow-x-auto border-t border-l border-black">
+            <table className="w-full border-collapse">
               <thead>
-                <tr style={{ backgroundColor: '#0f172a', color: 'white' }}>
-                  <th style={{ border: '1pt solid black', padding: '4px' }} rowSpan="2">NO</th>
-                  <th style={{ border: '1pt solid black', padding: '4px', whiteSpace: 'nowrap' }} rowSpan="2">NAMA & JABATAN</th>
-                  <th style={{ border: '1pt solid black', padding: '4px' }} colSpan={jumlahHari}>TANGGAL</th>
-                  <th style={{ border: '1pt solid black', padding: '4px' }} rowSpan="2">REKAP</th>
-                  <th style={{ border: '1pt solid black', padding: '4px' }} rowSpan="2">OFF</th>
+                <tr className="bg-slate-800 text-white">
+                  <th className="border border-black p-1 text-[10px]" rowSpan="2">NO</th>
+                  <th className="border border-black p-1 text-[10px] min-w-[150px]" rowSpan="2">NAMA & JABATAN</th>
+                  <th className="border border-black p-1 text-[10px]" colSpan={jumlahHari}>TANGGAL</th>
+                  <th className="border border-black p-1 text-[10px]" rowSpan="2">REKAP</th>
                 </tr>
-                <tr style={{ backgroundColor: '#1e293b', color: 'white' }}>
+                <tr className="bg-slate-700 text-white">
                   {Array.from({ length: jumlahHari }).map((_, i) => {
-                    const isRed = cekTanggalMerah(i + 1);
+                    const libur = cekTanggalMerah(i+1);
                     return (
-                      <th key={i} style={{ border: '1pt solid black', padding: '0', color: isRed ? '#f87171' : 'white' }}>
-                        <div className="resizable-col no-print" style={{ padding: '4px', fontSize: '8pt' }}>
-                          {i + 1}<br />{namaHariSingkat[(hariPertama + i) % 7]}
-                        </div>
-                        <div className="hidden print:block" style={{ padding: '2px', fontSize: '7pt' }}>
-                           {i + 1}<br />{namaHariSingkat[(hariPertama + i) % 7]}
-                        </div>
+                      <th key={i} className={`border border-black p-1 text-[9px] ${libur ? 'text-red-300 bg-red-word' : ''}`}>
+                        {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
                       </th>
                     );
                   })}
@@ -300,108 +252,97 @@ export default function BuatJadwal() {
               </thead>
               <tbody>
                 {daftarSDM.map((sdm, idx) => {
-                  const rekap = { dinas: {}, off: 0 };
-                  for (let i = 1; i <= jumlahHari; i++) {
-                    const autoVal = getAutoCutiValue(sdm.nama, i);
-                    const val = autoVal || isiJadwal[`${sdm.id}-${i}`];
-                    if (val) {
-                      if (statusAbsensi.includes(val)) rekap.off++;
-                      else rekap.dinas[val] = (rekap.dinas[val] || 0) + 1;
-                    }
-                  }
+                  const rekap = {};
                   return (
-                    <tr key={sdm.id} style={{ textAlign: 'center' }}>
-                      <td style={{ border: '1pt solid black', padding: '2px', fontSize: '8pt' }}>{idx + 1}</td>
-                      <td style={{ border: '1pt solid black', padding: '4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                        <div style={{ fontSize: '8.5pt', fontWeight: 'bold' }}>{sdm.nama}</div>
-                        <div style={{ fontSize: '6.5pt', color: '#2563eb', fontWeight: '600' }}>{sdm.jabatan}</div>
+                    <tr key={sdm.id} className="text-center">
+                      <td className="border border-black p-1 text-[9px]">{idx+1}</td>
+                      <td className="border border-black p-1 text-left whitespace-nowrap bg-slate-50">
+                        <div className="font-bold text-[10px] uppercase">{sdm.nama}</div>
+                        <div className="text-[8px] text-blue-600 italic font-semibold">{sdm.jabatan}</div>
                       </td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i + 1;
-                        const isRed = cekTanggalMerah(tgl);
+                        const libur = cekTanggalMerah(tgl);
                         const autoVal = getAutoCutiValue(sdm.nama, tgl);
-                        const val = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
+                        const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
+                        
+                        if (currentVal) {
+                          rekap[currentVal] = (rekap[currentVal] || 0) + 1;
+                        }
+
                         return (
-                          <td key={i} style={{ border: '1pt solid black', padding: '0', backgroundColor: autoVal ? '#fee2e2' : isRed ? '#fef2f2' : 'transparent' }}>
-                            <input
-                              className="no-print"
-                              value={val}
-                              onChange={(e) => !autoVal && setIsiJadwal({ ...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase() })}
-                              readOnly={!!autoVal}
-                              list="simbol-list"
-                              style={{ 
-                                width: '100%', textAlign: 'center', border: 'none', background: 'transparent', 
-                                fontWeight: autoVal ? '900' : 'bold', fontSize: '9px', 
-                                color: autoVal ? '#b91c1c' : isRed ? '#dc2626' : 'black', 
-                                padding: '8px 2px', cursor: autoVal ? 'not-allowed' : 'text'
-                              }}
-                            />
-                            <span className="hidden print:block" style={{ fontWeight: 'bold', fontSize: '7pt', color: autoVal ? '#b91c1c' : isRed ? '#dc2626' : 'black' }}>
-                               {val || "."}
-                            </span>
+                          <td key={i} className={`border border-black p-0 ${libur ? 'bg-red-50 bg-red-word' : ''}`}>
+                            <div className="no-print">
+                              <select 
+                                value={currentVal} 
+                                disabled={!!autoVal}
+                                onChange={e => setIsiJadwal({...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase()})}
+                                className={`w-full bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
+                              >
+                                <option value=""></option>
+                                <optgroup label="ABSENSI">
+                                  {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
+                                </optgroup>
+                                <optgroup label="SIMBOL DOKTER">
+                                  {getSimbolHarian(tgl, currentVal).map(s => (
+                                    <option key={s} value={s}>{s}</option>
+                                  ))}
+                                  <option value="M">M</option>
+                                </optgroup>
+                              </select>
+                            </div>
+                            <span className="hidden print:block font-bold text-[9px]">{currentVal}</span>
                           </td>
                         );
                       })}
-                      <td style={{ border: '1pt solid black', fontSize: '6.5pt', textAlign: 'left', padding: '2px', whiteSpace: 'nowrap' }}>
-                        {Object.entries(rekap.dinas).map(([s, j]) => `${s}:${j} `)}
+                      <td className="border border-black p-1 text-[8px] text-left font-bold italic">
+                        {Object.entries(rekap).map(([k,v]) => `${k}:${v} `)}
                       </td>
-                      <td style={{ border: '1pt solid black', color: '#dc2626', fontWeight: 'bold', fontSize: '8pt' }}>{rekap.off || ""}</td>
                     </tr>
                   );
                 })}
               </tbody>
-              <tfoot style={{ backgroundColor: '#f8fafc', fontWeight: 'bold', fontSize: '7.5pt' }}>
+              <tfoot className="bg-slate-50 font-bold text-[9px]">
+                {/* JUMLAH PERAWAT */}
                 <tr>
-                  <td style={{ border: '1pt solid black', padding: '5px', textAlign: 'right' }} colSpan="2">Jumlah Perawat Masuk</td>
+                  <td colSpan="2" className="border border-black p-1 text-right italic">JUMLAH PERAWAT MASUK</td>
                   {Array.from({ length: jumlahHari }).map((_, i) => (
-                    <td key={i} style={{ border: '1pt solid black', color: '#2563eb' }}>{hitungTotalMasuk(i + 1, "perawat") || ""}</td>
+                    <td key={i} className={`border border-black text-center text-blue-600 font-black ${cekTanggalMerah(i+1) ? 'bg-red-word' : ''}`}>
+                      {hitungTotalMasuk(i+1, "perawat") || ""}
+                    </td>
                   ))}
-                  <td style={{ border: '1pt solid black' }} colSpan="2"></td>
+                  <td className="border border-black"></td>
                 </tr>
+                {/* JUMLAH TENAGA LAIN */}
                 <tr>
-                  <td style={{ border: '1pt solid black', padding: '5px', textAlign: 'right' }} colSpan="2">Jumlah Tenaga Lain</td>
+                  <td colSpan="2" className="border border-black p-1 text-right italic">JUMLAH TENAGA LAIN MASUK</td>
                   {Array.from({ length: jumlahHari }).map((_, i) => (
-                    <td key={i} style={{ border: '1pt solid black', color: '#059669' }}>{hitungTotalMasuk(i + 1, "lain") || ""}</td>
+                    <td key={i} className={`border border-black text-center text-emerald-600 font-black ${cekTanggalMerah(i+1) ? 'bg-red-word' : ''}`}>
+                      {hitungTotalMasuk(i+1, "lain") || ""}
+                    </td>
                   ))}
-                  <td style={{ border: '1pt solid black' }} colSpan="2"></td>
+                  <td className="border border-black"></td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
-          <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between', textAlign: 'center', fontSize: '9pt' }}>
-            <div style={{ width: '40%' }}>
-              <p>Mengetahui,</p>
-              <p style={{ fontWeight: 'bold', margin: '0' }}>{header.atasan_jabatan}</p>
-              <br /><br /><br />
-              <p style={{ textDecoration: 'underline', fontWeight: 'bold', margin: '0' }}>{header.atasan_nama}</p>
-              <p style={{ margin: '0' }}>NIP. {header.atasan_nip}</p>
-            </div>
-            <div style={{ width: '40%' }}>
-              <p>Temanggung, {format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}</p>
-              <p style={{ fontWeight: 'bold', margin: '0' }}>{header.pembuat_jabatan}</p>
-              <br /><br /><br />
-              <p style={{ textDecoration: 'underline', fontWeight: 'bold', margin: '0' }}>{header.pembuat_nama}</p>
-              <p style={{ margin: '0' }}>NIP. {header.pembuat_nip}</p>
-            </div>
+          <div className="mt-8 flex justify-between text-center font-bold text-[11px] px-10">
+            <div className="w-1/3">Mengetahui,<br/>{header.atasan_jabatan}<br/><br/><br/><br/><u>{header.atasan_nama}</u><br/>NIP. {header.atasan_nip}</div>
+            <div className="w-1/3">Temanggung, {format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>{header.pembuat_jabatan}<br/><br/><br/><br/><u>{header.pembuat_nama}</u><br/>NIP. {header.pembuat_nip}</div>
           </div>
         </div>
 
-        <datalist id="simbol-list">
-          {semuaSimbol.map((s, idx) => (
-            <option key={idx} value={s} />
-          ))}
-        </datalist>
-
-        <div className="fixed bottom-6 right-6 flex flex-col md:flex-row gap-3 no-print">
+        {/* TOMBOL AKSI */}
+        <div className="fixed bottom-6 right-6 flex gap-3 no-print">
           <button onClick={downloadWord} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
-            <FileText size={18} /> Word
+            <FileText size={18} /> Word Pro
           </button>
-          <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-blue-600 transition-all">
-            <Printer size={18} /> PDF
+          <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-slate-800 transition-all">
+            <Printer size={18} /> Print PDF
           </button>
-          <button onClick={handleSimpan} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-slate-900 transition-all">
-            <Save size={18} /> Simpan Jadwal
+          <button onClick={handleSimpan} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all">
+            {loading ? <Loader2 className="animate-spin" /> : <Save size={18} />} Simpan Jadwal
           </button>
         </div>
       </div>

@@ -15,7 +15,7 @@ export default function MasterDokter() {
 
   const daftarKlinik = [
     "Poliklinik Dalam", "Gigi", "Mata", "THT", "Kulit dan Kelamin", 
-    "Umum", "Paru", "Saraf", "Jiwa", "Bedah", "Orto", "Obsgyn", 
+    "Umum", "Paru", "Saraf", "Jiwa", "Bedah", "Bedah Anak", "Orto", "Obsgyn", 
     "Anak", "Jantung", "Urologi", "Rehabilitasi Medik", "Klinik Nyeri"
   ];
 

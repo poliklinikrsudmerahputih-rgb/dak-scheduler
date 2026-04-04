@@ -18,6 +18,7 @@ export default function BuatJadwal() {
 
   const [header, setHeader] = useState({
     institusi: "RSUD MERAH PUTIH",
+    judul_bebas: "JADWAL DINAS POLIKLINIK", // STATE BARU UNTUK FREE TEXT
     ruangan: "POLIKLINIK",
     atasan_nama: "RIANA, S.TR.KEB.",
     atasan_jabatan: "KASI PELAYANAN KEPERAWATAN DAN KEBIDANAN",
@@ -85,8 +86,8 @@ export default function BuatJadwal() {
     const dayIndex = (hariPertama + tgl - 1) % 7;
     const hariTarget = namaHariLengkap[dayIndex];
     const simbolSesuaiHari = dataMasterDokter.filter(d => d.jadwal_hari === hariTarget && d.simbol_praktik).map(d => d.simbol_praktik);
-    const semuaSimbolMaster = dataMasterDokter.filter(d => d.simbol_praktik).map(d => d.simbol_praktik);
-    return [...new Set([...simbolSesuaiHari, currentVal, ...semuaSimbolMaster])].filter(s => s && !statusAbsensi.includes(s));
+    const uniqueSimbols = [...new Set([...simbolSesuaiHari, currentVal])];
+    return uniqueSimbols.filter(s => s && !statusAbsensi.includes(s));
   };
 
   const cekTanggalMerah = (tgl) => {
@@ -113,7 +114,7 @@ export default function BuatJadwal() {
     try {
       const res = await fetch("/api/jadwal", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bulan, tahun, ruangan: header.ruangan, dataJadwal: isiJadwal })
+        body: JSON.stringify({ bulan, tahun, ruangan: header.ruangan, dataJadwal: isiJadwal, custom_judul: header.judul_bebas })
       });
       if (res.ok) alert("✅ Jadwal Berhasil Disimpan!");
     } catch (e) { alert("❌ Koneksi Gagal."); }
@@ -122,14 +123,10 @@ export default function BuatJadwal() {
 
   const downloadWord = () => {
     const areaJadwal = document.querySelector("#area-jadwal").cloneNode(true);
-    
-    // Konversi select ke teks biasa agar muncul di Word
     areaJadwal.querySelectorAll("select").forEach(select => {
       const textNode = document.createTextNode(select.value || ".");
       select.parentNode.replaceChild(textNode, select);
     });
-    
-    // Hapus tombol atau elemen no-print lainnya
     areaJadwal.querySelectorAll(".no-print").forEach(el => el.remove());
 
     const tableHtml = areaJadwal.querySelector("table").outerHTML;
@@ -140,17 +137,16 @@ export default function BuatJadwal() {
         div.Section1 { page: Section1; }
         table { border-collapse: collapse; width: 100%; font-family: 'Arial Narrow', Arial; }
         th, td { border: 0.5pt solid black; padding: 2px; font-size: 7.5pt; text-align: center; }
-        /* Style Blok Merah Hari Libur di Word */
         .bg-red-word { background-color: #FFDADA !important; mso-shading: red; mso-pattern: gray-15 auto; }
         .underline { text-decoration: underline; font-weight: bold; }
       </style></head><body><div class="Section1">
-        <div style="text-align:center;"><b>${header.institusi}</b><br/><b>JADWAL DINAS ${header.ruangan}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
+        <div style="text-align:center;"><b>${header.institusi}</b><br/><b>${header.judul_bebas.toUpperCase()}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
         ${tableHtml}
         <br/>
         <table style="width:100%; border:none;">
           <tr>
-            <td style="border:none; width:50%; text-align:center;">Mengetahui,<br/>${header.atasan_jabatan}<br/><br/><br/><br/><span class="underline">${header.atasan_nama}</span><br/>NIP. ${header.atasan_nip}</td>
-            <td style="border:none; width:50%; text-align:center;">Temanggung, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${header.pembuat_jabatan}<br/><br/><br/><br/><span class="underline">${header.pembuat_nama}</u><br/>NIP. ${header.pembuat_nip}</td>
+            <td style="border:none; width:50%; text-align:center; font-size:9pt;">Mengetahui,<br/>${header.atasan_jabatan}<br/><br/><br/><br/><span class="underline">${header.atasan_nama}</span><br/>NIP. ${header.atasan_nip}</td>
+            <td style="border:none; width:50%; text-align:center; font-size:9pt;">Temanggung, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${header.pembuat_jabatan}<br/><br/><br/><br/><span class="underline">${header.pembuat_nama}</span><br/>NIP. ${header.pembuat_nip}</td>
           </tr>
         </table>
       </div></body></html>
@@ -159,7 +155,7 @@ export default function BuatJadwal() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Jadwal_${header.ruangan}.doc`;
+    link.download = `${header.judul_bebas}.doc`;
     link.click();
   };
 
@@ -183,12 +179,13 @@ export default function BuatJadwal() {
       )}
 
       <div className="p-2 lg:p-6">
-        {/* PANEL INPUT OTORITAS LENGKAP */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 mb-6 no-print">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-[11px] font-bold uppercase">
             <div className="space-y-3">
-              <label className="text-blue-600 italic">Unit & Periode</label>
+              <label className="text-blue-600 italic">Unit & Judul (Free Text)</label>
               <input type="text" className="w-full p-2 bg-slate-50 border rounded-xl" value={header.institusi} onChange={e => setHeader({...header, institusi: e.target.value.toUpperCase()})} />
+              {/* INPUT FREE TEXT UNTUK JUDUL */}
+              <input type="text" placeholder="JUDUL JADWAL (FREE TEXT)" className="w-full p-2 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 font-black" value={header.judul_bebas} onChange={e => setHeader({...header, judul_bebas: e.target.value.toUpperCase()})} />
               <div className="flex gap-2">
                 <select value={bulan} onChange={e => setBulan(parseInt(e.target.value))} className="w-full p-2 border rounded-xl">
                   {daftarBulan.map((b, i) => <option key={i} value={i+1}>{b}</option>)}
@@ -214,20 +211,19 @@ export default function BuatJadwal() {
             <div className="space-y-3 border-l pl-6">
               <label className="text-slate-400 italic">Tanggal Cetak</label>
               <input type="date" className="w-full p-2 bg-blue-50 border rounded-xl" value={header.tgl_cetak} onChange={e => setHeader({...header, tgl_cetak: e.target.value})} />
-              <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex gap-2 items-start">
-                <AlertTriangle size={16} className="text-amber-600 mt-1" />
-                <p className="text-[9px] text-amber-700 leading-tight"><b>Fitur:</b> Word Pro kini menyertakan blok merah pada hari libur.</p>
+              <div className="bg-amber-50 p-2 rounded-xl border border-amber-200">
+                <p className="text-[9px] text-amber-700 leading-tight italic">Ketik judul di kolom biru untuk mengganti "JADWAL DINAS POLIKLINIK".</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* TABEL JADWAL */}
         <div id="area-jadwal" className="bg-white p-5 rounded-[2rem] shadow-xl overflow-hidden print-area">
-          <div className="text-center mb-5">
-            <h1 className="text-xl font-black uppercase tracking-tight">{header.institusi}</h1>
-            <h2 className="text-lg font-bold text-blue-600 uppercase tracking-tighter">JADWAL DINAS {header.ruangan}</h2>
-            <p className="font-bold text-sm">PERIODE: {daftarBulan[bulan-1].toUpperCase()} {tahun}</p>
+          <div className="text-center mb-5 uppercase font-bold">
+            <h1 className="text-xl font-black">{header.institusi}</h1>
+            {/* TAMPILAN JUDUL MENGIKUTI INPUT FREE TEXT */}
+            <h2 className="text-lg text-blue-600">{header.judul_bebas}</h2>
+            <p className="text-sm">PERIODE: {daftarBulan[bulan-1].toUpperCase()} {tahun}</p>
           </div>
 
           <div className="overflow-x-auto border-t border-l border-black">
@@ -240,14 +236,11 @@ export default function BuatJadwal() {
                   <th className="border border-black p-1 text-[10px]" rowSpan="2">REKAP</th>
                 </tr>
                 <tr className="bg-slate-700 text-white">
-                  {Array.from({ length: jumlahHari }).map((_, i) => {
-                    const libur = cekTanggalMerah(i+1);
-                    return (
-                      <th key={i} className={`border border-black p-1 text-[9px] ${libur ? 'text-red-300 bg-red-word' : ''}`}>
-                        {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
-                      </th>
-                    );
-                  })}
+                  {Array.from({ length: jumlahHari }).map((_, i) => (
+                    <th key={i} className={`border border-black p-1 text-[9px] ${cekTanggalMerah(i+1) ? 'text-red-300 bg-red-word' : ''}`}>
+                      {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -265,11 +258,7 @@ export default function BuatJadwal() {
                         const libur = cekTanggalMerah(tgl);
                         const autoVal = getAutoCutiValue(sdm.nama, tgl);
                         const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
-                        
-                        if (currentVal) {
-                          rekap[currentVal] = (rekap[currentVal] || 0) + 1;
-                        }
-
+                        if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
                         return (
                           <td key={i} className={`border border-black p-0 ${libur ? 'bg-red-50 bg-red-word' : ''}`}>
                             <div className="no-print">
@@ -283,7 +272,7 @@ export default function BuatJadwal() {
                                 <optgroup label="ABSENSI">
                                   {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
                                 </optgroup>
-                                <optgroup label="SIMBOL DOKTER">
+                                <optgroup label="DOKTER (CERDAS)">
                                   {getSimbolHarian(tgl, currentVal).map(s => (
                                     <option key={s} value={s}>{s}</option>
                                   ))}
@@ -303,9 +292,8 @@ export default function BuatJadwal() {
                 })}
               </tbody>
               <tfoot className="bg-slate-50 font-bold text-[9px]">
-                {/* JUMLAH PERAWAT */}
                 <tr>
-                  <td colSpan="2" className="border border-black p-1 text-right italic">JUMLAH PERAWAT MASUK</td>
+                  <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Perawat Masuk</td>
                   {Array.from({ length: jumlahHari }).map((_, i) => (
                     <td key={i} className={`border border-black text-center text-blue-600 font-black ${cekTanggalMerah(i+1) ? 'bg-red-word' : ''}`}>
                       {hitungTotalMasuk(i+1, "perawat") || ""}
@@ -313,9 +301,8 @@ export default function BuatJadwal() {
                   ))}
                   <td className="border border-black"></td>
                 </tr>
-                {/* JUMLAH TENAGA LAIN */}
                 <tr>
-                  <td colSpan="2" className="border border-black p-1 text-right italic">JUMLAH TENAGA LAIN MASUK</td>
+                  <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Tenaga Lain Masuk</td>
                   {Array.from({ length: jumlahHari }).map((_, i) => (
                     <td key={i} className={`border border-black text-center text-emerald-600 font-black ${cekTanggalMerah(i+1) ? 'bg-red-word' : ''}`}>
                       {hitungTotalMasuk(i+1, "lain") || ""}
@@ -333,7 +320,6 @@ export default function BuatJadwal() {
           </div>
         </div>
 
-        {/* TOMBOL AKSI */}
         <div className="fixed bottom-6 right-6 flex gap-3 no-print">
           <button onClick={downloadWord} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
             <FileText size={18} /> Word Pro

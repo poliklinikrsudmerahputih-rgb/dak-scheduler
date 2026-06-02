@@ -7,7 +7,8 @@ import {
   Users, Stethoscope, Share2, ChevronDown, ShieldCheck, 
   Activity, UserCheck, Clock, AlertCircle, Cpu, Calendar, 
   HeartPulse, Save, RefreshCw, ArrowLeftRight, TrendingUp,
-  CheckCircle2, Loader2, Search, Medal
+  CheckCircle2, Loader2, Search, Medal, Lock, Unlock, 
+  FileText, CalendarRange, Download, ClipboardList, Edit3
 } from "lucide-react";
 
 export default function DashboardUtama() {
@@ -16,6 +17,7 @@ export default function DashboardUtama() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [inputPasien, setInputPasien] = useState({});
+  const [editMode, setEditMode] = useState({}); // STATE BARU: AUTO-LOCK
   
   // State Filter Waktu (Dropdown Tanggal di Dashboard)
   const [tanggal, setTanggal] = useState(new Date().getDate());
@@ -25,6 +27,14 @@ export default function DashboardUtama() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
+
+  // STATE BARU: MODAL DOWNLOAD LAPORAN
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [rentangDownload, setRentangDownload] = useState({
+    awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), // Default 1 bulan ini
+    akhir: format(new Date(), "yyyy-MM-dd") // Default hari ini
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -40,11 +50,15 @@ export default function DashboardUtama() {
       if (dDash) {
         setData(dDash);
         const savedValues = {};
-        // Sinkronisasi input dengan data tabel jumlah_pasien_poli
+        const editStatus = {};
+
+        // Sinkronisasi input dengan data tabel jumlah_pasien_poli & set status Kunci
         dDash.dokterPraktik?.forEach((dok, idx) => {
           savedValues[idx] = dok.jumlah_pasien_poli || "";
+          editStatus[idx] = !(dok.jumlah_pasien_poli > 0); // Kunci jika sudah ada nilai > 0
         });
         setInputPasien(savedValues);
+        setEditMode(editStatus);
       }
     } catch (e) { 
       console.error("Gagal sinkronisasi dashboard:", e); 
@@ -80,6 +94,7 @@ export default function DashboardUtama() {
 
       if (res.ok) {
         alert(`✅ TERSIMPAN: ${dok.nama_dokter} - ${jmlTotal} Pasien`);
+        setEditMode({...editMode, [idx]: false}); // Kunci kembali setelah sukses
         fetchData(); 
       }
     } catch (e) { alert("Gagal simpan."); } 
@@ -109,6 +124,117 @@ export default function DashboardUtama() {
     const link = window.location.origin + "/view-jadwal";
     navigator.clipboard.writeText(link);
     alert("✅ Link Monitoring Online Berhasil Disalin!");
+  };
+
+  // --- FITUR BARU: EKSEKUSI DOWNLOAD DENGAN RENTANG WAKTU & BOBOT ---
+  const executeDownloadLaporan = async () => {
+    if (!rentangDownload.awal || !rentangDownload.akhir) return alert("Pilih rentang tanggal terlebih dahulu!");
+    
+    setIsDownloading(true);
+    try {
+      const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}`);
+      const dataLaporan = await res.json();
+
+      if (!dataLaporan || !dataLaporan.dokterPraktik || !dataLaporan.leaderboard) {
+        throw new Error("Gagal mengambil data dari server");
+      }
+
+      const tglAwalIndo = format(new Date(rentangDownload.awal), "dd MMMM yyyy", { locale: id });
+      const tglAkhirIndo = format(new Date(rentangDownload.akhir), "dd MMMM yyyy", { locale: id });
+
+      const wordHeader = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head>
+          <meta charset='utf-8'>
+          <style>
+            @page Section1 { size: 595.3pt 841.9pt; mso-page-orientation: portrait; margin: 2cm; }
+            div.Section1 { page: Section1; font-family: 'Arial', sans-serif; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-size: 11pt; }
+            th, td { border: 1pt solid black; padding: 6px; text-align: left; }
+            th { background-color: #e2e8f0; text-align: center; font-weight: bold; }
+            .center { text-align: center; }
+            .title { font-size: 14pt; font-weight: bold; text-align: center; }
+            .subtitle { font-size: 12pt; text-align: center; margin-bottom: 25px; }
+          </style>
+        </head>
+        <body>
+          <div class="Section1">
+            <div class="title">RSUD MERAH PUTIH KABUPATEN MAGELANG</div>
+            <div class="subtitle">
+              LAPORAN KINERJA RUANG RAWAT JALAN<br/>
+              PERIODE: ${tglAwalIndo.toUpperCase()} s.d ${tglAkhirIndo.toUpperCase()}
+            </div>
+
+            <p><b>A. REKAPITULASI KUNJUNGAN PASIEN PER KLINIK</b></p>
+            <table>
+              <tr>
+                <th style="width: 8%;">NO</th>
+                <th>NAMA DOKTER</th>
+                <th>UNIT KLINIK</th>
+                <th style="width: 25%;">TOTAL PASIEN</th>
+              </tr>
+              ${dataLaporan.dokterPraktik.map((dok, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${dok.nama_dokter}</td>
+                  <td>${dok.klinik}</td>
+                  <td class="center"><b>${dok.total_pasien_bulanan || 0}</b> Pasien</td>
+                </tr>
+              `).join('')}
+            </table>
+
+            <br/>
+
+            <p><b>B. REKAPITULASI BEBAN KERJA ASISTEN (BOBOT KLINIK)</b></p>
+            <table>
+              <tr>
+                <th style="width: 8%;">NO</th>
+                <th>NAMA PERAWAT / ASISTEN</th>
+                <th>UNIT POLI DIBANTU</th>
+                <th style="width: 25%;">SKOR BEBAN KERJA</th>
+              </tr>
+              ${dataLaporan.leaderboard.map((item, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${item.nama}</td>
+                  <td>${item.detail_poli || "Cadangan/Lainnya"}</td>
+                  <td class="center"><b>${item.total_pasien}</b> Poin</td>
+                </tr>
+              `).join('')}
+            </table>
+
+            <br/><br/>
+            
+            <table style="border:none; width:100%;">
+              <tr>
+                <td style="border:none; text-align:center; width:50%;"></td>
+                <td style="border:none; text-align:center; width:50%;">
+                  Magelang, ${tglAkhirIndo}<br/>
+                  Koordinator Rawat Jalan<br/><br/><br/><br/><br/>
+                  <u><b>DANIEL ARI KRISTIANTO, S.Kep., Ns</b></u><br/>
+                  NIP. 199303042019031006
+                </td>
+              </tr>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Laporan_Kinerja_Poli_${rentangDownload.awal}_to_${rentangDownload.akhir}.doc`;
+      link.click();
+      
+      setShowDownloadModal(false);
+    } catch (error) {
+      console.error(error);
+      alert("Terjadi kesalahan saat memproses data laporan. Coba lagi.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -214,8 +340,17 @@ export default function DashboardUtama() {
                 <h4 className="text-lg font-black text-slate-800 uppercase italic tracking-tighter leading-tight">{dok.nama_dokter}</h4>
                 <p className="text-[10px] font-bold text-blue-600 uppercase mt-1 tracking-widest">{dok.klinik}</p>
                 
+                {/* FITUR BARU: TOTAL PASIEN BULANAN */}
+                {!dok.isCuti && (
+                  <div className="mt-3 inline-block bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg">
+                    <p className="text-[9px] font-black text-blue-700 uppercase italic tracking-widest">
+                      Kunjungan Bulan Ini: {dok.total_pasien_bulanan || 0} Pasien
+                    </p>
+                  </div>
+                )}
+                
                 {!dok.isCuti ? (
-                  <div className="mt-8 space-y-4">
+                  <div className="mt-6 space-y-4">
                     <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 group-hover:bg-slate-100/50 transition-colors">
                       <p className="text-[8px] font-black text-slate-400 uppercase italic mb-3 flex items-center gap-1">
                         <UserCheck size={12} className="text-blue-500" /> Tim Asisten:
@@ -230,22 +365,39 @@ export default function DashboardUtama() {
 
                       <div className="flex gap-2 items-end pt-4 border-t border-slate-200/50">
                         <div className="flex-1">
-                           <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic">Input Total Pasien</label>
+                            <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic flex justify-between">
+                              <span>Input Total Pasien</span>
+                              {!editMode[idx] ? <span className="text-red-500 flex items-center gap-1"><Lock size={8}/> Terkunci</span> : <span className="text-emerald-500 flex items-center gap-1"><Unlock size={8}/> Terbuka</span>}
+                            </label>
                            <input 
                               type="number" 
-                              className="w-full bg-white border-2 border-slate-100 rounded-2xl px-5 py-4 text-xs font-black outline-none focus:border-blue-500 shadow-inner"
+                              disabled={!editMode[idx]}
+                              className={`w-full border-2 rounded-2xl px-5 py-4 text-xs font-black outline-none transition-colors shadow-inner ${!editMode[idx] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900 focus:border-blue-500'}`}
                               value={inputPasien[idx] || ""}
                               onChange={(e) => setInputPasien({...inputPasien, [idx]: e.target.value})}
                               placeholder="Jml Pasien"
                            />
                         </div>
-                        <button 
-                          onClick={() => handleUpdatePasienSpesifik(idx)}
-                          disabled={submitting}
-                          className="p-5 bg-slate-900 text-white rounded-2xl shadow-xl hover:bg-emerald-600 transition-all active:scale-90"
-                        >
-                          <Save size={20} />
-                        </button>
+                        
+                        {/* TOMBOL EDIT / SIMPAN AUTO-LOCK */}
+                        {!editMode[idx] ? (
+                          <button 
+                            onClick={() => setEditMode({...editMode, [idx]: true})}
+                            className="p-5 bg-amber-500 text-white rounded-2xl shadow-xl hover:bg-amber-600 transition-all active:scale-95"
+                            title="Edit Jumlah Pasien"
+                          >
+                            <Edit3 size={20} />
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => handleUpdatePasienSpesifik(idx)}
+                            disabled={submitting}
+                            className="p-5 bg-slate-900 text-white rounded-2xl shadow-xl hover:bg-emerald-600 transition-all active:scale-90 disabled:opacity-50"
+                            title="Simpan Data Pasien"
+                          >
+                            {submitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -259,18 +411,37 @@ export default function DashboardUtama() {
             ))}
           </div>
 
+          {/* FITUR BARU: PUSAT UNDUHAN LAPORAN */}
+          <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-[3.5rem] p-8 mt-6 shadow-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 border border-blue-700">
+            <div className="absolute -left-10 -top-10 opacity-10"><ClipboardList size={150} /></div>
+            <div className="relative z-10 flex-1 text-center md:text-left">
+              <h3 className="text-xl font-black text-white uppercase italic tracking-tighter mb-2 flex items-center justify-center md:justify-start gap-3">
+                <Download size={20} className="text-blue-400"/> Laporan Kinerja
+              </h3>
+              <p className="text-[10px] text-blue-200 font-bold leading-relaxed">
+                Export data beban kerja staf (Telah terhitung Bobot Tindakan Klinik) berdasarkan rentang waktu yang disesuaikan untuk lampiran SKP bulanan.
+              </p>
+            </div>
+            <button 
+              onClick={() => setShowDownloadModal(true)}
+              className="relative z-10 whitespace-nowrap bg-white text-blue-900 px-8 py-5 rounded-[2rem] font-black uppercase text-[10px] shadow-xl hover:scale-105 transition-transform flex items-center gap-2 border-b-4 border-blue-200"
+            >
+               <FileText size={16} className="text-blue-600"/> Generate Rekap
+            </button>
+          </div>
+
           {/* --- LEADERBOARD BEBAN KERJA (POOLING) --- */}
-          <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden border border-slate-100">
+          <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden border border-slate-100 mt-6">
             <div className="bg-slate-900 p-8 text-white flex justify-between items-center italic">
               <h3 className="text-sm font-black uppercase tracking-widest pl-4 border-l-4 border-blue-500 flex items-center gap-3">
-                <TrendingUp size={18} /> Leaderboard Beban Kerja Staf
+                <TrendingUp size={18} /> Skor Beban Kerja Hari Ini
               </h3>
             </div>
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-slate-50 text-[9px] font-black uppercase italic tracking-widest text-slate-400">
                   <th className="p-8">Nama Staf</th>
-                  <th className="p-8 text-center">Beban Pasien</th>
+                  <th className="p-8 text-center">Skor Beban</th>
                   <th className="p-8 text-left">Unit Dibantu</th>
                   <th className="p-8 text-center">Status</th>
                 </tr>
@@ -375,6 +546,56 @@ export default function DashboardUtama() {
               <div className="flex gap-4 mt-8">
                 <button onClick={() => setShowSwap(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
                 <button onClick={handleSwapDB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-700">EKSEKUSI TUKAR</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DOWNLOAD RENTANG TANGGAL --- */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-blue-500/20">
+            <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-blue-500 pl-4 flex items-center gap-3">
+              <CalendarRange size={24} className="text-blue-500" /> Filter Data Laporan
+            </h3>
+            
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Mulai (Awal)</label>
+                <input 
+                  type="date"
+                  value={rentangDownload.awal}
+                  onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})}
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Selesai (Akhir)</label>
+                <input 
+                  type="date"
+                  value={rentangDownload.akhir}
+                  onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})}
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                />
+              </div>
+
+              <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
+                <button 
+                  onClick={() => setShowDownloadModal(false)} 
+                  className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={executeDownloadLaporan} 
+                  disabled={isDownloading} 
+                  className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2"
+                >
+                  {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
+                </button>
               </div>
             </div>
           </div>

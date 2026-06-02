@@ -5,7 +5,7 @@ import { id } from "date-fns/locale";
 import { 
   Search, ClipboardList, Stethoscope, Clock, ChevronDown, Send, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp
+  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, FileText, CalendarRange
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -15,19 +15,24 @@ export default function ViewJadwalPublic() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [inputPasien, setInputPasien] = useState({});
+  const [editMode, setEditMode] = useState({});
   
-  // State Filter Waktu
   const [tanggal, setTanggal] = useState(new Date().getDate());
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
   const [tahun, setTahun] = useState(new Date().getFullYear());
   
   const [searchTerm, setSearchTerm] = useState("");
-
-  // State Modal Swap
   const [showSwap, setShowSwap] = useState(false);
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
 
-  // Sinkronisasi Sidebar & Main Content (Full Dashboard View)
+  // STATE BARU: MODAL DOWNLOAD LAPORAN
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [rentangDownload, setRentangDownload] = useState({
+    awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), // Default: tgl 1 bulan ini
+    akhir: format(new Date(), "yyyy-MM-dd") // Default: hari ini
+  });
+
   useEffect(() => {
     const sidebar = document.querySelector('aside'); 
     const mainContent = document.querySelector('main');
@@ -51,11 +56,14 @@ export default function ViewJadwalPublic() {
       if (dDash) {
         setData(dDash);
         const savedValues = {};
-        // Sinkronisasi input dengan data tabel jumlah_pasien_poli yang mandiri
+        const editStatus = {};
+        
         dDash.dokterPraktik?.forEach((dok, idx) => {
           savedValues[idx] = dok.jumlah_pasien_poli || "";
+          editStatus[idx] = !(dok.jumlah_pasien_poli > 0); 
         });
         setInputPasien(savedValues);
+        setEditMode(editStatus);
       }
     } catch (e) { 
       console.error("Gagal sinkronisasi data:", e); 
@@ -68,7 +76,6 @@ export default function ViewJadwalPublic() {
     fetchData();
   }, [tanggal, bulan, tahun]);
 
-  // --- FITUR 1: UPDATE PASIEN MANDIRI PER POLI/DOKTER ---
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
     if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
@@ -89,6 +96,7 @@ export default function ViewJadwalPublic() {
 
       if (res.ok) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
+        setEditMode({...editMode, [idx]: false});
         fetchData(); 
       }
     } catch (e) {
@@ -98,7 +106,6 @@ export default function ViewJadwalPublic() {
     }
   };
 
-  // --- FITUR 2: TUKAR ASISTEN (SWAP) ---
   const handleSwapDB = async () => {
     if (!swapData.sdmA || !swapData.sdmB) return alert("Pilih kedua perawat!");
     setSubmitting(true);
@@ -138,6 +145,119 @@ export default function ViewJadwalPublic() {
       alert("❌ Gagal: " + res.error);
     }
     setSubmitting(false);
+  };
+
+  // --- FITUR EKSEKUSI DOWNLOAD DENGAN RENTANG WAKTU ---
+  const executeDownloadLaporan = async () => {
+    if (!rentangDownload.awal || !rentangDownload.akhir) return alert("Pilih rentang tanggal terlebih dahulu!");
+    
+    setIsDownloading(true);
+    try {
+      // Panggil API khusus dengan parameter rentang tanggal
+      const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}`);
+      const dataLaporan = await res.json();
+
+      if (!dataLaporan || !dataLaporan.dokterPraktik || !dataLaporan.leaderboard) {
+        throw new Error("Gagal mengambil data dari server");
+      }
+
+      const tglAwalIndo = format(new Date(rentangDownload.awal), "dd MMMM yyyy", { locale: id });
+      const tglAkhirIndo = format(new Date(rentangDownload.akhir), "dd MMMM yyyy", { locale: id });
+
+      // Template HTML Khusus MS Word
+      const wordHeader = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head>
+          <meta charset='utf-8'>
+          <style>
+            @page Section1 { size: 595.3pt 841.9pt; mso-page-orientation: portrait; margin: 2cm; }
+            div.Section1 { page: Section1; font-family: 'Arial', sans-serif; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-size: 11pt; }
+            th, td { border: 1pt solid black; padding: 6px; text-align: left; }
+            th { background-color: #e2e8f0; text-align: center; font-weight: bold; }
+            .center { text-align: center; }
+            .title { font-size: 14pt; font-weight: bold; text-align: center; }
+            .subtitle { font-size: 12pt; text-align: center; margin-bottom: 25px; }
+          </style>
+        </head>
+        <body>
+          <div class="Section1">
+            <div class="title">RSUD MERAH PUTIH KABUPATEN MAGELANG</div>
+            <div class="subtitle">
+              LAPORAN KINERJA RUANG RAWAT JALAN<br/>
+              PERIODE: ${tglAwalIndo.toUpperCase()} s.d ${tglAkhirIndo.toUpperCase()}
+            </div>
+
+            <p><b>A. REKAPITULASI KUNJUNGAN PASIEN PER KLINIK</b></p>
+            <table>
+              <tr>
+                <th style="width: 8%;">NO</th>
+                <th>NAMA DOKTER</th>
+                <th>UNIT KLINIK</th>
+                <th style="width: 25%;">TOTAL PASIEN</th>
+              </tr>
+              ${dataLaporan.dokterPraktik.map((dok, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${dok.nama_dokter}</td>
+                  <td>${dok.klinik}</td>
+                  <td class="center"><b>${dok.total_pasien_bulanan || 0}</b> Pasien</td>
+                </tr>
+              `).join('')}
+            </table>
+
+            <br/>
+
+            <p><b>B. REKAPITULASI BEBAN KERJA ASISTEN (BOBOT KLINIK)</b></p>
+            <table>
+              <tr>
+                <th style="width: 8%;">NO</th>
+                <th>NAMA PERAWAT / ASISTEN</th>
+                <th>UNIT POLI DIBANTU</th>
+                <th style="width: 25%;">SKOR BEBAN KERJA</th>
+              </tr>
+              ${dataLaporan.leaderboard.map((item, i) => `
+                <tr>
+                  <td class="center">${i + 1}</td>
+                  <td>${item.nama}</td>
+                  <td>${item.detail_poli || "Cadangan/Lainnya"}</td>
+                  <td class="center"><b>${item.total_pasien}</b> Poin</td>
+                </tr>
+              `).join('')}
+            </table>
+
+            <br/><br/>
+            
+            <table style="border:none; width:100%;">
+              <tr>
+                <td style="border:none; text-align:center; width:50%;"></td>
+                <td style="border:none; text-align:center; width:50%;">
+                  Magelang, ${tglAkhirIndo}<br/>
+                  Koordinator Rawat Jalan<br/><br/><br/><br/><br/>
+                  <u><b>DANIEL ARI KRISTIANTO, S.Kep., Ns</b></u><br/>
+                  NIP. 199303042019031006
+                </td>
+              </tr>
+            </table>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Laporan_Kinerja_Poli_${rentangDownload.awal}_to_${rentangDownload.akhir}.doc`;
+      link.click();
+      
+      setShowDownloadModal(false);
+    } catch (error) {
+      console.error(error);
+      alert("Terjadi kesalahan saat memproses data laporan. Coba lagi.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const labelHariIni = format(new Date(tahun, bulan-1, tanggal), "eeee, dd MMMM yyyy", { locale: id });
@@ -225,7 +345,7 @@ export default function ViewJadwalPublic() {
               <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest">{dok.klinik} • {dok.jam_praktik || "Praktik"}</p>
               
               {!dok.isCuti ? (
-                <div className="mt-10 space-y-5">
+                <div className="mt-6 space-y-5">
                   <div className="p-8 rounded-[3rem] border-2 bg-slate-50 border-slate-100">
                     <p className="text-[8px] font-black text-slate-400 uppercase italic mb-3">Tim Asisten Petugas:</p>
                     <div className="flex flex-wrap gap-2 mb-6">
@@ -238,22 +358,38 @@ export default function ViewJadwalPublic() {
 
                     <div className="flex gap-3 items-end mt-4 border-t border-slate-200/40 pt-8">
                       <div className="flex-1">
-                        <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic">Input Total Pasien Poli {dok.simbol_praktik}</label>
+                        <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic flex justify-between">
+                          <span>Input Pasien Harian ({dok.simbol_praktik})</span>
+                          {!editMode[idx] ? <span className="text-red-500 flex items-center gap-1"><Lock size={8}/> Terkunci</span> : <span className="text-emerald-500 flex items-center gap-1"><Unlock size={8}/> Terbuka</span>}
+                        </label>
                         <input 
                           type="number" 
-                          className="w-full bg-white text-slate-900 border-2 border-slate-100 rounded-2xl px-5 py-4 text-xs font-black outline-none shadow-inner"
+                          disabled={!editMode[idx]} 
+                          className={`w-full border-2 rounded-2xl px-5 py-4 text-xs font-black outline-none shadow-inner transition-colors ${!editMode[idx] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900 focus:border-blue-500'}`}
                           value={inputPasien[idx] || ""}
                           onChange={(e) => setInputPasien({...inputPasien, [idx]: e.target.value})}
-                          placeholder="Total..."
+                          placeholder="Total Hari Ini..."
                         />
                       </div>
-                      <button 
-                        onClick={() => handleUpdatePasienSpesifik(idx)}
-                        disabled={submitting}
-                        className="p-5 bg-slate-900 text-white rounded-2xl shadow-xl hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        {submitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-                      </button>
+                      
+                      {!editMode[idx] ? (
+                        <button 
+                          onClick={() => setEditMode({...editMode, [idx]: true})}
+                          className="p-5 bg-amber-500 text-white rounded-2xl shadow-xl hover:bg-amber-600 transition-all active:scale-95"
+                          title="Edit Jumlah Pasien"
+                        >
+                          <Edit3 size={20} />
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleUpdatePasienSpesifik(idx)}
+                          disabled={submitting}
+                          className="p-5 bg-blue-600 text-white rounded-2xl shadow-xl hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+                          title="Simpan Data Pasien"
+                        >
+                          {submitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -267,10 +403,29 @@ export default function ViewJadwalPublic() {
           ))}
         </div>
 
+        {/* PUSAT UNDUHAN LAPORAN BULANAN DENGAN RENTANG WAKTU */}
+        <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-[3.5rem] p-8 md:p-12 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 border border-blue-700">
+          <div className="absolute -left-10 -top-10 opacity-10"><ClipboardList size={200} /></div>
+          <div className="relative z-10 max-w-2xl text-center md:text-left">
+            <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-3 flex items-center justify-center md:justify-start gap-3">
+              <Download size={24} className="text-blue-400"/> Pusat Laporan Kinerja
+            </h3>
+            <p className="text-xs text-blue-200 font-bold leading-relaxed">
+              Sistem akan menghitung ulang beban kerja asisten perawat berdasarkan <b>Bobot Tindakan Klinik</b> (Cth: Bedah/Ortopedi bernilai lebih tinggi). Silakan pilih rentang tanggal laporan untuk dilampirkan pada SKP atau Laporan Kinerja.
+            </p>
+          </div>
+          {/* TOMBOL INI SEKARANG MEMBUKA MODAL TANGGAL */}
+          <button 
+            onClick={() => setShowDownloadModal(true)}
+            className="relative z-10 whitespace-nowrap bg-white text-blue-900 px-10 py-6 rounded-[2rem] font-black uppercase text-sm shadow-xl hover:scale-105 transition-transform flex items-center gap-3 border-b-4 border-blue-200"
+          >
+             <FileText size={20} className="text-blue-600"/> Generate Rekap Data
+          </button>
+        </div>
+
         {/* BOTTOM SECTION: FORM IZIN & LEADERBOARD */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 items-start">
             
-            {/* FORM IZIN STAF - DIPERBESAR */}
             <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl border border-white lg:col-span-1">
                 <h3 className="text-sm font-black uppercase text-slate-800 italic mb-8 border-l-8 border-blue-600 pl-4 leading-none flex items-center gap-2">
                     <Edit3 size={18} className="text-blue-600" /> Pengajuan Izin
@@ -301,19 +456,18 @@ export default function ViewJadwalPublic() {
                 </form>
             </div>
 
-            {/* LEADERBOARD (POOLING DATA) */}
             <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden border border-slate-100">
                     <div className="bg-slate-900 p-8 text-white flex justify-between items-center italic">
                       <h3 className="text-sm font-black uppercase tracking-widest pl-4 border-l-4 border-emerald-500 flex items-center gap-3">
-                        <TrendingUp size={18} /> Leaderboard Beban Kerja
+                        <TrendingUp size={18} /> Skor Beban Kerja Hari Ini
                       </h3>
                     </div>
                     <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 text-[9px] font-black uppercase italic tracking-widest text-slate-400">
                             <th className="p-8">Nama Staf</th>
-                            <th className="p-8 text-center">Beban Pasien</th>
+                            <th className="p-8 text-center">Skor Beban</th>
                             <th className="p-8 text-left">Unit Kerja Dibantu</th>
                             <th className="p-8 text-center">Status</th>
                           </tr>
@@ -349,7 +503,6 @@ export default function ViewJadwalPublic() {
                 </div>
             </div>
 
-            {/* MONITOR IZIN - TAMBAH KETERANGAN */}
             <div className="space-y-6 lg:col-span-1">
                 <div className="flex items-center gap-3 px-8"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin</h3></div>
                 <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
@@ -371,7 +524,6 @@ export default function ViewJadwalPublic() {
         </div>
       </div>
 
-      {/* MODAL SWAP LUAS & CERDAS */}
       {showSwap && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-500/20">
@@ -432,6 +584,56 @@ export default function ViewJadwalPublic() {
                   className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700"
                 >
                   {submitting ? "SINGKRONISASI..." : "EKSEKUSI TUKAR"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DOWNLOAD RENTANG TANGGAL */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-blue-500/20">
+            <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-blue-500 pl-4 flex items-center gap-3">
+              <CalendarRange size={24} className="text-blue-500" /> Filter Data Laporan
+            </h3>
+            
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Mulai (Awal)</label>
+                <input 
+                  type="date"
+                  value={rentangDownload.awal}
+                  onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})}
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Selesai (Akhir)</label>
+                <input 
+                  type="date"
+                  value={rentangDownload.akhir}
+                  onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})}
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                />
+              </div>
+
+              <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
+                <button 
+                  onClick={() => setShowDownloadModal(false)} 
+                  className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={executeDownloadLaporan} 
+                  disabled={isDownloading} 
+                  className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2"
+                >
+                  {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
                 </button>
               </div>
             </div>

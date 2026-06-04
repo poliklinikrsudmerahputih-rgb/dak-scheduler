@@ -16,27 +16,27 @@ export async function GET() {
 
     /**
      * PERBAIKAN QUERY:
-     * - Mengganti 'dokter' menjadi 'master_dokter'
-     * - Mengganti 'd.nama' menjadi 'd.nama_dokter'
-     * - Menambahkan filter Ruangan agar data muncul sesuai unit
+     * - Menggunakan TRIM() dan UPPER() pada pencocokan nama dokter di LEFT JOIN
+     * - Menggunakan TRIM() pada field tanggal agar aman dari spasi tersembunyi
+     * - Memastikan filter ruangan juga kebal terhadap perbedaan huruf besar/kecil
      */
     const query = `
       SELECT 
         c.id,
-        c.nama_dokter,
+        TRIM(c.nama_dokter) as nama_dokter,
         c.jenis_cuti,
-        c.tgl_mulai,
-        c.tgl_selesai,
+        TRIM(c.tgl_mulai) as tgl_mulai,
+        TRIM(c.tgl_selesai) as tgl_selesai,
         c.tanggal_input,
         c.simbol,
         d.klinik
       FROM cuti_dokter c
-      LEFT JOIN master_dokter d ON c.nama_dokter = d.nama_dokter
-      WHERE c.ruangan = ? 
+      LEFT JOIN master_dokter d ON TRIM(UPPER(c.nama_dokter)) = TRIM(UPPER(d.nama_dokter))
+      WHERE TRIM(UPPER(c.ruangan)) = TRIM(UPPER(?)) 
       OR c.ruangan IS NULL 
       OR c.ruangan = ''
       GROUP BY c.id -- Menghindari duplikat jika dokter punya banyak jadwal praktik
-      ORDER BY c.tgl_mulai DESC
+      ORDER BY date(TRIM(c.tgl_mulai)) DESC
     `;
 
     const res = await turso.execute({

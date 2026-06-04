@@ -5,10 +5,10 @@ import { id } from "date-fns/locale";
 
 export const dynamic = "force-dynamic";
 
-// KAMUS BOBOT TINDAKAN (Bisa Bapak sesuaikan nanti)
-// 1.0 = Poli Standar (Asesmen)
-// 1.5 = Poli dengan tindakan ringan
-// 2.5 = Poli dengan tindakan berat (Bedah, Rawat Luka, dll)
+// KAMUS BOBOT TINDAKAN (Acuity-Based Metric)
+// 1.0 = Poli Standar / Asesmen
+// 1.5 = Poli dengan tindakan ringan / sedang
+// 2.5 = Poli dengan tindakan berat (Bedah, Rawat Luka, Gips)
 const BOBOT_POLI = {
   "BEDAH UMUM": 2.5,
   "ORTOPEDI": 2.5,
@@ -18,7 +18,8 @@ const BOBOT_POLI = {
   "SARAF": 1.0,
   "ANAK": 1.0,
   "OBGYN": 1.5,
-  // Tambahkan poli lain di sini. Jika tidak ada, defaultnya 1.0
+  "UMUM": 1.0,
+  "KLINIK NYERI": 1.5
 };
 
 export async function GET(request) {
@@ -99,77 +100,112 @@ export async function GET(request) {
     }
 
     /**
+     * KUNCI FIX PERBAIKAN: FUNGSI NAVIGASI SIMBOL/GRUP
+     * Berfungsi memetakan teks input jadwal dinas (Cth: 'UMUM', 'ORTO') 
+     * ke Simbol Stasiun Utama (Cth: '3' atau '4') secara real-time
+     */
+    const getSimbolGrup = (jadwalSimbol) => {
+      if (!jadwalSimbol) return "LAINNYA";
+      let jSimbol = jadwalSimbol.trim().toUpperCase();
+      let docMatch = resMasterDokter.rows.find(md => 
+        md.klinik.trim().toUpperCase() === jSimbol || 
+        md.simbol_praktik.trim().toUpperCase() === jSimbol
+      );
+      return docMatch ? docMatch.simbol_praktik.trim().toUpperCase() : jSimbol;
+    };
+
+    /**
      * 6. PROSES MAPPING DATA KE KOTAK DOKTER (Termasuk Total Bulanan)
      */
     const dokterPraktik = resMasterDokter.rows.map(dok => {
-      // Data Pasien Harian (hanya berlaku jika mode harian)
+      // Data Pasien Harian
       const recordPasienHarian = !isModeLaporan ? dataPasienPoli.find(p => 
-        p.nama_dokter === dok.nama_dokter && p.klinik === dok.klinik && p.tanggal === pTanggal
+        p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
+        p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase() && 
+        p.tanggal === pTanggal
       ) : null;
 
       // Data Pasien Bulanan / Rentang Waktu (dijumlahkan)
-      const listPasienRentang = dataPasienPoli.filter(p => p.nama_dokter === dok.nama_dokter && p.klinik === dok.klinik);
+      const listPasienRentang = dataPasienPoli.filter(p => 
+        p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
+        p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase()
+      );
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (item.jumlah || 0), 0);
 
-      // Cari tim perawat harian (hanya untuk tampilan Harian)
+      // Cari tim perawat harian berdasarkan Stasiun Grup hasil resolve
       const timHarian = !isModeLaporan ? semuaJadwal.filter(j => 
-        j.tanggal === pTanggal && j.simbol.trim().toUpperCase() === dok.simbol_praktik.trim().toUpperCase()
+        j.tanggal === pTanggal && getSimbolGrup(j.simbol) === dok.simbol_praktik.trim().toUpperCase()
       ) : [];
 
       const isCuti = !isModeLaporan ? resDokterCuti.rows.some(c => 
-        c.nama_dokter === dok.nama_dokter && formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
+        c.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
+        formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
       ) : false;
 
       return {
         ...dok,
         isCuti,
-        jumlah_pasien_poli: recordPasienHarian ? recordPasienHarian.jumlah : 0, // Untuk input harian
-        total_pasien_bulanan: totalPasienRentang, // Untuk label Kunjungan Bulan Ini / Rekap Word
+        jumlah_pasien_poli: recordPasienHarian ? recordPasienHarian.jumlah : 0, 
+        total_pasien_bulanan: totalPasienRentang, 
         timAsisten: timHarian.map(t => ({ id: t.sdm_id, nama: t.nama }))
       };
     });
 
     /**
-     * 7. PROSES HITUNG BEBAN KERJA (DENGAN SISTEM BOBOT TINDAKAN)
+     * 7. FIX LOGIKA TOTAL POOLING BEBAN KERJA (DENGAN SISTEM BAGI RATA TIM GRUP)
+     * Menghitung akumulasi total seluruh dokter di Ners yang sama, lalu membaginya rata.
      */
     const perawatUnik = [...new Set(semuaJadwal.map(j => j.sdm_id))];
     const leaderboardBeban = perawatUnik.map(idSdm => {
       const infoSdm = semuaJadwal.find(j => j.sdm_id === idSdm);
       let totalBeban = 0;
-      const daftarPoliDibantu = new Set(); // Menggunakan Set agar tidak duplikat
+      const daftarPoliDibantu = new Set(); 
 
-      // Ambil semua riwayat jadwal perawat ini dalam rentang waktu tersebut
       const riwayatJadwalSdm = semuaJadwal.filter(j => j.sdm_id === idSdm);
 
       riwayatJadwalSdm.forEach(jadwal => {
-        // Cari poli apa yang dilambangkan oleh simbol jadwal ini
-        const poliTerkait = resMasterDokter.rows.find(md => md.simbol_praktik.trim().toUpperCase() === jadwal.simbol.trim().toUpperCase());
+        // Cari stasiun induk perawat ini (Ners 3, Ners 4, dll)
+        const targetSimbolGroup = getSimbolGrup(jadwal.simbol);
+
+        // Cari seluruh dokter yang bernaung di bawah stasiun induk tersebut
+        const daftarDokterSatuSimbol = resMasterDokter.rows.filter(md => 
+          md.simbol_praktik.trim().toUpperCase() === targetSimbolGroup
+        );
         
-        if (poliTerkait) {
-          // Tambahkan ke daftar unit kerja yang pernah dibantu
-          daftarPoliDibantu.add(`${poliTerkait.klinik}`);
+        if (daftarDokterSatuSimbol.length > 0) {
+          let totalSkorStasiunHariIni = 0;
 
-          // Cari data kunjungan pasien pada TANGGAL SPESIFIK tersebut
-          const kunjunganHariItu = dataPasienPoli.find(p => 
-            p.nama_dokter === poliTerkait.nama_dokter && p.klinik === poliTerkait.klinik &&
-            p.tanggal === jadwal.tanggal && p.bulan === jadwal.bulan && p.tahun === jadwal.tahun
-          );
+          daftarDokterSatuSimbol.forEach(dok => {
+            daftarPoliDibantu.add(dok.klinik.trim().toUpperCase());
 
-          if (kunjunganHariItu && kunjunganHariItu.jumlah > 0) {
-            // Cek berapa asisten yang bertugas di poli itu pada hari itu
-            const jumlahAsistenHariItu = semuaJadwal.filter(j => 
-              j.simbol === jadwal.simbol && j.tanggal === jadwal.tanggal && j.bulan === jadwal.bulan && j.tahun === jadwal.tahun
-            ).length || 1;
+            // Ambil data kunjungan pasien dokter tersebut pada hari spesifik jadwal dinas
+            const kunjunganHariItu = dataPasienPoli.find(p => 
+              p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
+              p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase() &&
+              p.tanggal === jadwal.tanggal && 
+              p.bulan === jadwal.bulan && 
+              p.tahun === jadwal.tahun
+            );
 
-            // Hitung beban mentah: (Kunjungan / Jumlah Asisten)
-            const bebanMentah = kunjunganHariItu.jumlah / jumlahAsistenHariItu;
+            if (kunjunganHariItu && kunjunganHariItu.jumlah > 0) {
+              const bobot = BOBOT_POLI[dok.klinik.trim().toUpperCase()] || 1.0;
+              totalSkorStasiunHariIni += (kunjunganHariItu.jumlah * bobot);
+            }
+          });
 
-            // TERAPKAN BOBOT! (Default 1.0 jika klinik tidak terdaftar di BOBOT_POLI)
-            const bobot = BOBOT_POLI[poliTerkait.klinik.toUpperCase()] || 1.0;
-            const bebanTertimbang = Math.round(bebanMentah * bobot);
+          // Hitung total alokasi asisten yang menjaga stasiun ini di hari yang sama
+          const jumlahAsistenHariItu = semuaJadwal.filter(j => 
+            getSimbolGrup(j.simbol) === targetSimbolGroup && 
+            j.tanggal === jadwal.tanggal && 
+            j.bulan === jadwal.bulan && 
+            j.tahun === jadwal.tahun
+          ).length || 1;
 
-            totalBeban += bebanTertimbang;
-          }
+          // Akumulasi beban tertimbang yang dibagi rata untuk satu perawat
+          totalBeban += Math.round(totalSkorStasiunHariIni / jumlahAsistenHariItu);
+        } else {
+          // Jika tidak ada master dokter yang cocok, gunakan data simbol asli sebagai cadangan info
+          daftarPoliDibantu.add(jadwal.simbol.trim().toUpperCase());
         }
       });
 
@@ -181,7 +217,7 @@ export async function GET(request) {
       };
     }).filter(p => p.nama !== 'ADMIN');
 
-    // Urutkan Leaderboard dari yang terberat
+    // Urutkan Leaderboard dari yang tertinggi
     leaderboardBeban.sort((a, b) => b.total_pasien - a.total_pasien);
 
     // 8. Format Izin SDM

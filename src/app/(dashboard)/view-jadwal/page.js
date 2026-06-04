@@ -23,15 +23,14 @@ export default function ViewJadwalPublic() {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
-  const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
-
-  // STATE BARU: MODAL DOWNLOAD LAPORAN
+  const [showCutiModal, setShowCutiModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
-    awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), // Default: tgl 1 bulan ini
-    akhir: format(new Date(), "yyyy-MM-dd") // Default: hari ini
+    awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), 
+    akhir: format(new Date(), "yyyy-MM-dd") 
   });
+  const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
 
   useEffect(() => {
     const sidebar = document.querySelector('aside'); 
@@ -51,6 +50,7 @@ export default function ViewJadwalPublic() {
       const dDash = await resDash.json();
       const resSDM = await fetch("/api/sdm");
       const dSDM = await resSDM.json();
+      
       setDaftarSDM(Array.isArray(dSDM) ? dSDM : []);
 
       if (dDash) {
@@ -140,6 +140,7 @@ export default function ViewJadwalPublic() {
     if (res.success) {
       alert("✅ Pengajuan Berhasil!");
       e.target.reset();
+      setShowCutiModal(false);
       fetchData();
     } else {
       alert("❌ Gagal: " + res.error);
@@ -147,13 +148,11 @@ export default function ViewJadwalPublic() {
     setSubmitting(false);
   };
 
-  // --- FITUR EKSEKUSI DOWNLOAD DENGAN RENTANG WAKTU ---
   const executeDownloadLaporan = async () => {
     if (!rentangDownload.awal || !rentangDownload.akhir) return alert("Pilih rentang tanggal terlebih dahulu!");
     
     setIsDownloading(true);
     try {
-      // Panggil API khusus dengan parameter rentang tanggal
       const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}`);
       const dataLaporan = await res.json();
 
@@ -164,7 +163,6 @@ export default function ViewJadwalPublic() {
       const tglAwalIndo = format(new Date(rentangDownload.awal), "dd MMMM yyyy", { locale: id });
       const tglAkhirIndo = format(new Date(rentangDownload.akhir), "dd MMMM yyyy", { locale: id });
 
-      // Template HTML Khusus MS Word
       const wordHeader = `
         <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
         <head>
@@ -265,6 +263,14 @@ export default function ViewJadwalPublic() {
   const jumlahHari = getDaysInMonth(new Date(tahun, bulan - 1));
   const daftarHari = Array.from({ length: jumlahHari }, (_, i) => i + 1);
 
+  // MENGELOMPOKKAN DOKTER BERDASARKAN SIMBOL PRAKTIK
+  const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
+    const simbol = dok.simbol_praktik?.trim().toUpperCase() || "LAINNYA";
+    if (!acc[simbol]) acc[simbol] = [];
+    acc[simbol].push(dok);
+    return acc;
+  }, {});
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-900 font-black text-emerald-400 uppercase tracking-[0.5em] text-[10px]">
       <div className="flex flex-col items-center gap-6 animate-pulse text-center">
@@ -294,8 +300,11 @@ export default function ViewJadwalPublic() {
                 </p>
              </div>
           </div>
-          <div className="flex flex-col md:flex-row gap-4">
-            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-8 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
+          <div className="flex flex-wrap gap-4 justify-center">
+            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
+                <Edit3 size={18} /> Ajukan Cuti Staf
+            </button>
+            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
                 <RefreshCw size={18} /> Tukar Asisten
             </button>
             <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner">
@@ -307,160 +316,154 @@ export default function ViewJadwalPublic() {
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 -mt-16 space-y-8">
         
-        {/* FILTER CONTROL */}
+        {/* FILTER CONTROL + DOWNLOAD REKAP (PINDAH KE ATAS) */}
         <div className="bg-white/80 backdrop-blur-xl p-6 rounded-[3rem] shadow-2xl border border-white flex flex-col lg:flex-row gap-6 items-center">
           <div className="flex-1 flex items-center gap-4 bg-slate-100/50 px-8 py-5 rounded-[2rem] w-full border border-slate-100">
             <Search size={22} className="text-slate-400" />
             <input 
               type="text" 
-              placeholder="Cari Dokter atau Poli..." 
+              placeholder="Cari Nama Dokter atau Klinik..." 
               className="bg-transparent border-none outline-none text-xs font-black w-full uppercase"
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="flex gap-4 w-full lg:w-auto">
-            <select value={tanggal} onChange={(e) => setTanggal(parseInt(e.target.value))} className="bg-emerald-600 text-white text-[11px] font-black px-12 py-5 rounded-2xl uppercase shadow-lg">
+          <div className="flex gap-4 w-full lg:w-auto items-center">
+            <select value={tanggal} onChange={(e) => setTanggal(parseInt(e.target.value))} className="bg-emerald-600 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg">
               {daftarHari.map(d => <option key={d} value={d}>Tgl {d}</option>)}
             </select>
-            <select value={bulan} onChange={(e) => setBulan(parseInt(e.target.value))} className="bg-slate-900 text-white text-[11px] font-black px-12 py-5 rounded-2xl uppercase shadow-lg">
+            <select value={bulan} onChange={(e) => setBulan(parseInt(e.target.value))} className="bg-slate-900 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg">
               {namaBulan.map((b, i) => <option key={i} value={i + 1}>{b}</option>)}
             </select>
+            <button 
+              onClick={() => setShowDownloadModal(true)}
+              className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg flex items-center gap-2"
+            >
+              <Download size={14}/> Laporan
+            </button>
           </div>
         </div>
 
-        {/* GRID INPUT PASIEN */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {data?.dokterPraktik?.filter(d => d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase())).map((dok, idx) => (
-            <div key={idx} className={`bg-white p-10 rounded-[4rem] border-2 transition-all shadow-xl relative overflow-hidden group ${dok.isCuti ? 'border-red-100 opacity-60 bg-red-50/20' : 'border-white hover:border-emerald-500 hover:-translate-y-2'}`}>
-              <div className="flex justify-between items-start mb-8 relative z-10">
-                <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-sm shadow-xl ${dok.isCuti ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'}`}>
-                  {dok.simbol_praktik}
-                </div>
-                {dok.jumlah_pasien_poli > 0 && !dok.isCuti && (
-                  <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-3 py-1.5 rounded-full uppercase italic border border-emerald-200 shadow-sm animate-pulse italic">Verified: {dok.jumlah_pasien_poli}</span>
-                )}
-              </div>
-              <h4 className="text-lg font-black text-slate-800 uppercase italic tracking-tighter leading-tight">{dok.nama_dokter}</h4>
-              <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest">{dok.klinik} • {dok.jam_praktik || "Praktik"}</p>
-              
-              {!dok.isCuti ? (
-                <div className="mt-6 space-y-5">
-                  <div className="p-8 rounded-[3rem] border-2 bg-slate-50 border-slate-100">
-                    <p className="text-[8px] font-black text-slate-400 uppercase italic mb-3">Tim Asisten Petugas:</p>
-                    <div className="flex flex-wrap gap-2 mb-6">
-                      {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[10px] font-black uppercase italic text-slate-800 bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm">
-                          <UserCheck size={12} className="text-emerald-500" /> {as.nama}
-                        </div>
-                      )) : <p className="text-xs font-black text-slate-300 italic">--- Belum Ada ---</p>}
-                    </div>
+        {/* GRID UNIT CONTAINER (GROUPED CARD) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {Object.entries(groupedDokter || {}).map(([simbol, listDokter]) => {
+            const filteredDokter = listDokter.filter(d => 
+              d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              d.klinik.toLowerCase().includes(searchTerm.toLowerCase())
+            );
 
-                    <div className="flex gap-3 items-end mt-4 border-t border-slate-200/40 pt-8">
-                      <div className="flex-1">
-                        <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic flex justify-between">
-                          <span>Input Pasien Harian ({dok.simbol_praktik})</span>
-                          {!editMode[idx] ? <span className="text-red-500 flex items-center gap-1"><Lock size={8}/> Terkunci</span> : <span className="text-emerald-500 flex items-center gap-1"><Unlock size={8}/> Terbuka</span>}
-                        </label>
-                        <input 
-                          type="number" 
-                          disabled={!editMode[idx]} 
-                          className={`w-full border-2 rounded-2xl px-5 py-4 text-xs font-black outline-none shadow-inner transition-colors ${!editMode[idx] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900 focus:border-blue-500'}`}
-                          value={inputPasien[idx] || ""}
-                          onChange={(e) => setInputPasien({...inputPasien, [idx]: e.target.value})}
-                          placeholder="Total Hari Ini..."
-                        />
-                      </div>
-                      
-                      {!editMode[idx] ? (
-                        <button 
-                          onClick={() => setEditMode({...editMode, [idx]: true})}
-                          className="p-5 bg-amber-500 text-white rounded-2xl shadow-xl hover:bg-amber-600 transition-all active:scale-95"
-                          title="Edit Jumlah Pasien"
-                        >
-                          <Edit3 size={20} />
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={() => handleUpdatePasienSpesifik(idx)}
-                          disabled={submitting}
-                          className="p-5 bg-blue-600 text-white rounded-2xl shadow-xl hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
-                          title="Simpan Data Pasien"
-                        >
-                          {submitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-                        </button>
-                      )}
+            if (filteredDokter.length === 0) return null;
+
+            return (
+              <div key={simbol} className="bg-white p-8 md:p-10 rounded-[4rem] border-2 border-white shadow-xl space-y-6 relative overflow-hidden">
+                
+                <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] flex justify-between items-center shadow-lg italic">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-md">
+                      {simbol}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-wider">STASIUN UTAMA {simbol}</h3>
+                      <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Sektor Pelayanan Rawat Jalan</p>
                     </div>
                   </div>
+                  <span className="bg-white/10 text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase">
+                    {filteredDokter.length} Dokter Aktif
+                  </span>
                 </div>
-              ) : (
-                <div className="mt-10 p-10 bg-red-50 rounded-[3rem] text-center border-2 border-dashed border-red-200">
-                    <AlertCircle size={40} className="mx-auto text-red-300 mb-4" />
-                    <p className="text-[11px] font-black text-red-600 uppercase italic tracking-widest">Dokter Izin / Berhalangan</p>
+
+                <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                  {filteredDokter.map((dok, idx) => {
+                    const originalIndex = data.dokterPraktik.findIndex(dp => dp.nama_dokter === dok.nama_dokter && dp.klinik === dok.klinik);
+
+                    return (
+                      <div key={idx} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                          <div>
+                            <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 tracking-wider">{dok.klinik} • {dok.jam_praktik || "Jam Pelayanan"}</p>
+                            
+                            {!dok.isCuti && (
+                              <p className="text-[8px] font-black text-blue-600 uppercase mt-2 bg-blue-50 w-fit px-2 py-0.5 rounded border border-blue-100 italic">
+                                Kunjungan Bulan Ini: {dok.total_pasien_bulanan || 0} Pasien
+                              </p>
+                            )}
+                          </div>
+
+                          {dok.jumlah_pasien_poli > 0 && !dok.isCuti && (
+                            <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-3 py-1.5 rounded-full uppercase border border-emerald-200 shadow-sm whitespace-nowrap">Verified: {dok.jumlah_pasien_poli} Pasien</span>
+                          )}
+                        </div>
+
+                        {!dok.isCuti ? (
+                          <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
+                            <div className="flex flex-wrap gap-2">
+                              {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => (
+                                <div key={i} className="flex items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm">
+                                  <UserCheck size={10} className="text-emerald-500" /> {as.nama}
+                                </div>
+                              )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
+                            </div>
+
+                            <div className="flex gap-3 items-end pt-2">
+                              <div className="flex-1">
+                                <div className="flex justify-between items-center mb-1.5 ml-1">
+                                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest italic">Input Kunjungan</span>
+                                  {!editMode[originalIndex] ? <span className="text-[8px] text-red-500 flex items-center gap-0.5 font-bold"><Lock size={8}/> Kunci</span> : <span className="text-[8px] text-emerald-500 flex items-center gap-0.5 font-bold"><Unlock size={8}/> Buka</span>}
+                                </div>
+                                <input 
+                                  type="number" 
+                                  disabled={!editMode[originalIndex]} 
+                                  className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[originalIndex] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
+                                  value={inputPasien[originalIndex] || ""}
+                                  onChange={(e) => setInputPasien({...inputPasien, [originalIndex]: e.target.value})}
+                                  placeholder="Total..."
+                                />
+                              </div>
+                              
+                              {!editMode[originalIndex] ? (
+                                <button 
+                                  onClick={() => setEditMode({...editMode, [originalIndex]: true})}
+                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs"
+                                  title="Edit Data"
+                                >
+                                  <Edit3 size={16} />
+                                </button>
+                              ) : (
+                                <button 
+                                  onClick={() => handleUpdatePasienSpesifik(originalIndex)}
+                                  disabled={submitting}
+                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs"
+                                >
+                                  {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4 p-4 bg-red-50 rounded-2xl text-center border border-dashed border-red-200 flex items-center justify-center gap-2">
+                              <AlertCircle size={14} className="text-red-400" />
+                              <p className="text-[10px] font-black text-red-600 uppercase italic">Dokter Izin / Berhalangan Praktik</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-          ))}
+
+              </div>
+            );
+          })}
         </div>
 
-        {/* PUSAT UNDUHAN LAPORAN BULANAN DENGAN RENTANG WAKTU */}
-        <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-[3.5rem] p-8 md:p-12 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 border border-blue-700">
-          <div className="absolute -left-10 -top-10 opacity-10"><ClipboardList size={200} /></div>
-          <div className="relative z-10 max-w-2xl text-center md:text-left">
-            <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-3 flex items-center justify-center md:justify-start gap-3">
-              <Download size={24} className="text-blue-400"/> Pusat Laporan Kinerja
-            </h3>
-            <p className="text-xs text-blue-200 font-bold leading-relaxed">
-              Sistem akan menghitung ulang beban kerja asisten perawat berdasarkan <b>Bobot Tindakan Klinik</b> (Cth: Bedah/Ortopedi bernilai lebih tinggi). Silakan pilih rentang tanggal laporan untuk dilampirkan pada SKP atau Laporan Kinerja.
-            </p>
-          </div>
-          {/* TOMBOL INI SEKARANG MEMBUKA MODAL TANGGAL */}
-          <button 
-            onClick={() => setShowDownloadModal(true)}
-            className="relative z-10 whitespace-nowrap bg-white text-blue-900 px-10 py-6 rounded-[2rem] font-black uppercase text-sm shadow-xl hover:scale-105 transition-transform flex items-center gap-3 border-b-4 border-blue-200"
-          >
-             <FileText size={20} className="text-blue-600"/> Generate Rekap Data
-          </button>
-        </div>
-
-        {/* BOTTOM SECTION: FORM IZIN & LEADERBOARD */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 items-start">
+        {/* BOTTOM SECTION: LEADERBOARD & MONITOR IZIN */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             
-            <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl border border-white lg:col-span-1">
-                <h3 className="text-sm font-black uppercase text-slate-800 italic mb-8 border-l-8 border-blue-600 pl-4 leading-none flex items-center gap-2">
-                    <Edit3 size={18} className="text-blue-600" /> Pengajuan Izin
-                </h3>
-                <form onSubmit={handleSimpanCutiForm} className="space-y-6">
-                    <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Nama Pelaksana</label>
-                        <select 
-                            name="nama" 
-                            required 
-                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-sm font-black uppercase shadow-inner cursor-pointer appearance-none outline-none focus:border-blue-500 transition-all"
-                        >
-                            <option value="">-- PILIH STAF SDM --</option>
-                            {daftarSDM.map(s => <option key={s.id} value={s.nama}>{s.nama}</option>)}
-                        </select>
-                    </div>
-                    <div className="flex gap-3">
-                        <select name="jenis_cuti" className="w-1/3 bg-slate-900 text-white rounded-2xl px-4 py-5 text-xs font-black uppercase italic shadow-lg">
-                            {["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"].map(o => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                        <input name="alasan" required className="w-2/3 bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-xs font-black uppercase shadow-inner outline-none focus:border-blue-500" placeholder="KEPERLUAN" />
-                    </div>
-                    <div className="flex gap-2">
-                        <input name="tgl_mulai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner" />
-                        <input name="tgl_selesai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner" />
-                    </div>
-                    <button disabled={submitting} type="submit" className="w-full bg-blue-600 text-white py-6 rounded-[2rem] text-[11px] font-black uppercase hover:bg-slate-900 transition-all shadow-2xl active:scale-95 italic tracking-widest">KIRIM PERMINTAAN</button>
-                </form>
-            </div>
-
             <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden border border-slate-100">
                     <div className="bg-slate-900 p-8 text-white flex justify-between items-center italic">
                       <h3 className="text-sm font-black uppercase tracking-widest pl-4 border-l-4 border-emerald-500 flex items-center gap-3">
-                        <TrendingUp size={18} /> Skor Beban Kerja Hari Ini
+                        <TrendingUp size={18} /> Skor Beban Kerja Akumulasi Hari Ini
                       </h3>
                     </div>
                     <table className="w-full text-left">
@@ -480,7 +483,7 @@ export default function ViewJadwalPublic() {
                                       <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
                                     </td>
                                     <td className="p-8 text-center">
-                                      <div className="inline-block px-5 py-3 rounded-2xl bg-slate-900 text-white font-black text-xl shadow-lg italic transition-all group-hover:scale-110">
+                                      <div className="inline-block px-5 py-3 rounded-2xl bg-slate-900 text-white font-black text-xl shadow-lg italic">
                                         {item.total_pasien}
                                       </div>
                                     </td>
@@ -524,67 +527,85 @@ export default function ViewJadwalPublic() {
         </div>
       </div>
 
+      {/* POP-UP CUTI SDM REAL-TIME */}
+      {showCutiModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-blue-600/20">
+            <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-blue-600 pl-4 flex items-center gap-3">
+              <ClipboardList size={24} className="text-blue-600" /> Form Pengajuan Izin
+            </h3>
+            <form onSubmit={handleSimpanCutiForm} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Nama Staf (Real-time)</label>
+                <select 
+                  name="nama" 
+                  required 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-sm font-black uppercase shadow-inner cursor-pointer appearance-none outline-none focus:border-blue-500 transition-all text-slate-800"
+                >
+                  <option value="">-- PILIH STAF SDM --</option>
+                  {daftarSDM.map(s => <option key={s.id} value={s.nama}>{s.nama}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-3">
+                <select name="jenis_cuti" className="w-1/3 bg-slate-900 text-white rounded-2xl px-4 py-5 text-xs font-black uppercase italic shadow-lg">
+                  {["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+                <input name="alasan" required className="w-2/3 bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-xs font-black uppercase shadow-inner outline-none focus:border-blue-500 text-slate-800" placeholder="KEPERLUAN" />
+              </div>
+              <div className="flex gap-2">
+                <input name="tgl_mulai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700" />
+                <input name="tgl_selesai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700" />
+              </div>
+              <div className="flex gap-4 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setShowCutiModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
+                <button disabled={submitting} type="submit" className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-800">KIRIM FORM</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SWAP ASISTEN */}
       {showSwap && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-500/20">
             <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-emerald-500 pl-4 flex items-center gap-3">
               <RefreshCw size={24} className="text-emerald-500" /> Manajemen Tukar Tugas
             </h3>
-            
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Perawat A (Asal)</label>
                 <select 
                   value={swapData.sdmA} 
                   onChange={(e) => setSwapData({...swapData, sdmA: e.target.value})} 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 transition-all shadow-inner"
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
                 >
                   <option value="">-- PILIH SEMUA PERAWAT DINAS --</option>
                   {data?.leaderboard?.map((item) => (
-                    <option key={`swap-A-${item.id}`} value={item.id}>
-                      {item.nama} (Tugas: {item.detail_poli || "Cadangan"})
-                    </option>
+                    <option key={`swap-A-${item.id}`} value={item.id}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
                   ))}
                 </select>
               </div>
-
               <div className="flex justify-center py-2 relative">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t-2 border-dashed border-slate-100"></div></div>
-                <div className="relative bg-white p-2 rounded-full border-2 border-emerald-500 shadow-lg">
-                   <ArrowLeftRight size={24} className="text-emerald-500 animate-pulse" />
-                </div>
+                <div className="relative bg-white p-2 rounded-full border-2 border-emerald-500 shadow-lg"><ArrowLeftRight size={24} className="text-emerald-500 animate-pulse" /></div>
               </div>
-
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Perawat B (Tujuan)</label>
                 <select 
                   value={swapData.sdmB} 
                   onChange={(e) => setSwapData({...swapData, sdmB: e.target.value})} 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 transition-all shadow-inner"
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
                 >
                   <option value="">-- PILIH SEMUA PERAWAT DINAS --</option>
                   {data?.leaderboard?.map((item) => (
-                    <option key={`swap-B-${item.id}`} value={item.id}>
-                      {item.nama} (Tugas: {item.detail_poli || "Cadangan"})
-                    </option>
+                    <option key={`swap-B-${item.id}`} value={item.id}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
                   ))}
                 </select>
               </div>
-
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button 
-                  onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} 
-                  className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors"
-                >
-                  Batal
-                </button>
-                <button 
-                  onClick={handleSwapDB} 
-                  disabled={submitting || !swapData.sdmA || !swapData.sdmB} 
-                  className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700"
-                >
-                  {submitting ? "SINGKRONISASI..." : "EKSEKUSI TUKAR"}
-                </button>
+                <button onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
+                <button onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>
@@ -598,40 +619,18 @@ export default function ViewJadwalPublic() {
             <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-blue-500 pl-4 flex items-center gap-3">
               <CalendarRange size={24} className="text-blue-500" /> Filter Data Laporan
             </h3>
-            
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Mulai (Awal)</label>
-                <input 
-                  type="date"
-                  value={rentangDownload.awal}
-                  onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})}
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
-                />
+                <input type="date" value={rentangDownload.awal} onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700" />
               </div>
-
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Selesai (Akhir)</label>
-                <input 
-                  type="date"
-                  value={rentangDownload.akhir}
-                  onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})}
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
-                />
+                <input type="date" value={rentangDownload.akhir} onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700" />
               </div>
-
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button 
-                  onClick={() => setShowDownloadModal(false)} 
-                  className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors"
-                >
-                  Batal
-                </button>
-                <button 
-                  onClick={executeDownloadLaporan} 
-                  disabled={isDownloading} 
-                  className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2"
-                >
+                <button onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
+                <button onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2">
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
                 </button>

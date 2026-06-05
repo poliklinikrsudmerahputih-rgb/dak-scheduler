@@ -1,26 +1,19 @@
+import { turso } from "@/lib/turso"; // Menggunakan koneksi terpusat
 import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
 import bcrypt from "bcrypt";
-
-// Konfigurasi Client Turso
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
 
 export async function POST(req) {
   try {
-    // TAMBAHAN: Kita membutuhkan 'kode_rs' dari form frontend
-    const { kode_rs, nama, username, password, pertanyaan, jawaban } = await req.json();
+    // 1. Menambahkan kolom 'ruangan' ke dalam tangkapan form
+    const { kode_rs, ruangan, nama, username, password, pertanyaan, jawaban } = await req.json();
 
-    // 1. Validasi Input Dasar
-    if (!kode_rs || !nama || !username || !password || !pertanyaan || !jawaban) {
+    // Validasi Input Dasar
+    if (!kode_rs || !ruangan || !nama || !username || !password || !pertanyaan || !jawaban) {
       return NextResponse.json({ success: false, error: "Semua kolom wajib diisi!" }, { status: 400 });
     }
 
     // 2. Cek Validitas Kode Rumah Sakit
-    // Kita pastikan RS tersebut memang terdaftar di sistem pusat
-    const checkHospital = await client.execute({
+    const checkHospital = await turso.execute({
       sql: "SELECT id, nama_rs FROM hospitals WHERE kode_rs = ?",
       args: [kode_rs.toUpperCase()]
     });
@@ -32,7 +25,7 @@ export async function POST(req) {
     const hospitalId = checkHospital.rows[0].id;
 
     // 3. Cek apakah Username sudah terpakai
-    const checkUser = await client.execute({
+    const checkUser = await turso.execute({
       sql: "SELECT id FROM users WHERE username = ?",
       args: [username.toLowerCase()]
     });
@@ -45,12 +38,13 @@ export async function POST(req) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const hashedJawaban = await bcrypt.hash(jawaban.toLowerCase(), 10);
 
-    // 5. Simpan ke Database Turso dengan menyertakan hospital_id
-    await client.execute({
-      sql: `INSERT INTO users (hospital_id, nama, username, password, role, pertanyaan_keamanan, jawaban_keamanan) 
-            VALUES (?, ?, ?, ?, 'admin', ?, ?)`,
+    // 5. Simpan ke Database Turso dengan menyertakan hospital_id DAN ruangan
+    await turso.execute({
+      sql: `INSERT INTO users (hospital_id, ruangan, nama, username, password, role, pertanyaan_keamanan, jawaban_keamanan) 
+            VALUES (?, ?, ?, ?, ?, 'admin', ?, ?)`,
       args: [
         hospitalId,
+        ruangan.toUpperCase(), // Menyimpan isolasi unit kerja
         nama.toUpperCase(), 
         username.toLowerCase(), 
         hashedPassword, 
@@ -61,7 +55,7 @@ export async function POST(req) {
 
     return NextResponse.json({ 
       success: true, 
-      message: `Akun Karu berhasil dibuat untuk ${checkHospital.rows[0].nama_rs}` 
+      message: `Akun Karu unit ${ruangan.toUpperCase()} berhasil dibuat untuk ${checkHospital.rows[0].nama_rs}` 
     });
 
   } catch (error) {

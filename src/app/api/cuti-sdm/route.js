@@ -28,7 +28,7 @@ export async function GET() {
      * PERBAIKAN QUERY (UTUH & DETAIL):
      * - Menarik semua pengajuan: Menunggu, Disetujui, maupun Ditolak.
      * - RLS Tetap Aman: Hanya menampilkan data sesuai ruangan user login.
-     * - Penyelamat Data: Menampilkan data yang kolom 'ruangan'-nya NULL atau Kosong.
+     * - Penyelamat Data: Mengunci pencarian menggunakan UPPER & TRIM agar 'icu' dan 'ICU' tetap sinkron.
      * - JOIN SDM: Menarik nomor WhatsApp (untuk fitur hubungi staf jika diperlukan).
      * - Sorting: Berdasarkan tanggal_input terbaru agar pengajuan baru langsung muncul di monitor.
      */
@@ -45,9 +45,7 @@ export async function GET() {
         s.no_wa
       FROM cuti_sdm c
       LEFT JOIN sdm s ON c.nama_sdm = s.nama
-      WHERE c.ruangan = ? 
-      OR c.ruangan IS NULL 
-      OR c.ruangan = ''
+      WHERE UPPER(TRIM(c.ruangan)) = UPPER(TRIM(?))
       GROUP BY c.id
       ORDER BY c.tanggal_input DESC
     `;

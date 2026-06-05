@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 
 // ====================================================================
-// 1. FUNGSI GET (Mengambil Data Dokter untuk ditampilkan di Frontend)
+// 1. FUNGSI GET (Mengambil Data Dokter - ISOLASI KETAT PER RUANGAN)
 // ====================================================================
 export async function GET() {
   try {
@@ -19,20 +19,14 @@ export async function GET() {
     const userData = JSON.parse(session.value);
     const userRuangan = userData.ruangan || "POLIKLINIK";
 
-    /**
-     * QUERY SUPER SIMPEL:
-     * Kita tarik data apa adanya, tetapi langsung kita urutkan berdasarkan 'simbol_praktik'.
-     * Pengelompokan Ners 3, Ners 4, dll akan diproses oleh kecerdasan di halaman view-jadwal.
-     */
+    // PERBAIKAN: Kunci query hanya untuk ruangan yang sesuai dengan user yang login
     const result = await turso.execute({
       sql: `
         SELECT * FROM master_dokter 
         WHERE ruangan = ? 
-        OR ruangan IS NULL 
-        OR ruangan = '' 
         ORDER BY simbol_praktik ASC, nama_dokter ASC
       `,
-      args: [userRuangan]
+      args: [userRuangan.toUpperCase()]
     });
 
     return NextResponse.json(result.rows);
@@ -51,15 +45,26 @@ export async function GET() {
 }
 
 // ====================================================================
-// 2. FUNGSI PATCH (Menyimpan & Mengunci Jumlah Pasien - FIX DOKTER KADE)
+// 2. FUNGSI PATCH (Menyimpan & Mengunci Jumlah Pasien - DENGAN PROTEKSI LOGIN)
 // ====================================================================
 export async function PATCH(request) {
   try {
+    // PERBAIKAN KEAMANAN: Validasi sesi cookie sebelum memproses data pasien
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+
+    if (!session) {
+      return NextResponse.json({ error: "Akses ditolak. Silakan login terlebih dahulu." }, { status: 401 });
+    }
+
     const body = await request.json();
     const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body;
 
+    if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {
+      return NextResponse.json({ error: "Data parameter input tidak lengkap." }, { status: 400 });
+    }
+
     // FITUR ANTI-ERROR: Bersihkan spasi berlebih dengan TRIM dan UPPERCASE 
-    // agar database tidak tertipu oleh spasi nyasar saat mencocokkan nama
     const cleanNama = nama_dokter.trim().toUpperCase();
     const cleanKlinik = klinik.trim().toUpperCase();
 
@@ -83,7 +88,7 @@ export async function PATCH(request) {
       await turso.execute({
         sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, tanggal, bulan, tahun, jumlah) 
               VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [nama_dokter, klinik, tanggal, bulan, tahun, jumlah]
+        args: [cleanNama, cleanKlinik, tanggal, bulan, tahun, jumlah]
       });
     }
 

@@ -4,11 +4,27 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
 /**
+ * Fungsi Internal: Validasi Sesi dan Ruangan
+ * Digunakan berulang untuk memastikan keamanan pada setiap tindakan
+ */
+async function getAuthSession() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session_dak_pro");
+  if (!session) return null;
+  
+  try {
+    const userData = JSON.parse(session.value);
+    return userData.ruangan || "POLIKLINIK";
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fungsi Utama: Menyimpan atau Memperbarui Cuti/Izin SDM
- * Ditambahkan logika Ruangan (RLS) dan penanganan Mode Edit
  */
 export async function simpanCuti(formData) {
-  const id = formData.get("id"); // Penting untuk logika Edit
+  const id = formData.get("id"); 
   const nama = formData.get("nama");
   const jenis_cuti = formData.get("jenis_cuti");
   const tgl_mulai = formData.get("tgl_mulai");
@@ -17,32 +33,27 @@ export async function simpanCuti(formData) {
   const tgl_input = new Date().toISOString();
 
   try {
-    // 1. Ambil Informasi Ruangan dari Sesi Login
-    const cookieStore = await cookies();
-    const session = cookieStore.get("session_dak_pro");
-    if (!session) return { success: false, error: "Sesi habis, silakan login ulang." };
-    
-    const userData = JSON.parse(session.value);
-    const userRuangan = userData.ruangan || "POLIKLINIK";
+    // 1. Validasi Keamanan Lapis Pertama
+    const userRuangan = await getAuthSession();
+    if (!userRuangan) return { success: false, error: "Sesi habis, silakan login ulang." };
 
     if (id) {
-      // 2a. MODE EDIT
+      // 2a. MODE EDIT (Terikat pada ruangan pengubah)
       await turso.execute({
         sql: `UPDATE cuti_sdm 
               SET nama_sdm = ?, jenis_cuti = ?, tgl_mulai = ?, tgl_selesai = ?, alasan = ?, ruangan = ?
               WHERE id = ?`,
-        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, userRuangan, id]
+        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, userRuangan.toUpperCase(), id]
       });
     } else {
-      // 2b. MODE BARU (INSERT)
+      // 2b. MODE BARU (Mengunci pengajuan baru ke ruangan yang aktif)
       await turso.execute({
         sql: `INSERT INTO cuti_sdm (nama_sdm, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tanggal_input, status_acc, ruangan) 
               VALUES (?, ?, ?, ?, ?, ?, 'Menunggu', ?)`,
-        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tgl_input, userRuangan]
+        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tgl_input, userRuangan.toUpperCase()]
       });
     }
 
-    // 3. Segarkan cache agar Master SDM dan Cuti SDM terupdate
     revalidatePath("/cuti-sdm");
     revalidatePath("/sdm"); 
     return { success: true };
@@ -57,13 +68,17 @@ export async function simpanCuti(formData) {
  */
 export async function updateStatusCuti(id, status) {
   try {
+    const userRuangan = await getAuthSession();
+    if (!userRuangan) return { success: false, error: "Sesi habis." };
+
+    // PERBAIKAN: Mengunci wewenang ACC hanya pada data cuti di ruangan sendiri
     await turso.execute({
-      sql: "UPDATE cuti_sdm SET status_acc = ? WHERE id = ?",
-      args: [status, id]
+      sql: "UPDATE cuti_sdm SET status_acc = ? WHERE id = ? AND UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
+      args: [status, id, userRuangan]
     });
     
     revalidatePath("/cuti-sdm");
-    revalidatePath("/sdm"); // Agar lampu merah di Master SDM langsung nyala setelah di-ACC
+    revalidatePath("/sdm"); 
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -75,10 +90,15 @@ export async function updateStatusCuti(id, status) {
  */
 export async function hapusCuti(id) {
   try {
+    const userRuangan = await getAuthSession();
+    if (!userRuangan) return { success: false, error: "Sesi habis." };
+
+    // PERBAIKAN: Mencegah Karu menghapus data milik ruangan lain
     await turso.execute({
-      sql: "DELETE FROM cuti_sdm WHERE id = ?",
-      args: [id]
+      sql: "DELETE FROM cuti_sdm WHERE id = ? AND UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
+      args: [id, userRuangan]
     });
+
     revalidatePath("/cuti-sdm");
     revalidatePath("/sdm");
     return { success: true };

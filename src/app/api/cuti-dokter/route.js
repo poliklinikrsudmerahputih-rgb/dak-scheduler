@@ -11,14 +11,19 @@ export async function GET() {
     const session = cookieStore.get("session_dak_pro");
     if (!session) return NextResponse.json([]);
 
-    const userData = JSON.parse(session.value);
-    const userRuangan = userData.ruangan || "POLIKLINIK";
+    let userRuangan = "POLIKLINIK";
+    try {
+      const userData = JSON.parse(session.value);
+      userRuangan = userData.ruangan || "POLIKLINIK";
+    } catch (e) {
+      console.warn("Format cookie lama terdeteksi");
+    }
 
     /**
-     * PERBAIKAN QUERY:
-     * - Menggunakan TRIM() dan UPPER() pada pencocokan nama dokter di LEFT JOIN
-     * - Menggunakan TRIM() pada field tanggal agar aman dari spasi tersembunyi
-     * - Memastikan filter ruangan juga kebal terhadap perbedaan huruf besar/kecil
+     * PERBAIKAN KETAT QUERY:
+     * - Menghapus klausa longgar (OR IS NULL / OR = '') untuk mengunci isolasi per ruangan.
+     * - Fungsi TRIM() dan UPPER() tetap dipertahankan untuk membersihkan spasi tersembunyi
+     * serta menghindari duplikasi akibat salah ketik kapitalisasi nama dokter.
      */
     const query = `
       SELECT 
@@ -33,9 +38,7 @@ export async function GET() {
       FROM cuti_dokter c
       LEFT JOIN master_dokter d ON TRIM(UPPER(c.nama_dokter)) = TRIM(UPPER(d.nama_dokter))
       WHERE TRIM(UPPER(c.ruangan)) = TRIM(UPPER(?)) 
-      OR c.ruangan IS NULL 
-      OR c.ruangan = ''
-      GROUP BY c.id -- Menghindari duplikat jika dokter punya banyak jadwal praktik
+      GROUP BY c.id
       ORDER BY date(TRIM(c.tgl_mulai)) DESC
     `;
 

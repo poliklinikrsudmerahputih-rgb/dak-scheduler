@@ -1,20 +1,24 @@
-import { createClient } from "@libsql/client";
+import { turso } from "@/lib/turso"; // Menggunakan koneksi terpusat
 import { NextResponse } from "next/server";
-
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+import bcrypt from "bcrypt"; // Tambahkan untuk enkripsi password
 
 export async function POST(req) {
   try {
-    // 1. Tangkap data dari Form (Termasuk 'ruangan' yang baru kita tambahkan)
-    const { nama, username, password, ruangan, pertanyaan, jawaban } = await req.json();
+    // 1. Tangkap data dari Form (Termasuk variabel ruangan dan keamanan)
+    const { nama, username, password, ruangan, role, pertanyaan, jawaban } = await req.json();
 
-    // 2. Cek apakah username sudah ada
-    const existingUser = await client.execute({
+    // Validasi data wajib isi
+    if (!nama || !username || !password || !ruangan) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Kolom nama, username, password, dan ruangan wajib diisi!" 
+      }, { status: 400 });
+    }
+
+    // 2. Cek apakah username sudah ada (Gunakan lowercase agar pencarian akurat)
+    const existingUser = await turso.execute({
       sql: "SELECT id FROM users WHERE username = ?",
-      args: [username]
+      args: [username.toLowerCase()]
     });
 
     if (existingUser.rows.length > 0) {
@@ -24,9 +28,12 @@ export async function POST(req) {
       }, { status: 400 });
     }
 
-    // 3. Simpan ke tabel USERS dengan kolom RUANGAN (Sangat Penting!)
-    // Pastikan urutan kolom dan urutan args sama persis
-    await client.execute({
+    // 3. Enkripsi (Hashing) Password & Jawaban Keamanan
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedJawaban = jawaban ? await bcrypt.hash(jawaban.toLowerCase(), 10) : null;
+
+    // 4. Simpan ke tabel USERS dengan pemisahan RUANGAN
+    await turso.execute({
       sql: `INSERT INTO users (
         nama, 
         username, 
@@ -37,13 +44,13 @@ export async function POST(req) {
         jawaban_keamanan
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        nama, 
-        username, 
-        password, 
-        ruangan || "POLIKLINIK", // Beri default jika user lupa pilih
-        "admin", 
-        pertanyaan, 
-        jawaban
+        nama.toUpperCase(), 
+        username.toLowerCase(), 
+        hashedPassword, 
+        ruangan.toUpperCase(), // Mengunci unit kerja (POLIKLINIK, IGD, ICU, dll)
+        role || "admin_ruangan", 
+        pertanyaan || null, 
+        hashedJawaban
       ]
     });
 

@@ -1,42 +1,64 @@
-import { createClient } from "@libsql/client";
+import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
-
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+import bcrypt from "bcrypt"; // Wajib untuk membongkar dan membuat sandi acak
 
 export async function POST(req) {
   try {
     const { username, jawaban, passwordBaru } = await req.json();
 
-    // 1. Verifikasi apakah Username dan Jawaban Rahasia cocok di tabel USERS (Bukan SDM)
-    const result = await client.execute({
-      sql: "SELECT id FROM users WHERE username = ? AND jawaban_keamanan = ?",
-      args: [username, jawaban]
+    if (!username || !jawaban || !passwordBaru) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Formulir tidak lengkap!" 
+      }, { status: 400 });
+    }
+
+    // 1. Cari user di database berdasarkan Username (Wajib Lowercase)
+    const result = await turso.execute({
+      sql: "SELECT id, jawaban_keamanan FROM users WHERE username = ?",
+      args: [username.toLowerCase()]
     });
 
-    // 2. Jika tidak ditemukan yang cocok
+    // Jika username tidak terdaftar
     if (result.rows.length === 0) {
       return NextResponse.json({ 
         success: false, 
-        error: "Verifikasi Gagal: ID Pegawai atau Jawaban Salah!" 
+        error: "Verifikasi Gagal: ID Pegawai tidak ditemukan!" 
       }, { status: 401 });
     }
 
-    // 3. Jika cocok, update password di tabel USERS
-    await client.execute({
-      sql: "UPDATE users SET password = ? WHERE username = ?",
-      args: [passwordBaru, username]
+    const user = result.rows[0];
+
+    // 2. Verifikasi Jawaban Keamanan menggunakan bcrypt.compare
+    // Mencocokkan jawaban yang diketik (lowercase) dengan jawaban acak di database
+    const isJawabanValid = await bcrypt.compare(jawaban.toLowerCase(), user.jawaban_keamanan);
+
+    if (!isJawabanValid) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Verifikasi Gagal: Jawaban Keamanan Anda salah!" 
+      }, { status: 401 });
+    }
+
+    // 3. Enkripsi (Hash) Password Baru sebelum disimpan
+    const hashedPasswordBaru = await bcrypt.hash(passwordBaru, 10);
+
+    // 4. Update Password di tabel USERS dengan sandi yang sudah aman
+    await turso.execute({
+      sql: "UPDATE users SET password = ? WHERE id = ?",
+      args: [hashedPasswordBaru, user.id]
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ 
+      success: true,
+      message: "Kata sandi berhasil dipulihkan."
+    });
 
   } catch (error) {
     console.error("Recovery Error:", error);
     return NextResponse.json({ 
       success: false, 
-      error: "Gagal terhubung ke DAK-Database. Cek koneksi Turso." 
+      error: "Gagal memproses pemulihan ke database DAK." 
     }, { status: 500 });
   }
 }

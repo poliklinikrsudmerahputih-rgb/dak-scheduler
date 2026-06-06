@@ -14,12 +14,10 @@ export async function GET(request) {
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
     
-    // SET DEFAULT AGAR SHARE LINK TIDAK KOSONG
     let userRuangan = "POLIKLINIK"; 
     const paramRuangan = searchParams.get("ruangan");
 
     if (session) {
-      // Jika sedang login, gunakan ruangan milik Karu tersebut
       try {
         const userData = JSON.parse(session.value);
         userRuangan = userData.ruangan || "POLIKLINIK";
@@ -27,38 +25,36 @@ export async function GET(request) {
         console.warn("Format cookie lama terdeteksi");
       }
     } else if (paramRuangan) {
-      // Jika tidak login, tapi URL memuat parameter ruangan, gunakan parameter itu
       userRuangan = paramRuangan;
     }
-    // CATATAN: Blok penolakan akses (401) sudah dihapus di sini
-    // Jika tidak login dan tidak ada parameter, sistem akan aman menampilkan "POLIKLINIK"
 
     const kunciRuangan = userRuangan.toUpperCase();
 
-    // Parameter Default (Harian)
-    const pTanggal = parseInt(searchParams.get("tanggal")) || new Date().getDate();
-    const pBulan = parseInt(searchParams.get("bulan")) || (new Date().getMonth() + 1);
-    const pTahun = parseInt(searchParams.get("tahun")) || new Date().getFullYear();
+    // Parameter Default (Harian) dipastikan berformat Angka
+    const pTanggal = Number(searchParams.get("tanggal")) || new Date().getDate();
+    const pBulan = Number(searchParams.get("bulan")) || (new Date().getMonth() + 1);
+    const pTahun = Number(searchParams.get("tahun")) || new Date().getFullYear();
 
-    // Parameter Khusus Download Laporan
     const tglAwal = searchParams.get("tglAwal"); 
     const tglAkhir = searchParams.get("tglAkhir"); 
     const isModeLaporan = tglAwal && tglAkhir;
 
-    let queryTglAwal, queryTglAkhir, formatTglTarget, namaHariIndo;
+    let queryTglAwalBulan, queryTglAkhirBulan, formatTglTarget, namaHariIndo;
 
+    const targetDate = new Date(pTahun, pBulan - 1, pTanggal);
+    formatTglTarget = format(targetDate, "yyyy-MM-dd");
+    namaHariIndo = format(targetDate, "eeee", { locale: id });
+
+    // FIX: Mengambil data SEBULAN PENUH untuk keperluan akumulasi Leaderboard
     if (isModeLaporan) {
-      queryTglAwal = tglAwal;
-      queryTglAkhir = tglAkhir;
+      queryTglAwalBulan = tglAwal;
+      queryTglAkhirBulan = tglAkhir;
     } else {
-      const targetDate = new Date(pTahun, pBulan - 1, pTanggal);
-      formatTglTarget = format(targetDate, "yyyy-MM-dd");
-      namaHariIndo = format(targetDate, "eeee", { locale: id });
-      queryTglAwal = formatTglTarget;
-      queryTglAkhir = formatTglTarget;
+      queryTglAwalBulan = format(new Date(pTahun, pBulan - 1, 1), "yyyy-MM-dd");
+      queryTglAkhirBulan = format(new Date(pTahun, pBulan, 0), "yyyy-MM-dd");
     }
 
-    // 2. Ambil Summary Statis (Terkunci per Ruangan)
+    // 2. Ambil Summary Statis
     const sdmCount = await turso.execute({
       sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
       args: [kunciRuangan]
@@ -68,26 +64,26 @@ export async function GET(request) {
       args: [kunciRuangan]
     });
 
-    // 3. Ambil Jadwal Perawat (Terkunci per Ruangan)
+    // 3. Ambil Jadwal Perawat (DITARIK SEBULAN PENUH)
     const resJadwal = await turso.execute({
       sql: `SELECT j.*, s.nama 
             FROM jadwal_dinas j 
             JOIN sdm s ON j.sdm_id = s.id 
             WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?))
             AND date(printf('%04d-%02d-%02d', j.tahun, j.bulan, j.tanggal)) BETWEEN ? AND ?`,
-      args: [kunciRuangan, queryTglAwal, queryTglAkhir]
+      args: [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan]
     });
-    const semuaJadwal = resJadwal.rows;
+    const semuaJadwalBulanIni = resJadwal.rows;
 
-    // 4. Ambil Data Pasien Poli
+    // 4. Ambil Data Pasien Poli (DITARIK SEBULAN PENUH)
     const resPasienPoli = await turso.execute({
       sql: `SELECT * FROM jumlah_pasien_poli 
             WHERE date(printf('%04d-%02d-%02d', tahun, bulan, tanggal)) BETWEEN ? AND ?`,
-      args: [queryTglAwal, queryTglAkhir]
+      args: [queryTglAwalBulan, queryTglAkhirBulan]
     });
-    const dataPasienPoli = resPasienPoli.rows;
+    const dataPasienBulanIni = resPasienPoli.rows;
 
-    // 5. Ambil Data Cuti SDM & Dokter (Terkunci per Ruangan)
+    // 5. Ambil Data Cuti SDM & Dokter
     const [resSdmCuti, resDokterCuti] = await Promise.all([
       turso.execute({
         sql: `SELECT * FROM cuti_sdm 
@@ -104,45 +100,47 @@ export async function GET(request) {
       })
     ]);
 
-    // 6. Ambil Master Dokter (Terkunci per Ruangan)
-    let resMasterDokter;
+    // 6. Ambil Master Dokter
+    const resMasterDokterAll = await turso.execute({
+      sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
+      args: [kunciRuangan]
+    });
+
+    let resMasterDokterHariIni;
     if (isModeLaporan) {
-      resMasterDokter = await turso.execute({
-        sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
-        args: [kunciRuangan]
-      });
+      resMasterDokterHariIni = resMasterDokterAll;
     } else {
-      resMasterDokter = await turso.execute({
+      resMasterDokterHariIni = await turso.execute({
         sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND jadwal_hari = ?",
         args: [kunciRuangan, namaHariIndo]
       });
     }
 
-    const getSimbolGrup = (jadwalSimbol) => {
+    const getSimbolGrupHariIni = (jadwalSimbol) => {
       if (!jadwalSimbol) return "LAINNYA";
       let jSimbol = jadwalSimbol.trim().toUpperCase();
-      let docMatch = resMasterDokter.rows.find(md => 
+      let docMatch = resMasterDokterHariIni.rows.find(md => 
         md.klinik.trim().toUpperCase() === jSimbol || 
         md.simbol_praktik.trim().toUpperCase() === jSimbol
       );
       return docMatch ? docMatch.simbol_praktik.trim().toUpperCase() : jSimbol;
     };
 
-    const dokterPraktik = resMasterDokter.rows.map(dok => {
-      const recordPasienHarian = !isModeLaporan ? dataPasienPoli.find(p => 
+    const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
+      const recordPasienHarian = !isModeLaporan ? dataPasienBulanIni.find(p => 
         p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
         p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase() && 
-        p.tanggal === pTanggal
+        Number(p.tanggal) === pTanggal
       ) : null;
 
-      const listPasienRentang = dataPasienPoli.filter(p => 
+      const listPasienRentang = dataPasienBulanIni.filter(p => 
         p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
         p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase()
       );
-      const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (item.jumlah || 0), 0);
+      const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
-      const timHarian = !isModeLaporan ? semuaJadwal.filter(j => 
-        j.tanggal === pTanggal && getSimbolGrup(j.simbol) === dok.simbol_praktik.trim().toUpperCase()
+      const timHarian = !isModeLaporan ? semuaJadwalBulanIni.filter(j => 
+        Number(j.tanggal) === pTanggal && getSimbolGrupHariIni(j.simbol) === dok.simbol_praktik.trim().toUpperCase()
       ) : [];
 
       const isCuti = !isModeLaporan ? resDokterCuti.rows.some(c => 
@@ -153,73 +151,108 @@ export async function GET(request) {
       return {
         ...dok,
         isCuti,
-        jumlah_pasien_poli: recordPasienHarian ? recordPasienHarian.jumlah : 0, 
+        jumlah_pasien_poli: recordPasienHarian ? Number(recordPasienHarian.jumlah) : 0, 
         total_pasien_bulanan: totalPasienRentang, 
         timAsisten: timHarian.map(t => ({ id: t.sdm_id, nama: t.nama }))
       };
     });
 
     /**
-     * FIX LOGIKA RISET: Perhitungan Murni Angka Pasien (Tanpa Bobot)
+     * ALGORITMA BARU: Kalkulasi Poin yang Benar dan Dibagi Rata Sesuai Jumlah Asisten
      */
-    const perawatUnik = [...new Set(semuaJadwal.map(j => j.sdm_id))];
-    const leaderboardBeban = perawatUnik.map(idSdm => {
-      const infoSdm = semuaJadwal.find(j => j.sdm_id === idSdm);
-      let totalBeban = 0;
-      const daftarPoliDibantu = new Set(); 
+    const getSimbolGrupGlobal = (jadwalSimbol) => {
+      if (!jadwalSimbol) return "LAINNYA";
+      let jSimbol = jadwalSimbol.trim().toUpperCase();
+      let docMatch = resMasterDokterAll.rows.find(md => 
+        md.klinik.trim().toUpperCase() === jSimbol || 
+        md.simbol_praktik.trim().toUpperCase() === jSimbol
+      );
+      return docMatch ? docMatch.simbol_praktik.trim().toUpperCase() : jSimbol;
+    };
 
-      const riwayatJadwalSdm = semuaJadwal.filter(j => j.sdm_id === idSdm);
+    // Langkah 1: Buat Dictionary (Kamus) Poin Global Per Hari Per Stasiun
+    const dailyPointsDict = {}; 
+    
+    // a. Kumpulkan total kunjungan pasien per grup simbol (e.g., Semua pasien NERS 3 hari itu)
+    dataPasienBulanIni.forEach(p => {
+        const dokMatch = resMasterDokterAll.rows.find(md => 
+            md.nama_dokter.trim().toUpperCase() === p.nama_dokter.trim().toUpperCase() && 
+            md.klinik.trim().toUpperCase() === p.klinik.trim().toUpperCase()
+        );
+        const simbol = dokMatch ? dokMatch.simbol_praktik.trim().toUpperCase() : "LAINNYA";
+        const dateKey = `${Number(p.tahun)}-${Number(p.bulan)}-${Number(p.tanggal)}_${simbol}`;
+        
+        if (!dailyPointsDict[dateKey]) {
+            dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
+        }
+        dailyPointsDict[dateKey].totalPasien += Number(p.jumlah);
+    });
+
+    // b. Hitung berapa jumlah asisten perawat di masing-masing grup simbol hari itu
+    semuaJadwalBulanIni.forEach(j => {
+        const simbol = getSimbolGrupGlobal(j.simbol);
+        const dateKey = `${Number(j.tahun)}-${Number(j.bulan)}-${Number(j.tanggal)}_${simbol}`;
+        
+        if (!dailyPointsDict[dateKey]) {
+            dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
+        }
+        dailyPointsDict[dateKey].jumlahAsisten += 1;
+    });
+
+    // c. Kalkulasi poin akhir = Total Pasien Grup / Jumlah Asisten Grup
+    for (const key in dailyPointsDict) {
+        const data = dailyPointsDict[key];
+        const asisten = data.jumlahAsisten > 0 ? data.jumlahAsisten : 1;
+        data.poin = Math.round(data.totalPasien / asisten);
+    }
+
+    // Langkah 2: Distribusikan Poin yang Sudah Dihitung Rata ke Masing-Masing Perawat
+    const perawatUnik = [...new Set(semuaJadwalBulanIni.map(j => j.sdm_id))];
+    const leaderboardBeban = perawatUnik.map(idSdm => {
+      const infoSdm = semuaJadwalBulanIni.find(j => j.sdm_id === idSdm);
+      let totalBebanBulanan = 0;
+      let totalBebanHariIni = 0;
+      const daftarPoliDibantuHariIni = new Set(); 
+
+      const riwayatJadwalSdm = semuaJadwalBulanIni.filter(j => j.sdm_id === idSdm);
 
       riwayatJadwalSdm.forEach(jadwal => {
-        const targetSimbolGroup = getSimbolGrup(jadwal.simbol);
-
-        const daftarDokterSatuSimbol = resMasterDokter.rows.filter(md => 
-          md.simbol_praktik.trim().toUpperCase() === targetSimbolGroup
-        );
+        const targetSimbolGroup = getSimbolGrupGlobal(jadwal.simbol);
+        const dateKey = `${Number(jadwal.tahun)}-${Number(jadwal.bulan)}-${Number(jadwal.tanggal)}_${targetSimbolGroup}`;
         
-        if (daftarDokterSatuSimbol.length > 0) {
-          let totalPasienMurniStasiunHariIni = 0;
+        // Ambil poin harian yang sudah dibagi dari Dictionary
+        const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poin : 0;
+        
+        totalBebanBulanan += poinHarian;
 
-          daftarDokterSatuSimbol.forEach(dok => {
-            daftarPoliDibantu.add(dok.klinik.trim().toUpperCase());
-
-            const kunjunganHariItu = dataPasienPoli.find(p => 
-              p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
-              p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase() &&
-              p.tanggal === jadwal.tanggal && 
-              p.bulan === jadwal.bulan && 
-              p.tahun === jadwal.tahun
-            );
-
-            if (kunjunganHariItu && kunjunganHariItu.jumlah > 0) {
-              totalPasienMurniStasiunHariIni += kunjunganHariItu.jumlah; 
+        // Identifikasi jadwal khusus HARI INI
+        if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
+            totalBebanHariIni += poinHarian;
+            
+            // PERBAIKAN: Penulisan nama poli harian dibuat rapi dan tidak berderet
+            if (targetSimbolGroup.startsWith('NERS')) {
+                daftarPoliDibantuHariIni.add(targetSimbolGroup); // Hasilnya: "NERS 3"
+            } else {
+                const namaPoliBersih = targetSimbolGroup.replace('POLI', '').trim();
+                daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); // Hasilnya: "POLI GIGI"
             }
-          });
-
-          const jumlahAsistenHariItu = semuaJadwal.filter(j => 
-            getSimbolGrup(j.simbol) === targetSimbolGroup && 
-            j.tanggal === jadwal.tanggal && 
-            j.bulan === jadwal.bulan && 
-            j.tahun === jadwal.tahun
-          ).length || 1;
-
-          totalBeban += Math.round(totalPasienMurniStasiunHariIni / jumlahAsistenHariItu);
-        } else {
-          // Fallback aman untuk jadwal.simbol yang berpotensi null/undefined
-          const simbolAman = jadwal.simbol ? jadwal.simbol.trim().toUpperCase() : "TIDAK DIKETAHUI";
-          daftarPoliDibantu.add(simbolAman);
         }
       });
+
+      let teksPoli = Array.from(daftarPoliDibantuHariIni).join(", ");
+      if (!teksPoli) teksPoli = "OFF / LIBUR";
 
       return {
         id: idSdm,
         nama: infoSdm.nama,
-        total_pasien: totalBeban,
-        detail_poli: Array.from(daftarPoliDibantu).join(", ")
+        total_pasien_bulanan: totalBebanBulanan,
+        total_pasien_hari_ini: totalBebanHariIni,
+        detail_poli: teksPoli
       };
     }).filter(p => p.nama !== 'ADMIN');
 
-    leaderboardBeban.sort((a, b) => b.total_pasien - a.total_pasien);
+    // Urutkan berdasarkan total akumulasi sebulan terbanyak
+    leaderboardBeban.sort((a, b) => b.total_pasien_bulanan - a.total_pasien_bulanan);
 
     const dataCutiSdmMapped = resSdmCuti.rows.map(s => ({
       nama_sdm: s.nama_sdm,
@@ -233,7 +266,7 @@ export async function GET(request) {
       summary: {
         totalSDM: sdmCount.rows[0]?.total || 0,
         totalDokter: dokterCount.rows[0]?.total || 0,
-        perawatMasuk: !isModeLaporan ? semuaJadwal.length : perawatUnik.length,
+        perawatMasuk: !isModeLaporan ? semuaJadwalBulanIni.filter(j => Number(j.tanggal) === pTanggal).length : perawatUnik.length,
         sdmIzinCount: resSdmCuti.rows.length,
         tanggal_hari_ini: pTanggal,
         isLaporan: isModeLaporan 

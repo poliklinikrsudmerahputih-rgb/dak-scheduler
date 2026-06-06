@@ -1,12 +1,11 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { format, getDaysInMonth } from "date-fns";
+import { format, getDaysInMonth, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
-// PERBAIKAN: Menambahkan AlertCircle ke dalam import lucide-react
 import { 
   Search, ClipboardList, Stethoscope, Clock, ChevronDown, Send, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, FileText, CalendarRange
+  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, FileText, CalendarRange, Star, Calendar as CalendarIcon
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -18,14 +17,19 @@ export default function ViewJadwalPublic() {
   const [inputPasien, setInputPasien] = useState({});
   const [editMode, setEditMode] = useState({});
   
-  const [tanggal, setTanggal] = useState(new Date().getDate());
-  const [bulan, setBulan] = useState(new Date().getMonth() + 1);
-  const [tahun, setTahun] = useState(new Date().getFullYear());
+  // PERBAIKAN: Menggunakan satu state untuk tanggal lengkap
+  const [selectedDateFull, setSelectedDateFull] = useState(format(new Date(), 'yyyy-MM-dd'));
+  
+  const tanggal = parseInt(selectedDateFull.split('-')[2], 10);
+  const bulan = parseInt(selectedDateFull.split('-')[1], 10);
+  const tahun = parseInt(selectedDateFull.split('-')[0], 10);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [showCutiModal, setShowCutiModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
+  
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
     awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), 
@@ -47,7 +51,6 @@ export default function ViewJadwalPublic() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // PERBAIKAN: Menambahkan parameter ruangan otomatis jika diakses via share link
       const urlParams = new URLSearchParams(window.location.search);
       const ruanganShare = urlParams.get('ruangan');
       const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
@@ -80,7 +83,7 @@ export default function ViewJadwalPublic() {
 
   useEffect(() => {
     fetchData();
-  }, [tanggal, bulan, tahun]);
+  }, [selectedDateFull]); // Panggil fetch ulang saat kalender berubah
 
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
@@ -221,15 +224,13 @@ export default function ViewJadwalPublic() {
               <tr>
                 <th style="width: 8%;">NO</th>
                 <th>NAMA PERAWAT / ASISTEN</th>
-                <th>UNIT POLI DIBANTU</th>
-                <th style="width: 25%;">SKOR BEBAN KERJA</th>
+                <th style="width: 25%;">TOTAL POIN KERJA BULAN INI</th>
               </tr>
               ${dataLaporan.leaderboard.map((item, i) => `
                 <tr>
                   <td class="center">${i + 1}</td>
                   <td>${item.nama}</td>
-                  <td>${item.detail_poli || "Cadangan/Lainnya"}</td>
-                  <td class="center"><b>${item.total_pasien}</b> Poin</td>
+                  <td class="center"><b>${item.total_pasien_bulanan || item.total_pasien || 0}</b> Poin</td>
                 </tr>
               `).join('')}
             </table>
@@ -268,12 +269,8 @@ export default function ViewJadwalPublic() {
     }
   };
 
-  const labelHariIni = format(new Date(tahun, bulan-1, tanggal), "eeee, dd MMMM yyyy", { locale: id });
-  const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-  const jumlahHari = getDaysInMonth(new Date(tahun, bulan - 1));
-  const daftarHari = Array.from({ length: jumlahHari }, (_, i) => i + 1);
+  const labelHariIni = format(parseISO(selectedDateFull), "eeee, dd MMMM yyyy", { locale: id });
 
-  // MENGELOMPOKKAN DOKTER BERDASARKAN SIMBOL PRAKTIK
   const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
     const simbol = dok.simbol_praktik?.trim().toUpperCase() || "LAINNYA";
     if (!acc[simbol]) acc[simbol] = [];
@@ -311,6 +308,9 @@ export default function ViewJadwalPublic() {
              </div>
           </div>
           <div className="flex flex-wrap gap-4 justify-center">
+            <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
+                <Star size={18} className="fill-white" /> Cek Poin Asisten
+            </button>
             <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
                 <Edit3 size={18} /> Ajukan Cuti Staf
             </button>
@@ -326,7 +326,7 @@ export default function ViewJadwalPublic() {
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 -mt-16 space-y-8">
         
-        {/* FILTER CONTROL + DOWNLOAD REKAP (PINDAH KE ATAS) */}
+        {/* FILTER CONTROL (INPUT DATE TUNGGAL) */}
         <div className="bg-white/80 backdrop-blur-xl p-6 rounded-[3rem] shadow-2xl border border-white flex flex-col lg:flex-row gap-6 items-center">
           <div className="flex-1 flex items-center gap-4 bg-slate-100/50 px-8 py-5 rounded-[2rem] w-full border border-slate-100">
             <Search size={22} className="text-slate-400" />
@@ -339,12 +339,19 @@ export default function ViewJadwalPublic() {
             />
           </div>
           <div className="flex gap-4 w-full lg:w-auto items-center">
-            <select value={tanggal} onChange={(e) => setTanggal(parseInt(e.target.value))} className="bg-emerald-600 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg">
-              {daftarHari.map(d => <option key={d} value={d}>Tgl {d}</option>)}
-            </select>
-            <select value={bulan} onChange={(e) => setBulan(parseInt(e.target.value))} className="bg-slate-900 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg">
-              {namaBulan.map((b, i) => <option key={i} value={i + 1}>{b}</option>)}
-            </select>
+            
+            <div className="relative group">
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                <CalendarIcon size={16} className="text-emerald-200 group-hover:text-white transition-colors" />
+              </div>
+              <input 
+                type="date" 
+                value={selectedDateFull}
+                onChange={(e) => setSelectedDateFull(e.target.value)}
+                className="bg-emerald-600 text-white text-[11px] font-black pl-12 pr-6 py-5 rounded-2xl uppercase shadow-lg outline-none cursor-pointer appearance-none hover:bg-emerald-700 transition-colors [&::-webkit-calendar-picker-indicator]:invert"
+              />
+            </div>
+
             <button 
               onClick={() => setShowDownloadModal(true)}
               className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg flex items-center gap-2"
@@ -466,76 +473,94 @@ export default function ViewJadwalPublic() {
           })}
         </div>
 
-        {/* BOTTOM SECTION: LEADERBOARD & MONITOR IZIN */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {/* BOTTOM SECTION: HANYA MENAMPILKAN MONITOR IZIN KARENA LEADERBOARD PINDAH KE POP-UP */}
+        <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100">
+            <div className="flex items-center gap-3 px-4 mb-6"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3></div>
             
-            <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white rounded-[3.5rem] shadow-2xl overflow-hidden border border-slate-100">
-                    <div className="bg-slate-900 p-8 text-white flex justify-between items-center italic">
-                      <h3 className="text-sm font-black uppercase tracking-widest pl-4 border-l-4 border-emerald-500 flex items-center gap-3">
-                        <TrendingUp size={18} /> Skor Beban Kerja Akumulasi Hari Ini
-                      </h3>
-                    </div>
-                    <table className="w-full text-left">
-                        <thead>
-                          <tr className="bg-slate-50 text-[9px] font-black uppercase italic tracking-widest text-slate-400">
-                            <th className="p-8">Nama Staf</th>
-                            <th className="p-8 text-center">Skor Beban</th>
-                            <th className="p-8 text-left">Unit Kerja Dibantu</th>
-                            <th className="p-8 text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-xs font-bold uppercase tracking-tighter">
-                            {data?.leaderboard?.map((item, i) => (
-                                <tr key={i} className="border-b border-slate-50 hover:bg-emerald-50/30 transition-all">
-                                    <td className="p-8">
-                                      <p className="text-slate-800 font-black italic">{item.nama}</p>
-                                      <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
-                                    </td>
-                                    <td className="p-8 text-center">
-                                      <div className="inline-block px-5 py-3 rounded-2xl bg-slate-900 text-white font-black text-xl shadow-lg italic">
-                                        {item.total_pasien}
-                                      </div>
-                                    </td>
-                                    <td className="p-8 max-w-[200px]">
-                                      <p className="text-[8px] text-emerald-600 font-black italic uppercase leading-relaxed bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                                        協助 {item.detail_poli || "---"}
-                                      </p>
-                                    </td>
-                                    <td className="p-8 text-center">
-                                      {item.total_pasien > 0 ? (
-                                        <span className="text-emerald-500 flex items-center justify-center gap-2 italic text-[8px] font-black tracking-widest"><CheckCircle2 size={12}/> UPDATED</span>
-                                      ) : (
-                                        <span className="text-red-400 flex items-center justify-center gap-2 animate-pulse italic text-[8px] font-black tracking-widest"><AlertCircle size={12}/> PENDING</span>
-                                      )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div className="space-y-6 lg:col-span-1">
-                <div className="flex items-center gap-3 px-8"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin</h3></div>
-                <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
-                    {data?.sdmCuti?.map((s, i) => (
-                      <div key={`s-${i}`} className={`p-6 rounded-[2.5rem] border-l-8 flex justify-between items-center shadow-lg border transition-all ${s.status_acc === 'Disetujui' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
-                          <div className="max-w-[180px]">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
-                                <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
-                            </div>
-                            <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{s.tgl_mulai} - {s.tgl_selesai}</p>
-                            <p className="text-[8px] text-slate-400 mt-2 italic font-bold leading-tight uppercase truncate">Ket: {s.alasan || "-"}</p>
+            {data?.sdmCuti?.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                  {data?.sdmCuti?.map((s, i) => (
+                    <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
+                        <div className="max-w-[200px]">
+                          <div className="flex items-center gap-2 mb-2">
+                              <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
+                              <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
                           </div>
-                          {s.status_acc === 'Disetujui' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-amber-500" />}
-                      </div>
-                    ))}
-                </div>
-            </div>
+                          <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{s.tgl_mulai} - {s.tgl_selesai}</p>
+                        </div>
+                        {s.status_acc === 'Disetujui' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-amber-500" />}
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest">Tidak ada pengajuan izin di bulan ini.</p>
+            )}
         </div>
       </div>
+
+      {/* POP-UP LEADERBOARD POIN */}
+      {showLeaderboardModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-5xl rounded-[3rem] p-6 md:p-10 shadow-2xl border-4 border-amber-500/20 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-amber-500 pl-4 flex items-center gap-3">
+                <TrendingUp size={24} className="text-amber-500" /> Akumulasi Poin Kinerja Asisten
+              </h3>
+              <button onClick={() => setShowLeaderboardModal(false)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600">
+                <XCircle size={24} />
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto flex-1 custom-scrollbar border rounded-[2rem] border-slate-100">
+              <table className="w-full text-left">
+                  <thead className="sticky top-0 bg-slate-900 z-10 shadow-md">
+                    <tr className="text-[9px] font-black uppercase italic tracking-widest text-white">
+                      <th className="p-6">Nama Staf</th>
+                      <th className="p-6 text-left">Tugas Hari Ini</th>
+                      <th className="p-6 text-center bg-blue-600/20 border-x border-slate-700">Poin Hari Ini</th>
+                      <th className="p-6 text-center text-amber-400 bg-amber-500/10">TOTAL POIN (BLN INI)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-xs font-bold uppercase tracking-tighter">
+                      {data?.leaderboard?.map((item, i) => (
+                          <tr key={i} className="border-b border-slate-100 hover:bg-amber-50/50 transition-all">
+                              <td className="p-6">
+                                <p className="text-slate-800 font-black italic">{item.nama}</p>
+                                <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
+                              </td>
+                              <td className="p-6">
+                                <span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[9px] border border-slate-200 font-black">
+                                  {item.detail_poli || "OFF / LIBUR"}
+                                </span>
+                              </td>
+                              <td className="p-6 text-center border-x border-slate-100 bg-blue-50/30">
+                                {/* PERBAIKAN: Memanggil total_pasien_hari_ini */}
+                                {item.total_pasien_hari_ini > 0 ? (
+                                  <span className="text-blue-600 font-black text-sm flex items-center justify-center gap-1">
+                                    +{item.total_pasien_hari_ini} <CheckCircle2 size={12}/>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                              </td>
+                              <td className="p-6 text-center bg-amber-50/30">
+                                <div className="inline-block px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-lg shadow-md italic">
+                                  {/* PERBAIKAN: Memanggil total_pasien_bulanan atau fallback ke total_pasien */}
+                                  {item.total_pasien_bulanan || item.total_pasien || 0}
+                                </div>
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-slate-100 text-center text-[10px] text-slate-400 font-bold italic uppercase">
+              *Total poin adalah akumulasi dari tanggal 1 hingga akhir bulan berjalan. Poin hari ini akan otomatis bertambah jika divalidasi.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* POP-UP CUTI SDM REAL-TIME */}
       {showCutiModal && (

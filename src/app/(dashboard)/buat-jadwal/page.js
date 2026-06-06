@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
-import { Save, Printer, Loader2, FileText, AlertTriangle, Undo2, Redo2 } from "lucide-react";
+import { Save, Printer, Loader2, FileText, AlertTriangle, Undo2, Redo2, Settings, X } from "lucide-react";
 import { id } from "date-fns/locale";
 
 export default function BuatJadwal() {
@@ -16,6 +16,9 @@ export default function BuatJadwal() {
   const [isiJadwal, setIsiJadwal] = useState({});
   const [loading, setLoading] = useState(false);
 
+  // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
   // STATE UNTUK UNDO & REDO
   const [history, setHistory] = useState([{}]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -27,7 +30,7 @@ export default function BuatJadwal() {
     atasan_nama: "RIANA, S.TR.KEB.",
     atasan_jabatan: "KASI PELAYANAN KEPERAWATAN DAN KEBIDANAN",
     atasan_nip: "197510272003122005",
-    pembuat_nama: "DANIEL ARI KRISTITANTO,S.KEP.NS",
+    pembuat_nama: "DANIEL ARI KRISTIANTO, S.KEP.NS",
     pembuat_jabatan: "KOORDINATOR RUANGAN",
     pembuat_nip: "199303042019031006",
     tgl_cetak: format(new Date(), "yyyy-MM-dd"),
@@ -225,48 +228,91 @@ export default function BuatJadwal() {
         </div>
       )}
 
-      <div className="p-2 lg:p-6">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 mb-6 no-print">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-[11px] font-bold uppercase">
-            <div className="space-y-3">
-              <label className="text-blue-600 italic">Unit & Judul (Free Text)</label>
-              <input type="text" className="w-full p-2 bg-slate-50 border rounded-xl" value={header.institusi} onChange={e => setHeader({...header, institusi: e.target.value.toUpperCase()})} />
-              <input type="text" placeholder="JUDUL JADWAL (FREE TEXT)" className="w-full p-2 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 font-black" value={header.judul_bebas} onChange={e => setHeader({...header, judul_bebas: e.target.value.toUpperCase()})} />
-              <div className="flex gap-2">
-                <select value={bulan} onChange={e => setBulan(parseInt(e.target.value))} className="w-full p-2 border rounded-xl">
-                  {daftarBulan.map((b, i) => <option key={i} value={i+1}>{b}</option>)}
-                </select>
-                <input type="number" value={tahun} onChange={e => setTahun(parseInt(e.target.value))} className="w-full p-2 border rounded-xl" />
+      {/* POP-UP MODAL PENGATURAN HEADER */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 overflow-y-auto no-print">
+          <div className="bg-white rounded-[2rem] w-full max-w-4xl shadow-2xl overflow-hidden my-8">
+            <div className="bg-slate-900 p-6 flex justify-between items-center text-white">
+              <h2 className="text-lg font-black uppercase tracking-widest flex items-center gap-3">
+                <Settings size={20} className="text-blue-400" />
+                Pengaturan Identitas Cetak
+              </h2>
+              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-[11px] font-bold uppercase">
+                {/* KOLOM KIRI */}
+                <div className="space-y-6">
+                  <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                    <label className="text-blue-600 italic border-b border-blue-200 pb-2 block">Unit & Judul Utama</label>
+                    <input type="text" className="w-full p-3 bg-white border rounded-xl" value={header.institusi} onChange={e => setHeader({...header, institusi: e.target.value.toUpperCase()})} />
+                    <input type="text" placeholder="JUDUL JADWAL (FREE TEXT)" className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 font-black" value={header.judul_bebas} onChange={e => setHeader({...header, judul_bebas: e.target.value.toUpperCase()})} />
+                  </div>
+
+                  <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                    <label className="text-slate-500 italic border-b border-slate-200 pb-2 block">Identitas Atasan (Mengetahui)</label>
+                    <input type="text" placeholder="Nama Atasan" className="w-full p-3 bg-white border rounded-xl" value={header.atasan_nama} onChange={e => setHeader({...header, atasan_nama: e.target.value})} />
+                    <input type="text" placeholder="Jabatan Atasan" className="w-full p-3 bg-white border rounded-xl" value={header.atasan_jabatan} onChange={e => setHeader({...header, atasan_jabatan: e.target.value})} />
+                    <input type="text" placeholder="NIP Atasan" className="w-full p-3 bg-white border rounded-xl" value={header.atasan_nip} onChange={e => setHeader({...header, atasan_nip: e.target.value})} />
+                  </div>
+                </div>
+
+                {/* KOLOM KANAN */}
+                <div className="space-y-6">
+                  <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                    <label className="text-emerald-600 italic border-b border-emerald-200 pb-2 block">Identitas Pembuat Jadwal</label>
+                    <input type="text" placeholder="Nama Pembuat" className="w-full p-3 bg-white border rounded-xl" value={header.pembuat_nama} onChange={e => setHeader({...header, pembuat_nama: e.target.value})} />
+                    <input type="text" placeholder="Jabatan Pembuat" className="w-full p-3 bg-white border rounded-xl" value={header.pembuat_jabatan} onChange={e => setHeader({...header, pembuat_jabatan: e.target.value})} />
+                    <input type="text" placeholder="NIP Pembuat" className="w-full p-3 bg-white border rounded-xl" value={header.pembuat_nip} onChange={e => setHeader({...header, pembuat_nip: e.target.value})} />
+                  </div>
+
+                  <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                    <label className="text-slate-500 italic border-b border-slate-200 pb-2 block">Tempat & Tanggal Pengesahan</label>
+                    <input type="text" placeholder="Tempat (Contoh: MAGELANG)" className="w-full p-3 bg-white border rounded-xl" value={header.tempat_cetak} onChange={e => setHeader({...header, tempat_cetak: e.target.value.toUpperCase()})} />
+                    <input type="date" className="w-full p-3 bg-white border rounded-xl" value={header.tgl_cetak} onChange={e => setHeader({...header, tgl_cetak: e.target.value})} />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-3 border-l pl-6">
-              <label className="text-slate-400 italic">Atasan (Mengetahui)</label>
-              <input type="text" placeholder="Nama Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_nama} onChange={e => setHeader({...header, atasan_nama: e.target.value})} />
-              <input type="text" placeholder="Jabatan Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_jabatan} onChange={e => setHeader({...header, atasan_jabatan: e.target.value})} />
-              <input type="text" placeholder="NIP Atasan" className="w-full p-2 border rounded-xl" value={header.atasan_nip} onChange={e => setHeader({...header, atasan_nip: e.target.value})} />
-            </div>
-
-            <div className="space-y-3 border-l pl-6">
-              <label className="text-blue-600 italic">Pembuat Jadwal</label>
-              <input type="text" placeholder="Nama Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_nama} onChange={e => setHeader({...header, pembuat_nama: e.target.value})} />
-              <input type="text" placeholder="Jabatan Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_jabatan} onChange={e => setHeader({...header, pembuat_jabatan: e.target.value})} />
-              <input type="text" placeholder="NIP Pembuat" className="w-full p-2 border rounded-xl" value={header.pembuat_nip} onChange={e => setHeader({...header, pembuat_nip: e.target.value})} />
-            </div>
-
-            <div className="space-y-3 border-l pl-6">
-              <label className="text-slate-400 italic">Tempat & Tanggal Cetak</label>
-              <input type="text" placeholder="Tempat (Contoh: MAGELANG)" className="w-full p-2 bg-slate-50 border rounded-xl" value={header.tempat_cetak} onChange={e => setHeader({...header, tempat_cetak: e.target.value.toUpperCase()})} />
-              <input type="date" className="w-full p-2 bg-blue-50 border rounded-xl" value={header.tgl_cetak} onChange={e => setHeader({...header, tgl_cetak: e.target.value})} />
-              <div className="bg-amber-50 p-2 rounded-xl border border-amber-200">
-                <p className="text-[9px] text-amber-700 leading-tight italic">Tombol Undo/Redo ada di pojok kanan bawah.</p>
-              </div>
+            <div className="bg-slate-50 p-6 border-t border-slate-200 flex justify-end">
+              <button onClick={() => setShowSettingsModal(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-black text-xs uppercase transition-all shadow-md">
+                Tutup & Simpan Pengaturan
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        <div id="area-jadwal" className="bg-white p-5 rounded-[2rem] shadow-xl overflow-hidden print-area">
-          <div className="text-center mb-5 uppercase font-bold">
+      <div className="p-2 lg:p-6">
+        
+        {/* ACTION BAR ATAS (PENGGANTI FORM HEADER) */}
+        <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <button 
+              onClick={() => setShowSettingsModal(true)} 
+              className="bg-slate-800 text-white px-5 py-3 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-slate-700 w-full md:w-auto justify-center transition-all"
+            >
+              <Settings size={16} className="text-blue-400" />
+              Atur Identitas & Header
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest hidden md:block">Pilih Periode:</span>
+            <select value={bulan} onChange={e => setBulan(parseInt(e.target.value))} className="p-3 border-2 border-blue-100 bg-blue-50 text-blue-900 rounded-xl font-black text-xs uppercase w-full md:w-auto">
+              {daftarBulan.map((b, i) => <option key={i} value={i+1}>{b}</option>)}
+            </select>
+            <input type="number" value={tahun} onChange={e => setTahun(parseInt(e.target.value))} className="p-3 border-2 border-blue-100 bg-blue-50 text-blue-900 rounded-xl font-black text-xs uppercase w-24 text-center" />
+          </div>
+        </div>
+
+        {/* AREA TABEL JADWAL */}
+        <div id="area-jadwal" className="bg-white p-2 md:p-5 rounded-[2rem] shadow-xl overflow-hidden print-area">
+          <div className="text-center mb-5 uppercase font-bold hidden print:block">
             <h1 className="text-xl font-black">{header.institusi}</h1>
             <h2 className="text-lg text-blue-600">{header.judul_bebas}</h2>
             <p className="text-sm">PERIODE: {daftarBulan[bulan-1].toUpperCase()} {tahun}</p>
@@ -283,7 +329,6 @@ export default function BuatJadwal() {
                 </tr>
                 <tr className="bg-slate-700 text-white">
                   {Array.from({ length: jumlahHari }).map((_, i) => (
-                    // BLOK MERAH HANYA DI HEADER
                     <th key={i} className={`border border-black p-1 text-[9px] cell-input ${cekTanggalMerah(i+1) ? 'text-red-300 bg-red-word' : ''}`}>
                       {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
                     </th>
@@ -307,12 +352,11 @@ export default function BuatJadwal() {
                         if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
                         
                         return (
-                          // DI SINI BLOK MERAH DIHILANGKAN DARI BADAN TABEL
                           <td key={i} className={`border border-black p-0 cell-input`}>
                             <div className="no-print">
                               <select 
                                 value={currentVal} 
-                                title={currentVal} // TOOLTIP SAAT KURSOR DI ARAHKAN
+                                title={currentVal} 
                                 disabled={!!autoVal}
                                 onChange={e => updateIsiJadwal({...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase()})}
                                 className={`dropdown-select bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
@@ -363,31 +407,31 @@ export default function BuatJadwal() {
             </table>
           </div>
 
-          <div className="mt-8 flex justify-between text-center font-bold text-[11px] px-10">
+          <div className="mt-8 flex justify-between text-center font-bold text-[11px] px-10 hidden print:flex">
             <div className="w-1/3">Mengetahui,<br/>{header.atasan_jabatan}<br/><br/><br/><br/><u>{header.atasan_nama}</u><br/>NIP. {header.atasan_nip}</div>
-            {/* PERBAIKAN: Menggunakan header.tempat_cetak */}
             <div className="w-1/3">{header.tempat_cetak}, {format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>{header.pembuat_jabatan}<br/><br/><br/><br/><u>{header.pembuat_nama}</u><br/>NIP. {header.pembuat_nip}</div>
           </div>
         </div>
 
-        <div className="fixed bottom-6 right-6 flex gap-3 no-print">
+        {/* BOTTOM ACTION BUTTONS */}
+        <div className="fixed bottom-6 right-6 flex gap-3 no-print z-[90]">
           {/* TOMBOL UNDO */}
-          <button onClick={handleUndo} disabled={historyIndex === 0} className="bg-amber-500 text-white p-4 rounded-2xl shadow-lg hover:bg-amber-600 disabled:opacity-50 transition-all">
+          <button onClick={handleUndo} disabled={historyIndex === 0} className="bg-amber-500 text-white p-4 rounded-2xl shadow-lg hover:bg-amber-600 disabled:opacity-50 transition-all hidden md:block">
             <Undo2 size={18} />
           </button>
           {/* TOMBOL REDO */}
-          <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className="bg-amber-500 text-white p-4 rounded-2xl shadow-lg hover:bg-amber-600 disabled:opacity-50 transition-all">
+          <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className="bg-amber-500 text-white p-4 rounded-2xl shadow-lg hover:bg-amber-600 disabled:opacity-50 transition-all hidden md:block">
             <Redo2 size={18} />
           </button>
 
-          <button onClick={downloadWord} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
-            <FileText size={18} /> Word Pro
+          <button onClick={downloadWord} className="bg-emerald-600 text-white px-4 md:px-6 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
+            <FileText size={18} /> <span className="hidden md:inline">Word Pro</span>
           </button>
-          <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-slate-800 transition-all">
-            <Printer size={18} /> Print PDF
+          <button onClick={() => window.print()} className="bg-slate-900 text-white px-4 md:px-6 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-slate-800 transition-all">
+            <Printer size={18} /> <span className="hidden md:inline">Print PDF</span>
           </button>
-          <button onClick={handleSimpan} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all">
-            {loading ? <Loader2 className="animate-spin" /> : <Save size={18} />} Simpan Jadwal
+          <button onClick={handleSimpan} className="bg-blue-600 text-white px-6 md:px-10 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all">
+            {loading ? <Loader2 className="animate-spin" /> : <Save size={18} />} <span className="hidden md:inline">Simpan Jadwal</span>
           </button>
         </div>
       </div>

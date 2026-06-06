@@ -10,21 +10,28 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     
-    // 1. ISOLASI KEAMANAN (RLS): Baca Sesi Karu dari Cookie
+    // 1. ISOLASI KEAMANAN (RLS) YANG FLEKSIBEL UNTUK SHARE LINK
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
     
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // SET DEFAULT AGAR SHARE LINK TIDAK KOSONG
+    let userRuangan = "POLIKLINIK"; 
+    const paramRuangan = searchParams.get("ruangan");
 
-    let userRuangan = "POLIKLINIK";
-    try {
-      const userData = JSON.parse(session.value);
-      userRuangan = userData.ruangan || "POLIKLINIK";
-    } catch (e) {
-      console.warn("Format cookie lama terdeteksi");
+    if (session) {
+      // Jika sedang login, gunakan ruangan milik Karu tersebut
+      try {
+        const userData = JSON.parse(session.value);
+        userRuangan = userData.ruangan || "POLIKLINIK";
+      } catch (e) {
+        console.warn("Format cookie lama terdeteksi");
+      }
+    } else if (paramRuangan) {
+      // Jika tidak login, tapi URL memuat parameter ruangan, gunakan parameter itu
+      userRuangan = paramRuangan;
     }
+    // CATATAN: Blok penolakan akses (401) sudah dihapus di sini
+    // Jika tidak login dan tidak ada parameter, sistem akan aman menampilkan "POLIKLINIK"
 
     const kunciRuangan = userRuangan.toUpperCase();
 
@@ -72,8 +79,7 @@ export async function GET(request) {
     });
     const semuaJadwal = resJadwal.rows;
 
-    // 4. Ambil Data Pasien Poli (Terkunci per Ruangan)
-    // Walaupun tabel pasien bersifat lintas, lebih aman dikunci jika kolom ruangannya ada.
+    // 4. Ambil Data Pasien Poli
     const resPasienPoli = await turso.execute({
       sql: `SELECT * FROM jumlah_pasien_poli 
             WHERE date(printf('%04d-%02d-%02d', tahun, bulan, tanggal)) BETWEEN ? AND ?`,
@@ -186,7 +192,7 @@ export async function GET(request) {
             );
 
             if (kunjunganHariItu && kunjunganHariItu.jumlah > 0) {
-              totalPasienMurniStasiunHariIni += kunjunganHariItu.jumlah; // HANYA MENJUMLAHKAN ANGKA RIIL
+              totalPasienMurniStasiunHariIni += kunjunganHariItu.jumlah; 
             }
           });
 
@@ -199,7 +205,9 @@ export async function GET(request) {
 
           totalBeban += Math.round(totalPasienMurniStasiunHariIni / jumlahAsistenHariItu);
         } else {
-          daftarPoliDibantu.add(jadwal.simbol.trim().toUpperCase());
+          // Fallback aman untuk jadwal.simbol yang berpotensi null/undefined
+          const simbolAman = jadwal.simbol ? jadwal.simbol.trim().toUpperCase() : "TIDAK DIKETAHUI";
+          daftarPoliDibantu.add(simbolAman);
         }
       });
 

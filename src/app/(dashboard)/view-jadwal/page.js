@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { format, getDaysInMonth } from "date-fns";
 import { id } from "date-fns/locale";
+// PERBAIKAN: Menambahkan AlertCircle ke dalam import lucide-react
 import { 
   Search, ClipboardList, Stethoscope, Clock, ChevronDown, Send, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
@@ -46,7 +47,12 @@ export default function ViewJadwalPublic() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}`);
+      // PERBAIKAN: Menambahkan parameter ruangan otomatis jika diakses via share link
+      const urlParams = new URLSearchParams(window.location.search);
+      const ruanganShare = urlParams.get('ruangan');
+      const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
+
+      const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`);
       const dDash = await resDash.json();
       const resSDM = await fetch("/api/sdm");
       const dSDM = await resSDM.json();
@@ -153,7 +159,11 @@ export default function ViewJadwalPublic() {
     
     setIsDownloading(true);
     try {
-      const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}`);
+      const urlParams = new URLSearchParams(window.location.search);
+      const ruanganShare = urlParams.get('ruangan');
+      const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
+
+      const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}${shareQuery}`);
       const dataLaporan = await res.json();
 
       if (!dataLaporan || !dataLaporan.dokterPraktik || !dataLaporan.leaderboard) {

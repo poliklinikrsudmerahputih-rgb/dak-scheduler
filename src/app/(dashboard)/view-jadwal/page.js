@@ -199,6 +199,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
       else namaRuanganTampil = `NERS 3 (${klinikSelected})`;
   }
 
+  // PERBAIKAN: Penangkapan Error Spesifik dari Backend
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
@@ -212,12 +213,20 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
           catatan 
         })
       });
+      
+      const data = await res.json(); // Tarik response JSON untuk mengetahui error pastinya
+      
       if (res.ok) {
         alert("✅ Evaluasi NASA-TLX Berhasil Disimpan!");
         onClose();
-      } else { alert("Data gagal disimpan."); }
-    } catch (e) { alert("❌ Terjadi kesalahan jaringan."); }
-    finally { setSubmitting(false); }
+      } else { 
+        alert("❌ Data gagal disimpan:\n" + (data.error || "Kesalahan Server")); 
+      }
+    } catch (e) { 
+      alert("❌ Terjadi kesalahan jaringan."); 
+    } finally { 
+      setSubmitting(false); 
+    }
   };
 
   const Slider = ({ label, val, keyName, descKiri, descKanan }) => (

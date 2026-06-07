@@ -2,29 +2,32 @@ import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
 
 // =====================================================================
-// FUNGSI GET: Untuk menarik rata-rata skor beban kerja (Opsional untuk Analisis)
+// FUNGSI GET: Menarik data mentah untuk tabel E-Log di Frontend
 // =====================================================================
 export async function GET(request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const mode = searchParams.get("mode");
-
-    if (mode === "analisis") {
-      const res = await turso.execute(`
-        SELECT 
-          COUNT(*) as total_responden,
-          ROUND(AVG(mental_demand), 2) as rata_mental,
-          ROUND(AVG(physical_demand), 2) as rata_fisik,
-          ROUND(AVG(temporal_demand), 2) as rata_waktu,
-          ROUND(AVG(performance), 2) as rata_performa,
-          ROUND(AVG(effort), 2) as rata_usaha,
-          ROUND(AVG(frustration), 2) as rata_frustrasi
-        FROM log_nasa_tlx
-      `);
-      return NextResponse.json({ success: true, data: res.rows[0] });
-    }
-
-    return NextResponse.json({ error: "Parameter mode tidak valid" }, { status: 400 });
+    // Karena Frontend memanggil fetch('/api/nasa-tlx') tanpa parameter,
+    // kita kembalikan seluruh data log (diurutkan dari yang terbaru)
+    // Alias (AS) digunakan agar namanya cocok dengan variabel di Frontend
+    const res = await turso.execute(`
+      SELECT 
+        id, 
+        sdm_id, 
+        ruangan,
+        mental_demand AS mental, 
+        physical_demand AS fisik, 
+        temporal_demand AS waktu, 
+        performance AS performa, 
+        effort AS usaha, 
+        frustration AS frustrasi, 
+        catatan_kualitatif AS catatan,
+        tanggal_isi
+      FROM log_nasa_tlx
+      ORDER BY id DESC
+    `);
+    
+    // Kembalikan langsung baris datanya (Frontend mengecek Array.isArray)
+    return NextResponse.json(res.rows);
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -38,6 +41,7 @@ export async function POST(request) {
     const body = await request.json();
     const { 
       sdm_id, 
+      ruangan, // Menangkap data ruangan spesifik (Misal: NERS 3 (THT))
       mental, 
       fisik, 
       waktu, 
@@ -61,20 +65,23 @@ export async function POST(request) {
       return parsed;
     };
 
+    const safeRuangan = ruangan ? ruangan.toUpperCase() : "RAWAT JALAN";
+
     // 3. Eksekusi ke Database Turso
     await turso.execute({
       sql: `INSERT INTO log_nasa_tlx 
-            (sdm_id, tanggal_isi, mental_demand, physical_demand, temporal_demand, performance, effort, frustration, catatan_kualitatif) 
-            VALUES (?, date('now', '+7 hours'), ?, ?, ?, ?, ?, ?, ?)`,
+            (sdm_id, ruangan, tanggal_isi, mental_demand, physical_demand, temporal_demand, performance, effort, frustration, catatan_kualitatif) 
+            VALUES (?, ?, date('now', '+7 hours'), ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         sdm_id, 
+        safeRuangan, // Parameter ruangan disisipkan di sini
         sanitizeScore(mental), 
         sanitizeScore(fisik), 
         sanitizeScore(waktu), 
         sanitizeScore(performa), 
         sanitizeScore(usaha), 
         sanitizeScore(frustrasi), 
-        catatan || "-" // Jika catatan kosong, isi dengan strip (-)
+        catatan || "-" 
       ]
     });
 

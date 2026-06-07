@@ -1,14 +1,170 @@
+
 "use client";
 import React, { useState, useEffect } from "react";
-import { format, getDaysInMonth, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { 
-  Search, ClipboardList, Stethoscope, Clock, ChevronDown, Send, Cpu, 
+  Search, ClipboardList, Clock, ChevronDown, Send, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, FileText, CalendarRange, Star, Calendar as CalendarIcon
+  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, Play, Square, X
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
+// --- KOMPONEN MODAL OBSERVASI DIGITAL (RESEARCH) ---
+function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif }) {
+  const [kategori, setKategori] = useState('ASESMEN');
+  const [detailTindakan, setDetailTindakan] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  
+  const [waktuMulaiStr, setWaktuMulaiStr] = useState('');
+  const [waktuMulaiRaw, setWaktuMulaiRaw] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  if (!isOpen || !perawatSelected) return null;
+
+  const handleStartTimer = () => {
+    const sekarang = new Date();
+    setWaktuMulaiRaw(sekarang);
+    setWaktuMulaiStr(sekarang.toLocaleTimeString('id-ID'));
+    setIsRunning(true);
+  };
+
+  const handleStopAndSave = async () => {
+    if (!waktuMulaiRaw) return;
+    setLoading(true);
+    
+    const sekarang = new Date();
+    const waktuSelesaiStr = sekarang.toLocaleTimeString('id-ID');
+    
+    // Hitung selisih durasi murni dalam hitungan menit
+    const selisihMilidetik = sekarang - waktuMulaiRaw;
+    const durasiMenit = selisihMilidetik / (1000 * 60); 
+
+    try {
+      const response = await fetch('/api/observasi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdm_id: perawatSelected.id,
+          ruangan: ruanganAktif || 'POLIKLINIK',
+          blok_kategori: kategori,
+          detail_tindakan: detailTindakan,
+          waktu_mulai: waktuMulaiStr,
+          waktu_selesai: waktuSelesaiStr,
+          durasi_menit: durasiMenit > 0.1 ? durasiMenit : 1 
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        alert(`Berhasil menyimpan log ${kategori} untuk ${perawatSelected.nama}! Durasi: ${Math.round(durasiMenit)} menit.`);
+        setIsRunning(false);
+        setWaktuMulaiRaw(null);
+        setWaktuMulaiStr('');
+        setDetailTindakan('');
+        onClose();
+      } else {
+        alert("Gagal menyimpan data: " + result.error);
+      }
+    } catch (err) {
+      alert("Terjadi kesalahan jaringan.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-md rounded-[3rem] bg-white p-8 shadow-2xl border-4 border-emerald-500/20">
+        
+        {/* Header Modal */}
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-emerald-500 pl-4 flex items-center gap-3">
+            <ClipboardList size={24} className="text-emerald-500" /> Digital Observasi
+          </h3>
+          <button onClick={onClose} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600">
+            <XCircle size={24} />
+          </button>
+        </div>
+
+        {/* Data Perawat Subjek */}
+        <div className="mb-6 rounded-2xl bg-emerald-50/50 border border-emerald-100 p-4 text-xs font-black uppercase tracking-wider text-emerald-800">
+          <p className="opacity-60 mb-1">Target Observasi:</p>
+          <p className="text-sm italic">{perawatSelected.nama}</p>
+          <p className="text-[10px] mt-1 opacity-80">STASIUN: {ruanganAktif?.toUpperCase() || 'RAWAT JALAN'}</p>
+        </div>
+
+        {/* Form Pilihan Kategori */}
+        <div className="space-y-4">
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block mb-1">Kategori Aktivitas (Event)</label>
+            <select 
+              disabled={isRunning}
+              value={kategori} 
+              onChange={(e) => setKategori(e.target.value)}
+              className="w-full p-4 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
+            >
+              <option value="ASESMEN">BLOK A: Asesmen Terintegrasi & E-RME</option>
+              <option value="EDUKASI">BLOK B: Edukasi & Cetak Surat Kontrol</option>
+              <option value="TINDAKAN">BLOK C: Tindakan Prosedural (Insidental)</option>
+              <option value="IDLE">BLOK D: Waktu Jeda / Non-Produktif</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block mb-1">Detail Tindakan (Opsional)</label>
+            <input 
+              type="text"
+              placeholder="Contoh: TTV Poli Dalam / Ganti Balutan / SK"
+              value={detailTindakan}
+              onChange={(e) => setDetailTindakan(e.target.value)}
+              className="w-full p-4 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
+            />
+          </div>
+        </div>
+
+        {/* Kotak Indikator Waktu/Timer */}
+        <div className="mt-6 border-t border-slate-100 pt-6 text-center">
+          {isRunning ? (
+            <div className="rounded-2xl bg-emerald-50 p-6 border-2 border-emerald-200 shadow-inner">
+              <div className="flex justify-center mb-2"><Activity size={32} className="text-emerald-500 animate-pulse" /></div>
+              <p className="text-[10px] font-black text-emerald-600 tracking-widest uppercase mb-2">Perekaman Berjalan</p>
+              <p className="font-mono text-2xl font-black text-emerald-800 tracking-tighter">START: {waktuMulaiStr}</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-slate-50 p-6 border-2 border-dashed border-slate-200">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Stopwatch Siap Digunakan</p>
+            </div>
+          )}
+        </div>
+
+        {/* Tombol Aksi Kerja Utama */}
+        <div className="mt-6">
+          {!isRunning ? (
+            <button
+              onClick={handleStartTimer}
+              className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all active:scale-95"
+            >
+              <Play size={18} className="fill-white" /> MULAI REKAM WAKTU
+            </button>
+          ) : (
+            <button
+              onClick={handleStopAndSave}
+              disabled={loading}
+              className="w-full bg-red-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-red-800 flex items-center justify-center gap-3 hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} className="fill-white" />} 
+              {loading ? "MENYIMPAN..." : "STOP & SIMPAN DATA"}
+            </button>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// --- KOMPONEN UTAMA VIEW JADWAL ---
 export default function ViewJadwalPublic() {
   const [data, setData] = useState(null);
   const [daftarSDM, setDaftarSDM] = useState([]); 
@@ -17,7 +173,6 @@ export default function ViewJadwalPublic() {
   const [inputPasien, setInputPasien] = useState({});
   const [editMode, setEditMode] = useState({});
   
-  // PERBAIKAN: Menggunakan satu state untuk tanggal lengkap
   const [selectedDateFull, setSelectedDateFull] = useState(format(new Date(), 'yyyy-MM-dd'));
   
   const tanggal = parseInt(selectedDateFull.split('-')[2], 10);
@@ -30,6 +185,11 @@ export default function ViewJadwalPublic() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   
+  // State untuk Modal Riset Observasi Digital
+  const [showObservasiModal, setShowObservasiModal] = useState(false);
+  const [perawatTarget, setPerawatTarget] = useState(null);
+  const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
+
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
     awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), 
@@ -54,6 +214,8 @@ export default function ViewJadwalPublic() {
       const urlParams = new URLSearchParams(window.location.search);
       const ruanganShare = urlParams.get('ruangan');
       const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
+      
+      if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
 
       const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`);
       const dDash = await resDash.json();
@@ -83,7 +245,7 @@ export default function ViewJadwalPublic() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedDateFull]); // Panggil fetch ulang saat kalender berubah
+  }, [selectedDateFull]);
 
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
@@ -104,7 +266,9 @@ export default function ViewJadwalPublic() {
       });
 
       if (res.ok) {
-        alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
+        alert(`✅ TERSIMPAN!
+${dok.nama_dokter}
+Jumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
         fetchData(); 
       }
@@ -253,7 +417,7 @@ export default function ViewJadwalPublic() {
         </html>
       `;
 
-      const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
+      const blob = new Blob(['﻿', wordHeader], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -290,6 +454,14 @@ export default function ViewJadwalPublic() {
   return (
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
       
+      {/* MODAL RISET OBSERVASI TERINTEGRASI */}
+      <ModalObservasiDigital 
+        isOpen={showObservasiModal}
+        onClose={() => { setShowObservasiModal(false); setPerawatTarget(null); }}
+        perawatSelected={perawatTarget}
+        ruanganAktif={ruanganAktifGlobal}
+      />
+
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
         <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none"><Activity size={300} /></div>
@@ -311,10 +483,10 @@ export default function ViewJadwalPublic() {
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
-            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
+            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800">
                 <Edit3 size={18} /> Ajukan Cuti Staf
             </button>
-            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase">
+            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800">
                 <RefreshCw size={18} /> Tukar Asisten
             </button>
             <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner">
@@ -416,8 +588,17 @@ export default function ViewJadwalPublic() {
                           <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
                             <div className="flex flex-wrap gap-2">
                               {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => (
-                                <div key={i} className="flex items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm">
-                                  <UserCheck size={10} className="text-emerald-500" /> {as.nama}
+                                <div key={i} className="flex items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white pl-2.5 pr-1 py-1 rounded-lg border border-slate-200 shadow-sm">
+                                  <UserCheck size={10} className="text-emerald-500" /> 
+                                  <span>{as.nama}</span>
+                                  {/* TOMBOL RISET OBSERVASI UNTUK SETIAP PERAWAT */}
+                                  <button 
+                                    onClick={() => { setPerawatTarget(as); setShowObservasiModal(true); }}
+                                    className="ml-1 p-1 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-600 rounded transition-colors text-slate-400"
+                                    title="Mulai Rekam Waktu Observasi"
+                                  >
+                                    <ClipboardList size={10} />
+                                  </button>
                                 </div>
                               )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
@@ -441,7 +622,7 @@ export default function ViewJadwalPublic() {
                               {!editMode[originalIndex] ? (
                                 <button 
                                   onClick={() => setEditMode({...editMode, [originalIndex]: true})}
-                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs"
+                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700 active:border-b-0 active:mt-1"
                                   title="Edit Data"
                                 >
                                   <Edit3 size={16} />
@@ -450,7 +631,7 @@ export default function ViewJadwalPublic() {
                                 <button 
                                   onClick={() => handleUpdatePasienSpesifik(originalIndex)}
                                   disabled={submitting}
-                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs"
+                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800 active:border-b-0 active:mt-1"
                                 >
                                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                                 </button>
@@ -473,7 +654,7 @@ export default function ViewJadwalPublic() {
           })}
         </div>
 
-        {/* BOTTOM SECTION: HANYA MENAMPILKAN MONITOR IZIN KARENA LEADERBOARD PINDAH KE POP-UP */}
+        {/* BOTTOM SECTION: MONITOR IZIN CUTI */}
         <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100">
             <div className="flex items-center gap-3 px-4 mb-6"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3></div>
             
@@ -534,7 +715,6 @@ export default function ViewJadwalPublic() {
                                 </span>
                               </td>
                               <td className="p-6 text-center border-x border-slate-100 bg-blue-50/30">
-                                {/* PERBAIKAN: Memanggil total_pasien_hari_ini */}
                                 {item.total_pasien_hari_ini > 0 ? (
                                   <span className="text-blue-600 font-black text-sm flex items-center justify-center gap-1">
                                     +{item.total_pasien_hari_ini} <CheckCircle2 size={12}/>
@@ -545,7 +725,6 @@ export default function ViewJadwalPublic() {
                               </td>
                               <td className="p-6 text-center bg-amber-50/30">
                                 <div className="inline-block px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-lg shadow-md italic">
-                                  {/* PERBAIKAN: Memanggil total_pasien_bulanan atau fallback ke total_pasien */}
                                   {item.total_pasien_bulanan || item.total_pasien || 0}
                                 </div>
                               </td>
@@ -593,7 +772,7 @@ export default function ViewJadwalPublic() {
               </div>
               <div className="flex gap-4 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setShowCutiModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button disabled={submitting} type="submit" className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-800">KIRIM FORM</button>
+                <button disabled={submitting} type="submit" className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1">KIRIM FORM</button>
               </div>
             </form>
           </div>
@@ -640,7 +819,7 @@ export default function ViewJadwalPublic() {
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
                 <button onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
+                <button onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 active:border-b-0 active:mt-1 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>
@@ -665,7 +844,7 @@ export default function ViewJadwalPublic() {
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
                 <button onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2">
+                <button onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2">
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
                 </button>
@@ -675,7 +854,7 @@ export default function ViewJadwalPublic() {
         </div>
       )}
 
-      <footer className="text-center py-12 opacity-30 text-[9px] font-black uppercase italic tracking-[0.6em] text-slate-900 italic">
+      <footer className="text-center py-12 opacity-30 text-[9px] font-black uppercase italic tracking-[0.6em] text-slate-900">
         DAK-SYSTEMS INTELLIGENCE v.4.0 | RSUD MERAH PUTIH MAGELANG
       </footer>
     </div>

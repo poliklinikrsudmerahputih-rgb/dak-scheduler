@@ -1,24 +1,35 @@
-
 "use client";
 import React, { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { 
-  Search, ClipboardList, Clock, ChevronDown, Send, Cpu, 
+  Search, ClipboardList, Clock, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Users, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, Play, Square, X
+  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, Play, Square, FileText, Trash2, PieChart
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
-// --- KOMPONEN MODAL OBSERVASI DIGITAL (RESEARCH) ---
+// ======================================================
+// 1. MODAL OBSERVASI DIGITAL (STOPWATCH)
+// ======================================================
 function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif }) {
   const [kategori, setKategori] = useState('ASESMEN');
   const [detailTindakan, setDetailTindakan] = useState('');
   const [isRunning, setIsRunning] = useState(false);
-  
+  const [noKejadian, setNoKejadian] = useState(1);
   const [waktuMulaiStr, setWaktuMulaiStr] = useState('');
   const [waktuMulaiRaw, setWaktuMulaiRaw] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && perawatSelected) {
+      // Ambil nomor kejadian terakhir dari server
+      fetch(`/api/observasi?mode=count&sdm_id=${perawatSelected.id}`)
+        .then(res => res.json())
+        .then(data => setNoKejadian((data.last_count || 0) + 1))
+        .catch(() => setNoKejadian(1));
+    }
+  }, [isOpen, perawatSelected]);
 
   if (!isOpen || !perawatSelected) return null;
 
@@ -29,16 +40,19 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif 
     setIsRunning(true);
   };
 
+  const handleResetTimer = () => {
+    if(confirm("Yakin ingin membatalkan rekaman waktu ini? Data tidak akan disimpan.")) {
+        setIsRunning(false);
+        setWaktuMulaiRaw(null);
+        setWaktuMulaiStr('');
+    }
+  };
+
   const handleStopAndSave = async () => {
     if (!waktuMulaiRaw) return;
     setLoading(true);
-    
     const sekarang = new Date();
-    const waktuSelesaiStr = sekarang.toLocaleTimeString('id-ID');
-    
-    // Hitung selisih durasi murni dalam hitungan menit
-    const selisihMilidetik = sekarang - waktuMulaiRaw;
-    const durasiMenit = selisihMilidetik / (1000 * 60); 
+    const durasiMenit = (sekarang - waktuMulaiRaw) / (1000 * 60); 
 
     try {
       const response = await fetch('/api/observasi', {
@@ -46,18 +60,18 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sdm_id: perawatSelected.id,
-          ruangan: ruanganAktif || 'POLIKLINIK',
+          ruangan: ruanganAktif || 'POLIKLINIK', // Fallback aman
           blok_kategori: kategori,
-          detail_tindakan: detailTindakan,
+          detail_tindakan: detailTindakan || '-',
           waktu_mulai: waktuMulaiStr,
-          waktu_selesai: waktuSelesaiStr,
-          durasi_menit: durasiMenit > 0.1 ? durasiMenit : 1 
+          waktu_selesai: sekarang.toLocaleTimeString('id-ID'),
+          durasi_menit: durasiMenit > 0 ? durasiMenit : 0.1, 
+          no_kejadian: noKejadian
         })
       });
-
       const result = await response.json();
-      if (result.success) {
-        alert(`Berhasil menyimpan log ${kategori} untuk ${perawatSelected.nama}! Durasi: ${Math.round(durasiMenit)} menit.`);
+      if (response.ok) {
+        alert(`✅ ` + result.message);
         setIsRunning(false);
         setWaktuMulaiRaw(null);
         setWaktuMulaiStr('');
@@ -66,105 +80,193 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif 
       } else {
         alert("Gagal menyimpan data: " + result.error);
       }
-    } catch (err) {
-      alert("Terjadi kesalahan jaringan.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { alert("Terjadi kesalahan jaringan."); }
+    finally { setLoading(false); }
   };
 
   return (
     <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
-      <div className="w-full max-w-md rounded-[3rem] bg-white p-8 shadow-2xl border-4 border-emerald-500/20">
+      <div className="bg-white w-full max-w-md rounded-[3rem] p-8 shadow-2xl border-4 border-emerald-500/20 relative overflow-hidden">
         
-        {/* Header Modal */}
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-emerald-500 pl-4 flex items-center gap-3">
-            <ClipboardList size={24} className="text-emerald-500" /> Digital Observasi
+        <div className="absolute top-0 left-0 right-0 bg-emerald-500 text-white text-center py-2 text-[10px] font-black uppercase tracking-[0.2em] shadow-md">
+            Mengambil Sampel Observasi Ke-{noKejadian}
+        </div>
+
+        <div className="flex justify-between items-center mt-6 mb-6">
+          <h3 className="text-xl font-black italic uppercase text-slate-800 flex items-center gap-2">
+            <ClipboardList size={24} className="text-emerald-500" /> Time Study
           </h3>
-          <button onClick={onClose} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600">
-            <XCircle size={24} />
-          </button>
+          <button onClick={onClose} disabled={isRunning} className="p-2 bg-slate-100 rounded-full disabled:opacity-30"><XCircle size={20}/></button>
+        </div>
+        
+        <div className="mb-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl text-[10px] font-black uppercase tracking-wider text-slate-600">
+            <p className="text-emerald-600 mb-1 opacity-70">Target Observasi:</p>
+            <p className="text-sm text-slate-800">{perawatSelected.nama}</p>
+            <p className="mt-1 opacity-60">STASIUN: {ruanganAktif || 'POLIKLINIK'}</p>
         </div>
 
-        {/* Data Perawat Subjek */}
-        <div className="mb-6 rounded-2xl bg-emerald-50/50 border border-emerald-100 p-4 text-xs font-black uppercase tracking-wider text-emerald-800">
-          <p className="opacity-60 mb-1">Target Observasi:</p>
-          <p className="text-sm italic">{perawatSelected.nama}</p>
-          <p className="text-[10px] mt-1 opacity-80">STASIUN: {ruanganAktif?.toUpperCase() || 'RAWAT JALAN'}</p>
-        </div>
-
-        {/* Form Pilihan Kategori */}
-        <div className="space-y-4">
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block mb-1">Kategori Aktivitas (Event)</label>
-            <select 
-              disabled={isRunning}
-              value={kategori} 
-              onChange={(e) => setKategori(e.target.value)}
-              className="w-full p-4 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
-            >
-              <option value="ASESMEN">BLOK A: Asesmen Terintegrasi & E-RME</option>
-              <option value="EDUKASI">BLOK B: Edukasi & Cetak Surat Kontrol</option>
-              <option value="TINDAKAN">BLOK C: Tindakan Prosedural (Insidental)</option>
-              <option value="IDLE">BLOK D: Waktu Jeda / Non-Produktif</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block mb-1">Detail Tindakan (Opsional)</label>
-            <input 
-              type="text"
-              placeholder="Contoh: TTV Poli Dalam / Ganti Balutan / SK"
-              value={detailTindakan}
-              onChange={(e) => setDetailTindakan(e.target.value)}
-              className="w-full p-4 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
-            />
-          </div>
-        </div>
-
-        {/* Kotak Indikator Waktu/Timer */}
-        <div className="mt-6 border-t border-slate-100 pt-6 text-center">
-          {isRunning ? (
-            <div className="rounded-2xl bg-emerald-50 p-6 border-2 border-emerald-200 shadow-inner">
-              <div className="flex justify-center mb-2"><Activity size={32} className="text-emerald-500 animate-pulse" /></div>
-              <p className="text-[10px] font-black text-emerald-600 tracking-widest uppercase mb-2">Perekaman Berjalan</p>
-              <p className="font-mono text-2xl font-black text-emerald-800 tracking-tighter">START: {waktuMulaiStr}</p>
+        <select disabled={isRunning} value={kategori} onChange={(e) => setKategori(e.target.value)} className="w-full p-4 bg-white rounded-2xl font-black uppercase text-[10px] border-2 border-slate-200 mb-4 outline-none focus:border-emerald-500">
+          <option value="ASESMEN">BLOK A: Asesmen Terintegrasi & E-RME</option>
+          <option value="EDUKASI">BLOK B: Edukasi & Cetak SK</option>
+          <option value="TINDAKAN">BLOK C: Tindakan Prosedural</option>
+          <option value="IDLE">BLOK D: Waktu Non-Produktif / Jeda</option>
+        </select>
+        
+        <input disabled={isRunning} type="text" placeholder="Detail Tindakan (Opsional)..." value={detailTindakan} onChange={(e) => setDetailTindakan(e.target.value)} className="w-full p-4 bg-white rounded-2xl font-black uppercase text-[10px] border-2 border-slate-200 mb-6 outline-none focus:border-emerald-500" />
+        
+        {isRunning && (
+            <div className="mb-6 rounded-2xl bg-emerald-50 p-6 border-2 border-emerald-200 shadow-inner text-center animate-pulse">
+              <p className="text-[10px] font-black text-emerald-600 tracking-widest uppercase mb-1">Stopwatch Berjalan</p>
+              <p className="font-mono text-3xl font-black text-emerald-800 tracking-tighter">{waktuMulaiStr}</p>
             </div>
-          ) : (
-            <div className="rounded-2xl bg-slate-50 p-6 border-2 border-dashed border-slate-200">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Stopwatch Siap Digunakan</p>
-            </div>
-          )}
-        </div>
+        )}
 
-        {/* Tombol Aksi Kerja Utama */}
-        <div className="mt-6">
+        <div className="flex gap-3">
           {!isRunning ? (
-            <button
-              onClick={handleStartTimer}
-              className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all active:scale-95"
-            >
-              <Play size={18} className="fill-white" /> MULAI REKAM WAKTU
-            </button>
+            <button onClick={handleStartTimer} className="flex-1 bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-2 hover:bg-emerald-700 active:translate-y-1 active:border-b-0 transition-all"><Play size={16} className="fill-white"/> MULAI</button>
           ) : (
-            <button
-              onClick={handleStopAndSave}
-              disabled={loading}
-              className="w-full bg-red-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-red-800 flex items-center justify-center gap-3 hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50"
-            >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} className="fill-white" />} 
-              {loading ? "MENYIMPAN..." : "STOP & SIMPAN DATA"}
-            </button>
+            <>
+              <button onClick={handleResetTimer} disabled={loading} className="p-5 bg-red-100 text-red-600 rounded-2xl font-black uppercase text-[10px] border-2 border-red-200 flex items-center justify-center gap-2 hover:bg-red-200 transition-all"><Trash2 size={18}/></button>
+              <button onClick={handleStopAndSave} disabled={loading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2 hover:bg-blue-700 active:translate-y-1 active:border-b-0 transition-all">
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} className="fill-white"/>} 
+                {loading ? 'MENYIMPAN...' : 'STOP & SIMPAN'}
+              </button>
+            </>
           )}
         </div>
-
       </div>
     </div>
   );
 }
 
-// --- KOMPONEN UTAMA VIEW JADWAL ---
+// ======================================================
+// 2. MODAL NASA-TLX (KUESIONER SUBJEKTIF)
+// ======================================================
+function ModalNASATLX({ isOpen, onClose, perawatSelected }) {
+  const [scores, setScores] = useState({ mental: 50, fisik: 50, waktu: 50, performa: 50, usaha: 50, frustrasi: 50 });
+  const [catatan, setCatatan] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!isOpen || !perawatSelected) return null;
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/nasa-tlx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdm_id: perawatSelected.id, ...scores, catatan })
+      });
+      if (res.ok) {
+        alert("✅ Evaluasi NASA-TLX Berhasil Disimpan!");
+        onClose();
+      } else { alert("Data gagal disimpan."); }
+    } catch (e) { alert("❌ Terjadi kesalahan jaringan."); }
+    finally { setSubmitting(false); }
+  };
+
+  const Slider = ({ label, val, keyName, descKiri, descKanan }) => (
+    <div className="mb-5 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+      <div className="flex justify-between items-end mb-3">
+        <label className="text-[10px] font-black uppercase tracking-widest text-slate-800">{label}</label>
+        <span className="text-sm font-black text-blue-600 bg-blue-100 px-3 py-1 rounded-lg">{val}</span>
+      </div>
+      <input type="range" min="0" max="100" value={val} onChange={(e) => setScores({...scores, [keyName]: parseInt(e.target.value)})} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-2" />
+      <div className="flex justify-between text-[8px] font-bold uppercase text-slate-400">
+        <span>{descKiri}</span><span>{descKanan}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+      <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-blue-600/20 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-blue-600 pl-4">E-Log NASA-TLX</h3>
+          <button onClick={onClose} className="p-2 bg-slate-100 rounded-full"><XCircle size={20}/></button>
+        </div>
+        <div className="mb-6 bg-blue-50 p-4 rounded-2xl text-[10px] font-black uppercase text-blue-800 border border-blue-100">
+            Responden: <span className="italic">{perawatSelected.nama}</span>
+        </div>
+        
+        <Slider label="1. Kebutuhan Mental" val={scores.mental} keyName="mental" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
+        <Slider label="2. Kebutuhan Fisik" val={scores.fisik} keyName="fisik" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
+        <Slider label="3. Tekanan Waktu" val={scores.waktu} keyName="waktu" descKiri="Sangat Longgar" descKanan="Sangat Mendesak" />
+        <Slider label="4. Performa Kerja" val={scores.performa} keyName="performa" descKiri="Tidak Puas" descKanan="Sangat Puas" />
+        <Slider label="5. Tingkat Usaha" val={scores.usaha} keyName="usaha" descKiri="Sangat Ringan" descKanan="Sangat Keras" />
+        <Slider label="6. Tingkat Frustrasi" val={scores.frustrasi} keyName="frustrasi" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
+
+        <div className="mt-6">
+            <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Catatan Kualitatif Lapangan (Opsional)</label>
+            <textarea placeholder="Tulis kendala sistem, alur pasien, atau alasan jika skor frustrasi tinggi..." value={catatan} onChange={(e) => setCatatan(e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl text-xs font-medium mt-2 outline-none focus:border-blue-500" rows={3} />
+        </div>
+        
+        <button onClick={handleSubmit} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex justify-center items-center gap-2">
+          {submitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
+          {submitting ? "MENYIMPAN DATA..." : "KIRIM EVALUASI KERJA"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ======================================================
+// 3. MODAL LIVE ANALISIS RISET 
+// ======================================================
+function ModalAnalisisRiset({ isOpen, onClose }) {
+    const [dataAnalisis, setDataAnalisis] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if(isOpen) {
+            setLoading(true);
+            fetch('/api/observasi?mode=analisis')
+                .then(res => res.json())
+                .then(data => setDataAnalisis(data.data || []))
+                .catch(err => console.error(err))
+                .finally(() => setLoading(false));
+        }
+    }, [isOpen]);
+
+    if(!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+          <div className="bg-white w-full max-w-4xl rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-indigo-500/20 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-indigo-500 pl-4 flex items-center gap-3"><PieChart size={24} className="text-indigo-500"/> Live Analisis Riset</h3>
+              <button onClick={onClose} className="p-2 bg-slate-100 rounded-full"><XCircle size={20}/></button>
+            </div>
+
+            {loading ? (
+                <div className="flex-1 flex justify-center items-center p-12"><Loader2 className="animate-spin text-indigo-500" size={40} /></div>
+            ) : (
+                <div className="overflow-y-auto custom-scrollbar border rounded-[2rem] border-slate-200">
+                    <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-slate-900 text-white text-[9px] font-black uppercase italic tracking-widest">
+                            <tr><th className="p-5 text-left">Poliklinik / Stasiun</th><th className="p-5 text-left">Kategori Asuhan</th><th className="p-5 text-center">Jml Sampel</th><th className="p-5 text-center bg-indigo-600/30">Rata-rata Waktu (Menit)</th></tr>
+                        </thead>
+                        <tbody className="text-xs font-bold uppercase tracking-tight">
+                            {dataAnalisis.length > 0 ? dataAnalisis.map((row, i) => (
+                                <tr key={i} className="border-b border-slate-100 hover:bg-indigo-50/50">
+                                    <td className="p-5">{row.ruangan}</td>
+                                    <td className="p-5"><span className="bg-slate-100 px-3 py-1 rounded-md text-[10px] text-slate-600">{row.blok_kategori}</span></td>
+                                    <td className="p-5 text-center">{row.jumlah_sampel}</td>
+                                    <td className="p-5 text-center text-indigo-600 font-black text-sm">{row.rata_rata_menit} Mnt</td>
+                                </tr>
+                            )) : <tr><td colSpan={4} className="text-center p-10 text-slate-400 italic font-medium">Belum ada data observasi yang terkumpul.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+          </div>
+        </div>
+    );
+}
+
+// ======================================================
+// 4. KOMPONEN UTAMA
+// ======================================================
 export default function ViewJadwalPublic() {
   const [data, setData] = useState(null);
   const [daftarSDM, setDaftarSDM] = useState([]); 
@@ -185,8 +287,10 @@ export default function ViewJadwalPublic() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   
-  // State untuk Modal Riset Observasi Digital
+  // State untuk Riset
   const [showObservasiModal, setShowObservasiModal] = useState(false);
+  const [showNASAModal, setShowNASAModal] = useState(false);
+  const [showAnalisisModal, setShowAnalisisModal] = useState(false);
   const [perawatTarget, setPerawatTarget] = useState(null);
   const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
 
@@ -266,9 +370,7 @@ export default function ViewJadwalPublic() {
       });
 
       if (res.ok) {
-        alert(`✅ TERSIMPAN!
-${dok.nama_dokter}
-Jumlah: ${jmlTotal} Pasien`);
+        alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
         fetchData(); 
       }
@@ -417,7 +519,7 @@ Jumlah: ${jmlTotal} Pasien`);
         </html>
       `;
 
-      const blob = new Blob(['﻿', wordHeader], { type: 'application/msword' });
+      const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -454,13 +556,10 @@ Jumlah: ${jmlTotal} Pasien`);
   return (
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
       
-      {/* MODAL RISET OBSERVASI TERINTEGRASI */}
-      <ModalObservasiDigital 
-        isOpen={showObservasiModal}
-        onClose={() => { setShowObservasiModal(false); setPerawatTarget(null); }}
-        perawatSelected={perawatTarget}
-        ruanganAktif={ruanganAktifGlobal}
-      />
+      {/* RENDER MODALS RISET */}
+      <ModalObservasiDigital isOpen={showObservasiModal} onClose={() => setShowObservasiModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
+      <ModalNASATLX isOpen={showNASAModal} onClose={() => setShowNASAModal(false)} perawatSelected={perawatTarget} />
+      <ModalAnalisisRiset isOpen={showAnalisisModal} onClose={() => setShowAnalisisModal(false)} />
 
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
@@ -480,6 +579,9 @@ Jumlah: ${jmlTotal} Pasien`);
              </div>
           </div>
           <div className="flex flex-wrap gap-4 justify-center">
+            {/* TOMBOL BARU UNTUK ANALISIS RISET */}
+            <button onClick={() => setShowAnalisisModal(true)} className="bg-indigo-600 hover:bg-indigo-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-indigo-800 text-white"><PieChart size={18} /> Analisis Riset</button>
+            
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
@@ -588,17 +690,29 @@ Jumlah: ${jmlTotal} Pasien`);
                           <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
                             <div className="flex flex-wrap gap-2">
                               {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => (
-                                <div key={i} className="flex items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white pl-2.5 pr-1 py-1 rounded-lg border border-slate-200 shadow-sm">
-                                  <UserCheck size={10} className="text-emerald-500" /> 
-                                  <span>{as.nama}</span>
-                                  {/* TOMBOL RISET OBSERVASI UNTUK SETIAP PERAWAT */}
-                                  <button 
-                                    onClick={() => { setPerawatTarget(as); setShowObservasiModal(true); }}
-                                    className="ml-1 p-1 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-600 rounded transition-colors text-slate-400"
-                                    title="Mulai Rekam Waktu Observasi"
-                                  >
-                                    <ClipboardList size={10} />
-                                  </button>
+                                <div key={i} className="flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                                  <UserCheck size={12} className="text-emerald-500" /> 
+                                  <span className="mr-2">{as.nama}</span>
+                                  
+                                  {/* TOMBOL RISET DIPERJELAS */}
+                                  <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                                      <button 
+                                        onClick={() => { setPerawatTarget(as); setShowObservasiModal(true); }} 
+                                        className="flex items-center gap-1 px-2 py-1.5 hover:bg-emerald-500 hover:text-white transition-all text-slate-500" 
+                                        title="Time Study (Stopwatch)"
+                                      >
+                                          <ClipboardList size={12} /> <span className="text-[8px] not-italic">WAKTU</span>
+                                      </button>
+                                      <div className="w-[1px] bg-slate-200"></div>
+                                      <button 
+                                        onClick={() => { setPerawatTarget(as); setShowNASAModal(true); }} 
+                                        className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-600 hover:text-white transition-all text-slate-500" 
+                                        title="Kuesioner NASA-TLX"
+                                      >
+                                          <FileText size={12} /> <span className="text-[8px] not-italic">STRES</span>
+                                      </button>
+                                  </div>
+
                                 </div>
                               )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>

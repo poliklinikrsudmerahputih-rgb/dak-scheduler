@@ -183,11 +183,11 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif,
 
         <div className="flex gap-3">
           {!isRunning ? (
-            <button onPointerDown={(e) => { e.preventDefault(); handleStartTimer(); }} className="flex-1 bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all"><Play size={16} className="fill-white"/> MULAI</button>
+            <button type="button" onClick={handleStartTimer} className="flex-1 bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all"><Play size={16} className="fill-white"/> MULAI</button>
           ) : (
             <>
-              <button onPointerDown={(e) => { e.preventDefault(); handleResetTimer(); }} disabled={loading} className="p-5 bg-red-100 text-red-600 rounded-2xl font-black uppercase text-[10px] border-2 border-red-200 flex items-center justify-center gap-2 hover:bg-red-200 transition-all"><Trash2 size={18}/></button>
-              <button onPointerDown={(e) => { e.preventDefault(); handleStopAndSave(); }} disabled={loading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
+              <button type="button" onClick={handleResetTimer} disabled={loading} className="p-5 bg-red-100 text-red-600 rounded-2xl font-black uppercase text-[10px] border-2 border-red-200 flex items-center justify-center gap-2 hover:bg-red-200 transition-all"><Trash2 size={18}/></button>
+              <button type="button" onClick={handleStopAndSave} disabled={loading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} className="fill-white"/>} 
                 {loading ? 'MENYIMPAN...' : 'STOP & SIMPAN'}
               </button>
@@ -284,7 +284,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
             <textarea placeholder="Tulis kendala sistem, alur pasien, atau alasan jika skor frustrasi tinggi..." value={catatan} onChange={(e) => setCatatan(e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl text-xs font-medium mt-2 outline-none focus:border-blue-500" rows={3} />
         </div>
         
-        <button onPointerDown={(e) => { e.preventDefault(); handleSubmit(); }} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 transition-all flex justify-center items-center gap-2">
+        <button type="button" onClick={handleSubmit} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 transition-all flex justify-center items-center gap-2">
           {submitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
           {submitting ? "MENYIMPAN DATA..." : "KIRIM EVALUASI KERJA"}
         </button>
@@ -921,8 +921,8 @@ export default function ViewJadwalPublic() {
                                   
                                   <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                                       <button 
-                                        onPointerDown={(e) => { 
-                                          e.preventDefault();
+                                        type="button"
+                                        onClick={() => { 
                                           setPerawatTarget(as); 
                                           setRuanganAktifGlobal(simbol); 
                                           setKlinikAktifGlobal(dok.klinik);
@@ -935,8 +935,8 @@ export default function ViewJadwalPublic() {
                                       </button>
                                       <div className="w-[1px] bg-slate-200"></div>
                                       <button 
-                                        onPointerDown={(e) => { 
-                                          e.preventDefault();
+                                        type="button"
+                                        onClick={() => { 
                                           setPerawatTarget(as); 
                                           setRuanganAktifGlobal(simbol); 
                                           setKlinikAktifGlobal(dok.klinik);
@@ -971,10 +971,8 @@ export default function ViewJadwalPublic() {
                               
                               {!editMode[originalIndex] ? (
                                 <button 
-                                  onPointerDown={(e) => {
-                                    e.preventDefault();
-                                    setEditMode({...editMode, [originalIndex]: true});
-                                  }}
+                                  type="button"
+                                  onClick={() => setEditMode({...editMode, [originalIndex]: true})}
                                   className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700"
                                   title="Edit Data"
                                 >
@@ -982,10 +980,8 @@ export default function ViewJadwalPublic() {
                                 </button>
                               ) : (
                                 <button 
-                                  onPointerDown={(e) => {
-                                    e.preventDefault();
-                                    handleUpdatePasienSpesifik(originalIndex);
-                                  }}
+                                  type="button"
+                                  onClick={() => handleUpdatePasienSpesifik(originalIndex)}
                                   disabled={submitting}
                                   className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800"
                                 >
@@ -1170,8 +1166,8 @@ export default function ViewJadwalPublic() {
                 </select>
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onPointerDown={(e) => { e.preventDefault(); handleSwapDB(); }} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
+                <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
+                <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>
@@ -1195,8 +1191,8 @@ export default function ViewJadwalPublic() {
                 <input type="date" value={rentangDownload.akhir} onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700" />
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2">
+                <button type="button" onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
+                <button type="button" onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2">
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
                 </button>

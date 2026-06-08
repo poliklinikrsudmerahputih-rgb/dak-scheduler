@@ -953,7 +953,14 @@ export default function ViewJadwalPublic() {
                               )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            <div className="flex gap-3 items-end pt-2">
+                            {/* BUNGKUS DENGAN FORM AGAR BISA TEKAN ENTER/GO DI KEYBOARD HP */}
+                            <form 
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                if(editMode[originalIndex]) handleUpdatePasienSpesifik(originalIndex);
+                              }} 
+                              className="flex gap-3 items-end pt-2"
+                            >
                               <div className="flex-1">
                                 <div className="flex justify-between items-center mb-1.5 ml-1">
                                   <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest italic">Input Kunjungan</span>
@@ -961,6 +968,7 @@ export default function ViewJadwalPublic() {
                                 </div>
                                 <input 
                                   type="number" 
+                                  inputMode="numeric" // <-- MENAMPILKAN NUMPAD DI HP
                                   disabled={!editMode[originalIndex]} 
                                   className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[originalIndex] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
                                   value={inputPasien[originalIndex] || ""}
@@ -972,7 +980,10 @@ export default function ViewJadwalPublic() {
                               {!editMode[originalIndex] ? (
                                 <button 
                                   type="button"
-                                  onClick={() => setEditMode({...editMode, [originalIndex]: true})}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setEditMode({...editMode, [originalIndex]: true});
+                                  }}
                                   className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700"
                                   title="Edit Data"
                                 >
@@ -980,15 +991,15 @@ export default function ViewJadwalPublic() {
                                 </button>
                               ) : (
                                 <button 
-                                  type="button"
-                                  onClick={() => handleUpdatePasienSpesifik(originalIndex)}
+                                  type="submit"
+                                  onMouseDown={(e) => e.preventDefault()} // <-- TRIK ANTI-BLUR KEYBOARD HP
                                   disabled={submitting}
                                   className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800"
                                 >
                                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                                 </button>
                               )}
-                            </div>
+                            </form>
                           </div>
                         ) : (
                           <div className="mt-4 p-4 bg-red-50 rounded-2xl text-center border border-dashed border-red-200 flex items-center justify-center gap-2">

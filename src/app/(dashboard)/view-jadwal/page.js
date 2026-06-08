@@ -11,7 +11,6 @@ import { simpanCuti } from "../cuti-sdm/actions";
 
 // ======================================================
 // KOMPONEN BARU: JAM BERJALAN (LIVE CLOCK) TERPISAH
-// Dipisahkan agar tidak membuat kolom input me-refresh (lose focus) di HP
 // ======================================================
 const LiveClock = () => {
   const [liveTime, setLiveTime] = useState(new Date());
@@ -70,7 +69,6 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif,
   const displayMenit = Math.floor(detikBerjalan / 60).toString().padStart(2, '0');
   const displayDetik = (detikBerjalan % 60).toString().padStart(2, '0');
 
-  // Logic penentuan nama poliklinik spesifik
   let namaRuanganTampil = ruanganAktif || 'POLIKLINIK';
   if (namaRuanganTampil.trim().toUpperCase() === 'NERS 3' && klinikSelected) {
       const kl = klinikSelected.toUpperCase();
@@ -185,11 +183,11 @@ function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif,
 
         <div className="flex gap-3">
           {!isRunning ? (
-            <button onClick={handleStartTimer} className="flex-1 bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-2 hover:bg-emerald-700 active:translate-y-1 active:border-b-0 transition-all"><Play size={16} className="fill-white"/> MULAI</button>
+            <button onPointerDown={(e) => { e.preventDefault(); handleStartTimer(); }} className="flex-1 bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-emerald-800 flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all"><Play size={16} className="fill-white"/> MULAI</button>
           ) : (
             <>
-              <button onClick={handleResetTimer} disabled={loading} className="p-5 bg-red-100 text-red-600 rounded-2xl font-black uppercase text-[10px] border-2 border-red-200 flex items-center justify-center gap-2 hover:bg-red-200 transition-all"><Trash2 size={18}/></button>
-              <button onClick={handleStopAndSave} disabled={loading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2 hover:bg-blue-700 active:translate-y-1 active:border-b-0 transition-all">
+              <button onPointerDown={(e) => { e.preventDefault(); handleResetTimer(); }} disabled={loading} className="p-5 bg-red-100 text-red-600 rounded-2xl font-black uppercase text-[10px] border-2 border-red-200 flex items-center justify-center gap-2 hover:bg-red-200 transition-all"><Trash2 size={18}/></button>
+              <button onPointerDown={(e) => { e.preventDefault(); handleStopAndSave(); }} disabled={loading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} className="fill-white"/>} 
                 {loading ? 'MENYIMPAN...' : 'STOP & SIMPAN'}
               </button>
@@ -286,7 +284,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
             <textarea placeholder="Tulis kendala sistem, alur pasien, atau alasan jika skor frustrasi tinggi..." value={catatan} onChange={(e) => setCatatan(e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl text-xs font-medium mt-2 outline-none focus:border-blue-500" rows={3} />
         </div>
         
-        <button onClick={handleSubmit} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex justify-center items-center gap-2">
+        <button onPointerDown={(e) => { e.preventDefault(); handleSubmit(); }} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 transition-all flex justify-center items-center gap-2">
           {submitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
           {submitting ? "MENYIMPAN DATA..." : "KIRIM EVALUASI KERJA"}
         </button>
@@ -832,7 +830,9 @@ export default function ViewJadwalPublic() {
             <input 
               type="text" 
               placeholder="Cari Nama Dokter atau Klinik..." 
-              className="bg-transparent border-none outline-none text-xs font-black w-full uppercase"
+              autoComplete="off"
+              spellCheck="false"
+              className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -919,10 +919,10 @@ export default function ViewJadwalPublic() {
                                   <UserCheck size={12} className="text-emerald-500" /> 
                                   <span className="mr-2">{as.nama}</span>
                                   
-                                  {/* Penguncian data perawat dinas pasca klik */}
                                   <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                                       <button 
-                                        onClick={() => { 
+                                        onPointerDown={(e) => { 
+                                          e.preventDefault();
                                           setPerawatTarget(as); 
                                           setRuanganAktifGlobal(simbol); 
                                           setKlinikAktifGlobal(dok.klinik);
@@ -935,7 +935,8 @@ export default function ViewJadwalPublic() {
                                       </button>
                                       <div className="w-[1px] bg-slate-200"></div>
                                       <button 
-                                        onClick={() => { 
+                                        onPointerDown={(e) => { 
+                                          e.preventDefault();
                                           setPerawatTarget(as); 
                                           setRuanganAktifGlobal(simbol); 
                                           setKlinikAktifGlobal(dok.klinik);
@@ -970,17 +971,23 @@ export default function ViewJadwalPublic() {
                               
                               {!editMode[originalIndex] ? (
                                 <button 
-                                  onClick={() => setEditMode({...editMode, [originalIndex]: true})}
-                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700 active:border-b-0 active:mt-1"
+                                  onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    setEditMode({...editMode, [originalIndex]: true});
+                                  }}
+                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700"
                                   title="Edit Data"
                                 >
                                   <Edit3 size={16} />
                                 </button>
                               ) : (
                                 <button 
-                                  onClick={() => handleUpdatePasienSpesifik(originalIndex)}
+                                  onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    handleUpdatePasienSpesifik(originalIndex);
+                                  }}
                                   disabled={submitting}
-                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800 active:border-b-0 active:mt-1"
+                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800"
                                 >
                                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                                 </button>
@@ -1164,7 +1171,7 @@ export default function ViewJadwalPublic() {
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
                 <button onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 active:border-b-0 active:mt-1 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
+                <button onPointerDown={(e) => { e.preventDefault(); handleSwapDB(); }} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>

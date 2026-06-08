@@ -199,7 +199,6 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
       else namaRuanganTampil = `NERS 3 (${klinikSelected})`;
   }
 
-  // PERBAIKAN: Penangkapan Error Spesifik dari Backend
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
@@ -214,7 +213,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
         })
       });
       
-      const data = await res.json(); // Tarik response JSON untuk mengetahui error pastinya
+      const data = await res.json(); 
       
       if (res.ok) {
         alert("✅ Evaluasi NASA-TLX Berhasil Disimpan!");
@@ -282,6 +281,8 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
     const [dataRaw, setDataRaw] = useState([]);
     const [nasaRaw, setNasaRaw] = useState([]);
     const [loading, setLoading] = useState(false);
+    
+    // PERBAIKAN: Tambah state tab 'OBSERVASI' untuk Data Mentah
     const [tabAktif, setTabAktif] = useState('REKAP'); 
 
     const fetchAnalisis = async () => {
@@ -313,7 +314,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
         return sdm ? sdm.nama : `ID:${id}`;
     };
 
-    // Perbaikan hitungan rekap data supaya tepat per poli/stasiun, asisten, dan blok tindakan
     const rekapData = dataRaw.reduce((acc, row) => {
         const key = `${row.ruangan}_${row.sdm_id}_${row.blok_kategori}`;
         if (!acc[key]) {
@@ -341,9 +341,13 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
               </div>
             </div>
 
-            <div className="flex gap-4 mb-6">
-                <button onClick={() => setTabAktif('REKAP')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'REKAP' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>Rekap Rata-rata</button>
-                <button onClick={() => setTabAktif('NASA')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'NASA' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>E-Log NASA-TLX Stres Kerja</button>
+            <div className="flex flex-wrap gap-3 mb-6">
+                <button onClick={() => setTabAktif('REKAP')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'REKAP' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Rekap Rata-rata</button>
+                
+                {/* PERBAIKAN: Tombol Tab Baru untuk melihat jam input di Observasi */}
+                <button onClick={() => setTabAktif('OBSERVASI')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'OBSERVASI' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Log Time Study (Real-time)</button>
+                
+                <button onClick={() => setTabAktif('NASA')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'NASA' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>E-Log NASA-TLX Stres Kerja</button>
             </div>
 
             {loading ? (
@@ -352,7 +356,7 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                 <div className="overflow-y-auto custom-scrollbar border rounded-[2rem] border-slate-200 bg-white">
                     <table className="w-full text-left">
                         <thead className="sticky top-0 bg-slate-900 text-white text-[9px] font-black uppercase italic tracking-widest z-10 shadow-md">
-                            {tabAktif === 'REKAP' ? (
+                            {tabAktif === 'REKAP' && (
                                 <tr>
                                     <th className="p-5 text-left">Poliklinik / Stasiun</th>
                                     <th className="p-5 text-left">Nama Asisten (Ners)</th>
@@ -360,18 +364,30 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                     <th className="p-5 text-center bg-indigo-600/30">Jml Sampel</th>
                                     <th className="p-5 text-center bg-emerald-500/30">Rata-rata Waktu</th>
                                 </tr>
-                            ) : (
+                            )}
+                            
+                            {/* PERBAIKAN: Header Tabel Data Mentah Observasi */}
+                            {tabAktif === 'OBSERVASI' && (
                                 <tr>
-                                    <th className="p-4">Nama Perawat</th>
-                                    <th className="p-4">Poliklinik / Stasiun</th>
-                                    <th className="p-4 text-center">Indikator Pembebanan (M / F / W / P / U / FR)</th>
+                                    <th className="p-4 w-40 text-left">Tanggal & Jam Record</th>
+                                    <th className="p-4 text-left">Asisten & Stasiun</th>
+                                    <th className="p-4 text-left">Aktivitas Jeda / Kerja</th>
+                                    <th className="p-4 text-center bg-emerald-500/30">Durasi Tercatat</th>
+                                </tr>
+                            )}
+
+                            {tabAktif === 'NASA' && (
+                                <tr>
+                                    <th className="p-4 w-32">Waktu Input</th>
+                                    <th className="p-4">Nama Perawat & Stasiun</th>
+                                    <th className="p-4 text-center">Indikator Pembebanan (M/F/W/P/U/FR)</th>
                                     <th className="p-4 text-center bg-blue-900/40">Catatan Lapangan</th>
                                 </tr>
                             )}
                         </thead>
                         <tbody className="text-xs font-bold uppercase tracking-tight text-slate-700">
                             
-                            {/* RENDER TAB REKAP BARU */}
+                            {/* RENDER TAB REKAP LAMA (Aman tidak dihapus) */}
                             {tabAktif === 'REKAP' && (
                                 Object.values(rekapData).length === 0 ? (
                                     <tr><td colSpan={5} className="text-center p-10 text-slate-400 italic">Belum ada data observasi time-study.</td></tr>
@@ -388,15 +404,48 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                 )
                             )}
 
-                            {/* RENDER TAB LOG NASA-TLX */}
+                            {/* PERBAIKAN: RENDER TAB DATA MENTAH OBSERVASI DENGAN WAKTU JAM */}
+                            {tabAktif === 'OBSERVASI' && (
+                                dataRaw.length === 0 ? (
+                                    <tr><td colSpan={4} className="text-center p-10 text-slate-400 italic">Belum ada rekaman stopwatch yang tersimpan.</td></tr>
+                                ) : (
+                                    dataRaw.map((row, i) => (
+                                        <tr key={`obs-raw-${row.id || i}`} className="border-b border-slate-100 hover:bg-emerald-50/40 transition-colors">
+                                            <td className="p-4">
+                                                <p className="text-[10px] font-black text-slate-800 bg-slate-100 w-fit px-2 py-1 rounded mb-1">{row.tanggal_input || '-'}</p>
+                                                <p className="text-[9px] font-bold text-slate-500 tracking-wider">Jam: {row.waktu_mulai} - {row.waktu_selesai}</p>
+                                            </td>
+                                            <td className="p-4">
+                                                <p className="font-black italic text-emerald-900">{getNamaPerawat(row.sdm_id)}</p>
+                                                <p className="text-[9px] font-bold text-slate-500">{row.ruangan}</p>
+                                            </td>
+                                            <td className="p-4">
+                                                <span className="bg-emerald-100 px-2 py-1 rounded-md text-[9px] text-emerald-700 font-black tracking-wider">{row.blok_kategori}</span>
+                                                <p className="text-[9px] text-slate-500 mt-1.5 uppercase max-w-[200px] truncate" title={row.detail_tindakan}>{row.detail_tindakan}</p>
+                                            </td>
+                                            <td className="p-4 text-center text-emerald-700 font-black text-sm bg-emerald-50/30">
+                                                {row.durasi_menit} Mnt
+                                            </td>
+                                        </tr>
+                                    ))
+                                )
+                            )}
+
+                            {/* RENDER TAB LOG NASA-TLX DENGAN TANGGAL */}
                             {tabAktif === 'NASA' && (
                                 nasaRaw.length === 0 ? (
                                     <tr><td colSpan={4} className="text-center p-10 text-slate-400 italic">Belum ada data kuisioner NASA-TLX yang masuk.</td></tr>
                                 ) : (
                                     nasaRaw.map((row, i) => (
                                         <tr key={`nasa-log-${row.id || i}`} className="border-b border-slate-100 hover:bg-blue-50/40 transition-colors">
-                                            <td className="p-4 font-black text-slate-800 italic">{getNamaPerawat(row.sdm_id)}</td>
-                                            <td className="p-4 font-extrabold text-blue-900">{row.ruangan || 'RAWAT JALAN'}</td>
+                                            <td className="p-4">
+                                                {/* PERBAIKAN: Menampilkan Tanggal Input NASA */}
+                                                <span className="text-[10px] font-black text-slate-600 bg-slate-100 px-2 py-1 rounded">{row.tanggal_isi || row.created_at || '-'}</span>
+                                            </td>
+                                            <td className="p-4">
+                                                <p className="font-black text-slate-800 italic">{getNamaPerawat(row.sdm_id)}</p>
+                                                <p className="font-extrabold text-[9px] text-blue-600 mt-1">{row.ruangan || 'RAWAT JALAN'}</p>
+                                            </td>
                                             <td className="p-4">
                                                 <div className="flex flex-wrap gap-1 justify-center text-[10px]">
                                                     <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded" title="Mental">M: {row.mental}</span>
@@ -459,12 +508,22 @@ export default function ViewJadwalPublic() {
   });
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
 
+  // PERBAIKAN: State untuk Live Clock Jam Berjalan
+  const [liveTime, setLiveTime] = useState(new Date());
+
   useEffect(() => {
+    // Inisialisasi Jam Live setiap detik
+    const timer = setInterval(() => {
+      setLiveTime(new Date());
+    }, 1000);
+
     const sidebar = document.querySelector('aside'); 
     const mainContent = document.querySelector('main');
     if (sidebar) sidebar.style.display = 'none';
     if (mainContent) mainContent.style.marginLeft = '0';
+    
     return () => {
+      clearInterval(timer); // Membersihkan interval saat keluar komponen
       if (sidebar) sidebar.style.display = 'block';
       if (mainContent) mainContent.style.marginLeft = '';
     };
@@ -712,7 +771,7 @@ export default function ViewJadwalPublic() {
   return (
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
       
-      {/* RENDER MODALS RISET - Ditambahkan props klinikSelected untuk pelaporan */}
+      {/* RENDER MODALS RISET */}
       <ModalObservasiDigital isOpen={showObservasiModal} onClose={() => setShowObservasiModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} klinikSelected={klinikAktifGlobal} />
       <ModalNASATLX isOpen={showNASAModal} onClose={() => setShowNASAModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} klinikSelected={klinikAktifGlobal} />
       <ModalAnalisisRiset isOpen={showAnalisisModal} onClose={() => setShowAnalisisModal(false)} daftarSDM={daftarSDM} />
@@ -746,8 +805,16 @@ export default function ViewJadwalPublic() {
             <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800">
                 <RefreshCw size={18} /> Tukar Asisten
             </button>
-            <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner">
+            
+            {/* PERBAIKAN: Penempatan Indikator Jam Berjalan (Live Clock) */}
+            <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner flex flex-col justify-center">
               <p className="text-lg font-black uppercase text-white leading-none tracking-tighter">{labelHariIni}</p>
+              <div className="mt-3 flex items-center justify-center md:justify-end gap-2">
+                 <Clock size={14} className="text-emerald-400" />
+                 <p className="text-emerald-400 font-mono font-black text-xl tracking-widest leading-none">
+                    {format(liveTime, 'HH:mm:ss')} <span className="text-[10px] text-emerald-200/70">WIB</span>
+                 </p>
+              </div>
             </div>
           </div>
         </div>

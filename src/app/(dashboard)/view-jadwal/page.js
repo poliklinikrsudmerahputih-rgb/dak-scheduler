@@ -10,6 +10,27 @@ import {
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
 // ======================================================
+// KOMPONEN BARU: JAM BERJALAN (LIVE CLOCK) TERPISAH
+// Dipisahkan agar tidak membuat kolom input me-refresh (lose focus) di HP
+// ======================================================
+const LiveClock = () => {
+  const [liveTime, setLiveTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <p className="text-emerald-400 font-mono font-black text-xl tracking-widest leading-none">
+       {format(liveTime, 'HH:mm:ss')} <span className="text-[10px] text-emerald-200/70">WIB</span>
+    </p>
+  );
+};
+
+// ======================================================
 // 1. MODAL OBSERVASI DIGITAL (STOPWATCH REAL-TIME)
 // ======================================================
 function ModalObservasiDigital({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSelected }) {
@@ -282,7 +303,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
     const [nasaRaw, setNasaRaw] = useState([]);
     const [loading, setLoading] = useState(false);
     
-    // PERBAIKAN: Tambah state tab 'OBSERVASI' untuk Data Mentah
     const [tabAktif, setTabAktif] = useState('REKAP'); 
 
     const fetchAnalisis = async () => {
@@ -344,7 +364,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
             <div className="flex flex-wrap gap-3 mb-6">
                 <button onClick={() => setTabAktif('REKAP')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'REKAP' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Rekap Rata-rata</button>
                 
-                {/* PERBAIKAN: Tombol Tab Baru untuk melihat jam input di Observasi */}
                 <button onClick={() => setTabAktif('OBSERVASI')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'OBSERVASI' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Log Time Study (Real-time)</button>
                 
                 <button onClick={() => setTabAktif('NASA')} className={`flex-1 py-3 px-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${tabAktif === 'NASA' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>E-Log NASA-TLX Stres Kerja</button>
@@ -366,7 +385,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                 </tr>
                             )}
                             
-                            {/* PERBAIKAN: Header Tabel Data Mentah Observasi */}
                             {tabAktif === 'OBSERVASI' && (
                                 <tr>
                                     <th className="p-4 w-40 text-left">Tanggal & Jam Record</th>
@@ -387,7 +405,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                         </thead>
                         <tbody className="text-xs font-bold uppercase tracking-tight text-slate-700">
                             
-                            {/* RENDER TAB REKAP LAMA (Aman tidak dihapus) */}
                             {tabAktif === 'REKAP' && (
                                 Object.values(rekapData).length === 0 ? (
                                     <tr><td colSpan={5} className="text-center p-10 text-slate-400 italic">Belum ada data observasi time-study.</td></tr>
@@ -404,7 +421,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                 )
                             )}
 
-                            {/* PERBAIKAN: RENDER TAB DATA MENTAH OBSERVASI DENGAN WAKTU JAM */}
                             {tabAktif === 'OBSERVASI' && (
                                 dataRaw.length === 0 ? (
                                     <tr><td colSpan={4} className="text-center p-10 text-slate-400 italic">Belum ada rekaman stopwatch yang tersimpan.</td></tr>
@@ -431,7 +447,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                 )
                             )}
 
-                            {/* RENDER TAB LOG NASA-TLX DENGAN TANGGAL */}
                             {tabAktif === 'NASA' && (
                                 nasaRaw.length === 0 ? (
                                     <tr><td colSpan={4} className="text-center p-10 text-slate-400 italic">Belum ada data kuisioner NASA-TLX yang masuk.</td></tr>
@@ -439,7 +454,6 @@ function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
                                     nasaRaw.map((row, i) => (
                                         <tr key={`nasa-log-${row.id || i}`} className="border-b border-slate-100 hover:bg-blue-50/40 transition-colors">
                                             <td className="p-4">
-                                                {/* PERBAIKAN: Menampilkan Tanggal Input NASA */}
                                                 <span className="text-[10px] font-black text-slate-600 bg-slate-100 px-2 py-1 rounded">{row.tanggal_isi || row.created_at || '-'}</span>
                                             </td>
                                             <td className="p-4">
@@ -508,22 +522,13 @@ export default function ViewJadwalPublic() {
   });
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
 
-  // PERBAIKAN: State untuk Live Clock Jam Berjalan
-  const [liveTime, setLiveTime] = useState(new Date());
-
   useEffect(() => {
-    // Inisialisasi Jam Live setiap detik
-    const timer = setInterval(() => {
-      setLiveTime(new Date());
-    }, 1000);
-
     const sidebar = document.querySelector('aside'); 
     const mainContent = document.querySelector('main');
     if (sidebar) sidebar.style.display = 'none';
     if (mainContent) mainContent.style.marginLeft = '0';
     
     return () => {
-      clearInterval(timer); // Membersihkan interval saat keluar komponen
       if (sidebar) sidebar.style.display = 'block';
       if (mainContent) mainContent.style.marginLeft = '';
     };
@@ -806,14 +811,12 @@ export default function ViewJadwalPublic() {
                 <RefreshCw size={18} /> Tukar Asisten
             </button>
             
-            {/* PERBAIKAN: Penempatan Indikator Jam Berjalan (Live Clock) */}
             <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner flex flex-col justify-center">
               <p className="text-lg font-black uppercase text-white leading-none tracking-tighter">{labelHariIni}</p>
               <div className="mt-3 flex items-center justify-center md:justify-end gap-2">
                  <Clock size={14} className="text-emerald-400" />
-                 <p className="text-emerald-400 font-mono font-black text-xl tracking-widest leading-none">
-                    {format(liveTime, 'HH:mm:ss')} <span className="text-[10px] text-emerald-200/70">WIB</span>
-                 </p>
+                 {/* MEMANGGIL KOMPONEN JAM TERPISAH */}
+                 <LiveClock />
               </div>
             </div>
           </div>

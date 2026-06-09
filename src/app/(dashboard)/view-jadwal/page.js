@@ -294,7 +294,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
 }
 
 // ======================================================
-// 3. MODAL LIVE ANALISIS RISET (FIXED REKAP & E-LOG NASA)
+// 3. MODAL LIVE ANALISIS RISET
 // ======================================================
 function ModalAnalisisRiset({ isOpen, onClose, daftarSDM }) {
     const [dataRaw, setDataRaw] = useState([]);
@@ -503,6 +503,8 @@ export default function ViewJadwalPublic() {
   const [showSwap, setShowSwap] = useState(false);
   const [showCutiModal, setShowCutiModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  
+  // PERBAIKAN: Menghapus "Akumulasi Kerja" state sekunder, Leaderboard langsung memanggil true
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   
   // State untuk Riset
@@ -541,6 +543,7 @@ export default function ViewJadwalPublic() {
       
       if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
 
+      // Endpoint utama ini sudah otomatis mengembalikan data.leaderboard secara real-time
       const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`);
       const dDash = await resDash.json();
       const resSDM = await fetch("/api/sdm");
@@ -571,7 +574,6 @@ export default function ViewJadwalPublic() {
     fetchData();
   }, [selectedDateFull]);
 
-  // UPDATE 1: PENGIRIMAN DATA PUBLIC HEADER & TRIGGER UPDATE LEADERBOARD
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
     if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
@@ -579,7 +581,6 @@ export default function ViewJadwalPublic() {
     setSubmitting(true);
     try {
       const dok = data.dokterPraktik[idx];
-      // Tambahkan header x-public-access agar middleware (jika ada) membiarkannya lewat
       const res = await fetch("/api/jadwal?isPublic=true", {
         method: "PATCH",
         headers: { 
@@ -598,10 +599,8 @@ export default function ViewJadwalPublic() {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
         
-        // Panggil fetchData() dua kali dengan jeda ringan untuk memastikan 
-        // Trigger di database/backend untuk poin leaderboard sudah selesai terhitung
+        // Cukup panggil fetchData() karena backend secara instan mengkalkulasi ulang poin leaderboard
         await fetchData(); 
-        setTimeout(() => fetchData(), 1500);
       } else {
         alert("❌ Sesi Backend Menolak. Pastikan route API mengizinkan public.");
       }
@@ -810,9 +809,11 @@ export default function ViewJadwalPublic() {
           <div className="flex flex-wrap gap-4 justify-center">
             <button onClick={() => setShowAnalisisModal(true)} className="bg-indigo-600 hover:bg-indigo-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-indigo-800 text-white"><PieChart size={18} /> Analisis Riset</button>
             
+            {/* PERBAIKAN: TOMBOL LEADERBOARD KINI LANGSUNG MEMBUKA POPUP TANPA LOADING! */}
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
+            
             <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800">
                 <Edit3 size={18} /> Ajukan Cuti Staf
             </button>
@@ -1003,7 +1004,7 @@ export default function ViewJadwalPublic() {
                               ) : (
                                 <button 
                                   type="submit"
-                                  // UPDATE 2: PERBAIKAN TOMBOL SIMPAN DI HP
+                                  // PERBAIKAN TOMBOL SIMPAN DI HP
                                   onMouseDown={(e) => e.preventDefault()} 
                                   onTouchStart={(e) => e.preventDefault()} 
                                   disabled={submitting}
@@ -1055,7 +1056,7 @@ export default function ViewJadwalPublic() {
         </div>
       </div>
 
-      {/* POP-UP LEADERBOARD POIN */}
+      {/* POP-UP LEADERBOARD POIN KINERJA ASISTEN (INSTAN & REALTIME) */}
       {showLeaderboardModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-5xl rounded-[3rem] p-6 md:p-10 shadow-2xl border-4 border-amber-500/20 max-h-[90vh] flex flex-col">
@@ -1069,45 +1070,46 @@ export default function ViewJadwalPublic() {
             </div>
             
             <div className="overflow-y-auto flex-1 custom-scrollbar border rounded-[2rem] border-slate-100">
-              <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-slate-900 z-10 shadow-md">
-                    <tr className="text-[9px] font-black uppercase italic tracking-widest text-white">
-                      <th className="p-6">Nama Staf</th>
-                      <th className="p-6 text-left">Tugas Hari Ini</th>
-                      <th className="p-6 text-center bg-blue-600/20 border-x border-slate-700">Poin Hari Ini</th>
-                      <th className="p-6 text-center text-amber-400 bg-amber-500/10">TOTAL POIN (BLN INI)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-xs font-bold uppercase tracking-tighter">
-                      {data?.leaderboard?.map((item, i) => (
-                          <tr key={i} className="border-b border-slate-100 hover:bg-amber-50/50 transition-all">
-                              <td className="p-6">
-                                <p className="text-slate-800 font-black italic">{item.nama}</p>
-                                <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
-                              </td>
-                              <td className="p-6">
-                                <span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[9px] border border-slate-200 font-black">
-                                  {item.detail_poli || "OFF / LIBUR"}
-                                </span>
-                              </td>
-                              <td className="p-6 text-center border-x border-slate-100 bg-blue-50/30">
-                                {item.total_pasien_hari_ini > 0 ? (
-                                  <span className="text-blue-600 font-black text-sm flex items-center justify-center gap-1">
-                                    +{item.total_pasien_hari_ini} <CheckCircle2 size={12}/>
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 bg-slate-900 z-10 shadow-md">
+                      <tr className="text-[9px] font-black uppercase italic tracking-widest text-white">
+                        <th className="p-6">Nama Staf</th>
+                        <th className="p-6 text-left">Tugas Hari Ini</th>
+                        <th className="p-6 text-center bg-blue-600/20 border-x border-slate-700">Poin Hari Ini</th>
+                        <th className="p-6 text-center text-amber-400 bg-amber-500/10">TOTAL POIN (BLN INI)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs font-bold uppercase tracking-tighter">
+                        {/* MENGGUNAKAN DATA BAWAAN API UTAMA SECARA LANGSUNG */}
+                        {data?.leaderboard?.map((item, i) => (
+                            <tr key={i} className="border-b border-slate-100 hover:bg-amber-50/50 transition-all">
+                                <td className="p-6">
+                                  <p className="text-slate-800 font-black italic">{item.nama}</p>
+                                  <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
+                                </td>
+                                <td className="p-6">
+                                  <span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[9px] border border-slate-200 font-black">
+                                    {item.detail_poli || "OFF / LIBUR"}
                                   </span>
-                                ) : (
-                                  <span className="text-slate-300">-</span>
-                                )}
-                              </td>
-                              <td className="p-6 text-center bg-amber-50/30">
-                                <div className="inline-block px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-lg shadow-md italic">
-                                  {item.total_pasien_bulanan || item.total_pasien || 0}
-                                </div>
-                              </td>
-                          </tr>
-                      ))}
-                  </tbody>
-              </table>
+                                </td>
+                                <td className="p-6 text-center border-x border-slate-100 bg-blue-50/30">
+                                  {item.total_pasien_hari_ini > 0 ? (
+                                    <span className="text-blue-600 font-black text-sm flex items-center justify-center gap-1">
+                                      +{item.total_pasien_hari_ini} <CheckCircle2 size={12}/>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300">-</span>
+                                  )}
+                                </td>
+                                <td className="p-6 text-center bg-amber-50/30">
+                                  <div className="inline-block px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-lg shadow-md italic">
+                                    {item.total_pasien_bulanan || item.total_pasien || 0}
+                                  </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                  </table>
             </div>
           </div>
         </div>

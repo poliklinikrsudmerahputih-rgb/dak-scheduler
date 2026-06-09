@@ -53,6 +53,11 @@ export async function GET(request) {
       queryTglAkhirBulan = format(new Date(pTahun, pBulan, 0), "yyyy-MM-dd");
     }
 
+    // PERBAIKAN FATAL: Konversi YYYY-MM-DD ke Integer Murni (Contoh: 20260609) 
+    // Ini kebal terhadap error spasi string di SQLite Turso.
+    const queryTglAwalInt = parseInt(queryTglAwalBulan.replace(/-/g, ''), 10);
+    const queryTglAkhirInt = parseInt(queryTglAkhirBulan.replace(/-/g, ''), 10);
+
     // 2. Ambil Summary Statis
     const sdmCount = await turso.execute({
       sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
@@ -64,14 +69,18 @@ export async function GET(request) {
     });
 
     // 3. Ambil Jadwal Perawat (DITARIK SEBULAN PENUH)
-    // PERBAIKAN: Gunakan CAST integer yang konsisten daripada date(printf) untuk hindari bug SQLite 09 vs 9
     let sqlJadwal = "";
     let argsJadwal = [];
     if (isModeLaporan) {
-        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) AND date(substr('0000' || j.tahun, -4, 4) || '-' || substr('00' || j.bulan, -2, 2) || '-' || substr('00' || j.tanggal, -2, 2)) BETWEEN ? AND ?`;
-        argsJadwal = [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan];
+        // Menggunakan formula kalkulasi Math Integer SQLite
+        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id 
+                     WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) 
+                     AND (CAST(j.tahun AS INTEGER) * 10000 + CAST(j.bulan AS INTEGER) * 100 + CAST(j.tanggal AS INTEGER)) BETWEEN ? AND ?`;
+        argsJadwal = [kunciRuangan, queryTglAwalInt, queryTglAkhirInt];
     } else {
-        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) AND CAST(j.tahun AS INTEGER) = ? AND CAST(j.bulan AS INTEGER) = ?`;
+        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id 
+                     WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) 
+                     AND CAST(j.tahun AS INTEGER) = ? AND CAST(j.bulan AS INTEGER) = ?`;
         argsJadwal = [kunciRuangan, pTahun, pBulan];
     }
     const resJadwal = await turso.execute({ sql: sqlJadwal, args: argsJadwal });
@@ -81,10 +90,13 @@ export async function GET(request) {
     let sqlPasien = "";
     let argsPasien = [];
     if (isModeLaporan) {
-        sqlPasien = `SELECT * FROM jumlah_pasien_poli WHERE date(substr('0000' || tahun, -4, 4) || '-' || substr('00' || bulan, -2, 2) || '-' || substr('00' || tanggal, -2, 2)) BETWEEN ? AND ?`;
-        argsPasien = [queryTglAwalBulan, queryTglAkhirBulan];
+        // Menggunakan formula kalkulasi Math Integer SQLite
+        sqlPasien = `SELECT * FROM jumlah_pasien_poli 
+                     WHERE (CAST(tahun AS INTEGER) * 10000 + CAST(bulan AS INTEGER) * 100 + CAST(tanggal AS INTEGER)) BETWEEN ? AND ?`;
+        argsPasien = [queryTglAwalInt, queryTglAkhirInt];
     } else {
-        sqlPasien = `SELECT * FROM jumlah_pasien_poli WHERE CAST(tahun AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ?`;
+        sqlPasien = `SELECT * FROM jumlah_pasien_poli 
+                     WHERE CAST(tahun AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ?`;
         argsPasien = [pTahun, pBulan];
     }
     const resPasienPoli = await turso.execute({ sql: sqlPasien, args: argsPasien });
@@ -122,12 +134,15 @@ export async function GET(request) {
     const amanStr = (str) => String(str || "").trim().toUpperCase();
 
     const getSimbolGrupGlobal = (jadwalSimbol) => {
-      // PERBAIKAN: Jika jadwalSimbol = "0" atau 0, kita proses dengan aman
       if (jadwalSimbol === null || jadwalSimbol === undefined || jadwalSimbol === "") return "LAINNYA";
       let jSimbol = amanStr(jadwalSimbol);
-      let docMatch = resMasterDokterAll.rows.find(md => 
+      
+      // Ambil dokter yang sesuai, kebal dari duplikasi simbol di database
+      let matchedDocs = resMasterDokterAll.rows.filter(md => 
         amanStr(md.klinik) === jSimbol || amanStr(md.simbol_praktik) === jSimbol
       );
+      let docMatch = matchedDocs.find(md => amanStr(md.simbol_praktik) === jSimbol) || matchedDocs[0];
+      
       return docMatch ? amanStr(docMatch.simbol_praktik) : jSimbol;
     };
 
@@ -270,7 +285,6 @@ export async function GET(request) {
       dokterPraktik: dokterPraktik,
       leaderboard: leaderboardBeban
     }, {
-      // HEADER INI MEMAKSA BROWSER MENGAMBIL DATA TERBARU DARI DATABASE, BUKAN DARI CACHE LAMA
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
         'Pragma': 'no-cache',

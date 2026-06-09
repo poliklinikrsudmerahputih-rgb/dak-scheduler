@@ -571,6 +571,7 @@ export default function ViewJadwalPublic() {
     fetchData();
   }, [selectedDateFull]);
 
+  // UPDATE 1: PENGIRIMAN DATA PUBLIC HEADER & TRIGGER UPDATE LEADERBOARD
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
     if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
@@ -578,9 +579,13 @@ export default function ViewJadwalPublic() {
     setSubmitting(true);
     try {
       const dok = data.dokterPraktik[idx];
-      const res = await fetch("/api/jadwal", {
+      // Tambahkan header x-public-access agar middleware (jika ada) membiarkannya lewat
+      const res = await fetch("/api/jadwal?isPublic=true", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            "x-public-access": "true" 
+        },
         body: JSON.stringify({
           nama_dokter: dok.nama_dokter,
           klinik: dok.klinik,
@@ -592,7 +597,13 @@ export default function ViewJadwalPublic() {
       if (res.ok) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
-        fetchData(); 
+        
+        // Panggil fetchData() dua kali dengan jeda ringan untuk memastikan 
+        // Trigger di database/backend untuk poin leaderboard sudah selesai terhitung
+        await fetchData(); 
+        setTimeout(() => fetchData(), 1500);
+      } else {
+        alert("❌ Sesi Backend Menolak. Pastikan route API mengizinkan public.");
       }
     } catch (e) {
       alert("❌ Gagal menyimpan data ke tabel poli.");
@@ -992,7 +1003,9 @@ export default function ViewJadwalPublic() {
                               ) : (
                                 <button 
                                   type="submit"
-                                  onMouseDown={(e) => e.preventDefault()} // <-- TRIK ANTI-BLUR KEYBOARD HP
+                                  // UPDATE 2: PERBAIKAN TOMBOL SIMPAN DI HP
+                                  onMouseDown={(e) => e.preventDefault()} 
+                                  onTouchStart={(e) => e.preventDefault()} 
                                   disabled={submitting}
                                   className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800"
                                 >

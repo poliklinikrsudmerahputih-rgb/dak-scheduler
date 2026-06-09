@@ -28,7 +28,7 @@ export async function GET(request) {
       userRuangan = paramRuangan;
     }
 
-    const kunciRuangan = userRuangan.toUpperCase();
+    const kunciRuangan = String(userRuangan).trim().toUpperCase();
 
     // Parameter Default (Harian) dipastikan berformat Angka
     const pTanggal = Number(searchParams.get("tanggal")) || new Date().getDate();
@@ -45,7 +45,6 @@ export async function GET(request) {
     formatTglTarget = format(targetDate, "yyyy-MM-dd");
     namaHariIndo = format(targetDate, "eeee", { locale: id });
 
-    // FIX: Mengambil data SEBULAN PENUH untuk keperluan akumulasi Leaderboard
     if (isModeLaporan) {
       queryTglAwalBulan = tglAwal;
       queryTglAkhirBulan = tglAkhir;
@@ -65,37 +64,40 @@ export async function GET(request) {
     });
 
     // 3. Ambil Jadwal Perawat (DITARIK SEBULAN PENUH)
-    const resJadwal = await turso.execute({
-      sql: `SELECT j.*, s.nama 
-            FROM jadwal_dinas j 
-            JOIN sdm s ON j.sdm_id = s.id 
-            WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?))
-            AND date(printf('%04d-%02d-%02d', j.tahun, j.bulan, j.tanggal)) BETWEEN ? AND ?`,
-      args: [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan]
-    });
+    // PERBAIKAN: Gunakan CAST integer yang konsisten daripada date(printf) untuk hindari bug SQLite 09 vs 9
+    let sqlJadwal = "";
+    let argsJadwal = [];
+    if (isModeLaporan) {
+        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) AND date(substr('0000' || j.tahun, -4, 4) || '-' || substr('00' || j.bulan, -2, 2) || '-' || substr('00' || j.tanggal, -2, 2)) BETWEEN ? AND ?`;
+        argsJadwal = [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan];
+    } else {
+        sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) AND CAST(j.tahun AS INTEGER) = ? AND CAST(j.bulan AS INTEGER) = ?`;
+        argsJadwal = [kunciRuangan, pTahun, pBulan];
+    }
+    const resJadwal = await turso.execute({ sql: sqlJadwal, args: argsJadwal });
     const semuaJadwalBulanIni = resJadwal.rows;
 
     // 4. Ambil Data Pasien Poli (DITARIK SEBULAN PENUH)
-    const resPasienPoli = await turso.execute({
-      sql: `SELECT * FROM jumlah_pasien_poli 
-            WHERE date(printf('%04d-%02d-%02d', tahun, bulan, tanggal)) BETWEEN ? AND ?`,
-      args: [queryTglAwalBulan, queryTglAkhirBulan]
-    });
+    let sqlPasien = "";
+    let argsPasien = [];
+    if (isModeLaporan) {
+        sqlPasien = `SELECT * FROM jumlah_pasien_poli WHERE date(substr('0000' || tahun, -4, 4) || '-' || substr('00' || bulan, -2, 2) || '-' || substr('00' || tanggal, -2, 2)) BETWEEN ? AND ?`;
+        argsPasien = [queryTglAwalBulan, queryTglAkhirBulan];
+    } else {
+        sqlPasien = `SELECT * FROM jumlah_pasien_poli WHERE CAST(tahun AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ?`;
+        argsPasien = [pTahun, pBulan];
+    }
+    const resPasienPoli = await turso.execute({ sql: sqlPasien, args: argsPasien });
     const dataPasienBulanIni = resPasienPoli.rows;
 
     // 5. Ambil Data Cuti SDM & Dokter
     const [resSdmCuti, resDokterCuti] = await Promise.all([
       turso.execute({
-        sql: `SELECT * FROM cuti_sdm 
-              WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
-              AND (strftime('%m', tgl_mulai) = ? OR strftime('%m', tgl_selesai) = ?)
-              ORDER BY id DESC LIMIT 20`,
+        sql: `SELECT * FROM cuti_sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND (strftime('%m', tgl_mulai) = ? OR strftime('%m', tgl_selesai) = ?) ORDER BY id DESC LIMIT 20`,
         args: [kunciRuangan, String(pBulan).padStart(2, '0'), String(pBulan).padStart(2, '0')]
       }),
       turso.execute({
-        sql: `SELECT * FROM cuti_dokter 
-              WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
-              AND (strftime('%m', tgl_mulai) = ? OR strftime('%m', tgl_selesai) = ?)`,
+        sql: `SELECT * FROM cuti_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND (strftime('%m', tgl_mulai) = ? OR strftime('%m', tgl_selesai) = ?)`,
         args: [kunciRuangan, String(pBulan).padStart(2, '0'), String(pBulan).padStart(2, '0')]
       })
     ]);
@@ -116,35 +118,40 @@ export async function GET(request) {
       });
     }
 
-    const getSimbolGrupHariIni = (jadwalSimbol) => {
-      if (!jadwalSimbol) return "LAINNYA";
-      let jSimbol = jadwalSimbol.trim().toUpperCase();
-      let docMatch = resMasterDokterHariIni.rows.find(md => 
-        md.klinik.trim().toUpperCase() === jSimbol || 
-        md.simbol_praktik.trim().toUpperCase() === jSimbol
+    // FUNGSI PENGAMANAN STRING (Melindungi dari Error NULL dan mengatasi bug angka 0)
+    const amanStr = (str) => String(str || "").trim().toUpperCase();
+
+    const getSimbolGrupGlobal = (jadwalSimbol) => {
+      // PERBAIKAN: Jika jadwalSimbol = "0" atau 0, kita proses dengan aman
+      if (jadwalSimbol === null || jadwalSimbol === undefined || jadwalSimbol === "") return "LAINNYA";
+      let jSimbol = amanStr(jadwalSimbol);
+      let docMatch = resMasterDokterAll.rows.find(md => 
+        amanStr(md.klinik) === jSimbol || amanStr(md.simbol_praktik) === jSimbol
       );
-      return docMatch ? docMatch.simbol_praktik.trim().toUpperCase() : jSimbol;
+      return docMatch ? amanStr(docMatch.simbol_praktik) : jSimbol;
     };
+
+    const getSimbolGrupHariIni = getSimbolGrupGlobal;
 
     const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
       const recordPasienHarian = !isModeLaporan ? dataPasienBulanIni.find(p => 
-        p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
-        p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase() && 
+        amanStr(p.nama_dokter) === amanStr(dok.nama_dokter) && 
+        amanStr(p.klinik) === amanStr(dok.klinik) && 
         Number(p.tanggal) === pTanggal
       ) : null;
 
       const listPasienRentang = dataPasienBulanIni.filter(p => 
-        p.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
-        p.klinik.trim().toUpperCase() === dok.klinik.trim().toUpperCase()
+        amanStr(p.nama_dokter) === amanStr(dok.nama_dokter) && 
+        amanStr(p.klinik) === amanStr(dok.klinik)
       );
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
       const timHarian = !isModeLaporan ? semuaJadwalBulanIni.filter(j => 
-        Number(j.tanggal) === pTanggal && getSimbolGrupHariIni(j.simbol) === dok.simbol_praktik.trim().toUpperCase()
+        Number(j.tanggal) === pTanggal && getSimbolGrupGlobal(j.simbol) === amanStr(dok.simbol_praktik)
       ) : [];
 
       const isCuti = !isModeLaporan ? resDokterCuti.rows.some(c => 
-        c.nama_dokter.trim().toUpperCase() === dok.nama_dokter.trim().toUpperCase() && 
+        amanStr(c.nama_dokter) === amanStr(dok.nama_dokter) && 
         formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
       ) : false;
 
@@ -160,32 +167,21 @@ export async function GET(request) {
     /**
      * ALGORITMA BARU: Kalkulasi Poin yang Benar dan Dibagi Rata Sesuai Jumlah Asisten
      */
-    const getSimbolGrupGlobal = (jadwalSimbol) => {
-      if (!jadwalSimbol) return "LAINNYA";
-      let jSimbol = jadwalSimbol.trim().toUpperCase();
-      let docMatch = resMasterDokterAll.rows.find(md => 
-        md.klinik.trim().toUpperCase() === jSimbol || 
-        md.simbol_praktik.trim().toUpperCase() === jSimbol
-      );
-      return docMatch ? docMatch.simbol_praktik.trim().toUpperCase() : jSimbol;
-    };
-
-    // Langkah 1: Buat Dictionary (Kamus) Poin Global Per Hari Per Stasiun
     const dailyPointsDict = {}; 
     
     // a. Kumpulkan total kunjungan pasien per grup simbol (e.g., Semua pasien NERS 3 hari itu)
     dataPasienBulanIni.forEach(p => {
         const dokMatch = resMasterDokterAll.rows.find(md => 
-            md.nama_dokter.trim().toUpperCase() === p.nama_dokter.trim().toUpperCase() && 
-            md.klinik.trim().toUpperCase() === p.klinik.trim().toUpperCase()
+            amanStr(md.nama_dokter) === amanStr(p.nama_dokter) && 
+            amanStr(md.klinik) === amanStr(p.klinik)
         );
-        const simbol = dokMatch ? dokMatch.simbol_praktik.trim().toUpperCase() : "LAINNYA";
+        const simbol = dokMatch ? amanStr(dokMatch.simbol_praktik) : (amanStr(p.klinik) || "LAINNYA");
         const dateKey = `${Number(p.tahun)}-${Number(p.bulan)}-${Number(p.tanggal)}_${simbol}`;
         
         if (!dailyPointsDict[dateKey]) {
             dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
         }
-        dailyPointsDict[dateKey].totalPasien += Number(p.jumlah);
+        dailyPointsDict[dateKey].totalPasien += Number(p.jumlah || 0);
     });
 
     // b. Hitung berapa jumlah asisten perawat di masing-masing grup simbol hari itu
@@ -220,7 +216,6 @@ export async function GET(request) {
         const targetSimbolGroup = getSimbolGrupGlobal(jadwal.simbol);
         const dateKey = `${Number(jadwal.tahun)}-${Number(jadwal.bulan)}-${Number(jadwal.tanggal)}_${targetSimbolGroup}`;
         
-        // Ambil poin harian yang sudah dibagi dari Dictionary
         const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poin : 0;
         
         totalBebanBulanan += poinHarian;
@@ -229,12 +224,11 @@ export async function GET(request) {
         if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
             totalBebanHariIni += poinHarian;
             
-            // PERBAIKAN: Penulisan nama poli harian dibuat rapi dan tidak berderet
             if (targetSimbolGroup.startsWith('NERS')) {
-                daftarPoliDibantuHariIni.add(targetSimbolGroup); // Hasilnya: "NERS 3"
+                daftarPoliDibantuHariIni.add(targetSimbolGroup); 
             } else {
                 const namaPoliBersih = targetSimbolGroup.replace('POLI', '').trim();
-                daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); // Hasilnya: "POLI GIGI"
+                daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); 
             }
         }
       });
@@ -262,6 +256,7 @@ export async function GET(request) {
       tgl_selesai: format(new Date(s.tgl_selesai), "dd MMM")
     }));
 
+    // BUSTER CACHE AGAR FRONTEND SELALU TERUPDATE SAAT DIKLIK SIMPAN
     return NextResponse.json({
       summary: {
         totalSDM: sdmCount.rows[0]?.total || 0,
@@ -274,6 +269,13 @@ export async function GET(request) {
       sdmCuti: dataCutiSdmMapped,
       dokterPraktik: dokterPraktik,
       leaderboard: leaderboardBeban
+    }, {
+      // HEADER INI MEMAKSA BROWSER MENGAMBIL DATA TERBARU DARI DATABASE, BUKAN DARI CACHE LAMA
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
 
   } catch (error) {

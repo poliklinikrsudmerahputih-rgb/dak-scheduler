@@ -20,16 +20,22 @@ async function getSessionRuangan() {
 export async function GET(req) {
   try {
     const userRuangan = await getSessionRuangan();
-    if (!userRuangan) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Tangkap jalur public dari ViewJadwalPublic
+    const isPublic = new URL(req.url).searchParams.get("isPublic") === "true";
+
+    if (!userRuangan && !isPublic) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const bulan = searchParams.get("bulan");
     const tahun = searchParams.get("tahun");
 
-    // Ruangan diambil dari sesi, bukan dari parameter luar
+    // Jika masuk dari jalur publik, gunakan ruangan dari parameter, jika tidak ada default ke POLIKLINIK
+    const paramRuangan = searchParams.get("ruangan");
+    const ruanganTarget = userRuangan || (paramRuangan ? paramRuangan.toUpperCase() : "POLIKLINIK");
+
     const res = await turso.execute({
       sql: "SELECT * FROM jadwal_dinas WHERE bulan = ? AND tahun = ? AND UPPER(TRIM(ruangan)) = ?",
-      args: [bulan, tahun, userRuangan]
+      args: [bulan, tahun, ruanganTarget]
     });
     return NextResponse.json(res.rows);
   } catch (error) {
@@ -41,12 +47,16 @@ export async function GET(req) {
 // --- 2. PATCH: PENYIMPANAN JUMLAH PASIEN POLI ---
 export async function PATCH(req) {
   try {
+    // 1. Tangkap "Kunci Bypass" dari ViewJadwalPublic
+    const isPublic = req.headers.get("x-public-access") === "true" || new URL(req.url).searchParams.get("isPublic") === "true";
     const userRuangan = await getSessionRuangan();
-    if (!userRuangan) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    // 2. Jika tidak ada sesi DAN bukan dari jalur publik, baru ditolak
+    if (!userRuangan && !isPublic) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = await req.json();
 
-    // Jalankan operasi DELETE dan INSERT dalam satu batch
+    // Jalankan operasi DELETE dan INSERT dalam satu batch (Murni sinkronisasi poin ke tabel)
     const queries = [
       {
         sql: `DELETE FROM jumlah_pasien_poli WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
@@ -69,6 +79,7 @@ export async function PATCH(req) {
 // --- 3. POST: SIMPAN JADWAL MASSAL (TERISOLASI) ---
 export async function POST(req) {
   try {
+    // Untuk POST (Simpan Jadwal Massal sebulan) kita biarkan KETAT, hanya Karu yang login yang boleh.
     const userRuangan = await getSessionRuangan();
     if (!userRuangan) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

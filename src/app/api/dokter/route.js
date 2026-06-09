@@ -2,99 +2,99 @@ import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
+// Memaksa Next.js agar selalu mengambil data terbaru secara Live (Bypass Cache)
 export const dynamic = "force-dynamic";
 
 // ====================================================================
-// 1. FUNGSI GET (Mengambil Data Dokter - ISOLASI KETAT PER RUANGAN)
+// 1. FUNGSI GET (Mengambil Data Cuti Dokter - Fleksibel Session & Public Link)
 // ====================================================================
-export async function GET() {
+export async function GET(request) {
   try {
+    const { searchParams } = new URL(request.url);
+    
+    // ISOLASI KEAMANAN (RLS) YANG FLEKSIBEL UNTUK SHARE LINK
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
+    
+    let userRuangan = "POLIKLINIK"; 
+    const paramRuangan = searchParams.get("ruangan");
 
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (session) {
+      try {
+        const userData = JSON.parse(session.value);
+        userRuangan = userData.ruangan || "POLIKLINIK";
+      } catch (e) {
+        console.warn("Format cookie lama terdeteksi");
+      }
+    } else if (paramRuangan) {
+      // Izinkan akses jika ruangan dilempar via URL parameter (Mode Public Link)
+      userRuangan = paramRuangan;
     }
 
-    const userData = JSON.parse(session.value);
-    const userRuangan = userData.ruangan || "POLIKLINIK";
+    const kunciRuangan = String(userRuangan).trim().toUpperCase();
 
-    // PERBAIKAN: Kunci query hanya untuk ruangan yang sesuai dengan user yang login
+    // Ambil riwayat cuti dokter untuk ruangan terkait
     const result = await turso.execute({
       sql: `
-        SELECT * FROM master_dokter 
-        WHERE ruangan = ? 
-        ORDER BY simbol_praktik ASC, nama_dokter ASC
+        SELECT * FROM cuti_dokter 
+        WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+        ORDER BY tgl_mulai DESC, id DESC
       `,
-      args: [userRuangan.toUpperCase()]
+      args: [kunciRuangan]
     });
 
-    return NextResponse.json(result.rows);
+    return NextResponse.json(result.rows || []);
     
   } catch (error) {
-    console.error("Gagal ambil data dokter:", error);
-    
-    return NextResponse.json(
-      { 
-        error: "Gagal memuat data dokter.", 
-        detail: error.message 
-      }, 
-      { status: 500 }
-    );
+    console.error("Gagal ambil data cuti dokter:", error);
+    return NextResponse.json([]); // Kembalikan array kosong agar map() di frontend tidak crash
   }
 }
 
 // ====================================================================
-// 2. FUNGSI PATCH (Menyimpan & Mengunci Jumlah Pasien - DENGAN PROTEKSI LOGIN)
+// 2. FUNGSI POST (Menyimpan Pengajuan Cuti Dokter Baru)
 // ====================================================================
-export async function PATCH(request) {
+export async function POST(request) {
   try {
-    // PERBAIKAN KEAMANAN: Validasi sesi cookie sebelum memproses data pasien
-    const cookieStore = await cookies();
-    const session = cookieStore.get("session_dak_pro");
-
-    if (!session) {
-      return NextResponse.json({ error: "Akses ditolak. Silakan login terlebih dahulu." }, { status: 401 });
-    }
-
     const body = await request.json();
-    const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body;
+    const { nama_dokter, tgl_mulai, tgl_selesai, alasan, ruangan } = body;
 
-    if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {
-      return NextResponse.json({ error: "Data parameter input tidak lengkap." }, { status: 400 });
+    if (!nama_dokter || !tgl_mulai || !tgl_selesai) {
+      return NextResponse.json({ error: "Parameter pengajuan cuti tidak lengkap." }, { status: 400 });
     }
 
-    // FITUR ANTI-ERROR: Bersihkan spasi berlebih dengan TRIM dan UPPERCASE 
-    const cleanNama = nama_dokter.trim().toUpperCase();
-    const cleanKlinik = klinik.trim().toUpperCase();
+    // Deteksi ruangan cadangan jika form dari frontend luput mengirimkan nama ruangan
+    let targetRuangan = ruangan;
+    if (!targetRuangan) {
+      const cookieStore = await cookies();
+      const session = cookieStore.get("session_dak_pro");
+      if (session) {
+        const userData = JSON.parse(session.value);
+        targetRuangan = userData.ruangan;
+      }
+    }
+    
+    const kunciRuangan = String(targetRuangan || "POLIKLINIK").trim().toUpperCase();
 
-    // Cek apakah hari ini dokter tersebut sudah ada datanya di tabel jumlah_pasien_poli
-    const check = await turso.execute({
-      sql: `SELECT id FROM jumlah_pasien_poli 
-            WHERE TRIM(UPPER(nama_dokter)) = ? 
-            AND TRIM(UPPER(klinik)) = ? 
-            AND tanggal = ? AND bulan = ? AND tahun = ?`,
-      args: [cleanNama, cleanKlinik, tanggal, bulan, tahun]
+    // Masukkan data cuti dokter ke database Turso
+    await turso.execute({
+      sql: `
+        INSERT INTO cuti_dokter (nama_dokter, tgl_mulai, tgl_selesai, alasan, ruangan) 
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: [
+        String(nama_dokter).trim(), 
+        tgl_mulai, 
+        tgl_selesai, 
+        alasan || "-", 
+        kunciRuangan
+      ]
     });
 
-    if (check.rows.length > 0) {
-      // Jika sudah ada, UPDATE (Timpa) datanya dengan jumlah yang baru
-      await turso.execute({
-        sql: `UPDATE jumlah_pasien_poli SET jumlah = ? WHERE id = ?`,
-        args: [jumlah, check.rows[0].id]
-      });
-    } else {
-      // Jika belum ada, INSERT (Masukkan) data baru
-      await turso.execute({
-        sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, tanggal, bulan, tahun, jumlah) 
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [cleanNama, cleanKlinik, tanggal, bulan, tahun, jumlah]
-      });
-    }
+    return NextResponse.json({ success: true, message: "Data cuti dokter berhasil disimpan secara real-time." });
 
-    return NextResponse.json({ success: true, message: "Data berhasil dikunci dan disimpan." });
-  } catch (e) {
-    console.error("Gagal PATCH Jadwal:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (error) {
+    console.error("Gagal menyimpan cuti dokter:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

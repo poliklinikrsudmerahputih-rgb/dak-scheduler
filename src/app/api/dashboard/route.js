@@ -6,11 +6,14 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
+// =======================================================================
+// 1. FUNGSI GET: MENGAMBIL DATA DASHBOARD & KALKULASI POIN LEADERBOARD
+// =======================================================================
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     
-    // 1. ISOLASI KEAMANAN (RLS) YANG FLEKSIBEL UNTUK SHARE LINK
+    // ISOLASI KEAMANAN
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
     
@@ -30,7 +33,7 @@ export async function GET(request) {
 
     const kunciRuangan = String(userRuangan).trim().toUpperCase();
 
-    // Parameter Default (Harian) dipastikan berformat Angka
+    // Parameter Tanggal
     const pTanggal = Number(searchParams.get("tanggal")) || new Date().getDate();
     const pBulan = Number(searchParams.get("bulan")) || (new Date().getMonth() + 1);
     const pTahun = Number(searchParams.get("tahun")) || new Date().getFullYear();
@@ -53,12 +56,10 @@ export async function GET(request) {
       queryTglAkhirBulan = format(new Date(pTahun, pBulan, 0), "yyyy-MM-dd");
     }
 
-    // PERBAIKAN FATAL: Konversi YYYY-MM-DD ke Integer Murni (Contoh: 20260609) 
-    // Ini kebal terhadap error spasi string di SQLite Turso.
     const queryTglAwalInt = parseInt(queryTglAwalBulan.replace(/-/g, ''), 10);
     const queryTglAkhirInt = parseInt(queryTglAkhirBulan.replace(/-/g, ''), 10);
 
-    // 2. Ambil Summary Statis
+    // Ambil Summary Statis
     const sdmCount = await turso.execute({
       sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
       args: [kunciRuangan]
@@ -68,11 +69,10 @@ export async function GET(request) {
       args: [kunciRuangan]
     });
 
-    // 3. Ambil Jadwal Perawat (DITARIK SEBULAN PENUH)
+    // Ambil Jadwal Perawat
     let sqlJadwal = "";
     let argsJadwal = [];
     if (isModeLaporan) {
-        // Menggunakan formula kalkulasi Math Integer SQLite
         sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id 
                      WHERE UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)) 
                      AND (CAST(j.tahun AS INTEGER) * 10000 + CAST(j.bulan AS INTEGER) * 100 + CAST(j.tanggal AS INTEGER)) BETWEEN ? AND ?`;
@@ -86,11 +86,10 @@ export async function GET(request) {
     const resJadwal = await turso.execute({ sql: sqlJadwal, args: argsJadwal });
     const semuaJadwalBulanIni = resJadwal.rows;
 
-    // 4. Ambil Data Pasien Poli (DITARIK SEBULAN PENUH)
+    // Ambil Data Pasien Poli
     let sqlPasien = "";
     let argsPasien = [];
     if (isModeLaporan) {
-        // Menggunakan formula kalkulasi Math Integer SQLite
         sqlPasien = `SELECT * FROM jumlah_pasien_poli 
                      WHERE (CAST(tahun AS INTEGER) * 10000 + CAST(bulan AS INTEGER) * 100 + CAST(tanggal AS INTEGER)) BETWEEN ? AND ?`;
         argsPasien = [queryTglAwalInt, queryTglAkhirInt];
@@ -102,7 +101,7 @@ export async function GET(request) {
     const resPasienPoli = await turso.execute({ sql: sqlPasien, args: argsPasien });
     const dataPasienBulanIni = resPasienPoli.rows;
 
-    // 5. Ambil Data Cuti SDM & Dokter
+    // Ambil Data Cuti
     const [resSdmCuti, resDokterCuti] = await Promise.all([
       turso.execute({
         sql: `SELECT * FROM cuti_sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND (strftime('%m', tgl_mulai) = ? OR strftime('%m', tgl_selesai) = ?) ORDER BY id DESC LIMIT 20`,
@@ -114,7 +113,7 @@ export async function GET(request) {
       })
     ]);
 
-    // 6. Ambil Master Dokter
+    // Ambil Master Dokter
     const resMasterDokterAll = await turso.execute({
       sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
       args: [kunciRuangan]
@@ -130,24 +129,9 @@ export async function GET(request) {
       });
     }
 
-    // FUNGSI PENGAMANAN STRING (Melindungi dari Error NULL dan mengatasi bug angka 0)
     const amanStr = (str) => String(str || "").trim().toUpperCase();
 
-    const getSimbolGrupGlobal = (jadwalSimbol) => {
-      if (jadwalSimbol === null || jadwalSimbol === undefined || jadwalSimbol === "") return "LAINNYA";
-      let jSimbol = amanStr(jadwalSimbol);
-      
-      // Ambil dokter yang sesuai, kebal dari duplikasi simbol di database
-      let matchedDocs = resMasterDokterAll.rows.filter(md => 
-        amanStr(md.klinik) === jSimbol || amanStr(md.simbol_praktik) === jSimbol
-      );
-      let docMatch = matchedDocs.find(md => amanStr(md.simbol_praktik) === jSimbol) || matchedDocs[0];
-      
-      return docMatch ? amanStr(docMatch.simbol_praktik) : jSimbol;
-    };
-
-    const getSimbolGrupHariIni = getSimbolGrupGlobal;
-
+    // Mapping Dokter Praktik (Card UI)
     const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
       const recordPasienHarian = !isModeLaporan ? dataPasienBulanIni.find(p => 
         amanStr(p.nama_dokter) === amanStr(dok.nama_dokter) && 
@@ -161,8 +145,9 @@ export async function GET(request) {
       );
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
+      // LANGSUNG cocokkan dengan simbol di jadwal dinas hari itu
       const timHarian = !isModeLaporan ? semuaJadwalBulanIni.filter(j => 
-        Number(j.tanggal) === pTanggal && getSimbolGrupGlobal(j.simbol) === amanStr(dok.simbol_praktik)
+        Number(j.tanggal) === pTanggal && amanStr(j.simbol) === amanStr(dok.simbol_praktik)
       ) : [];
 
       const isCuti = !isModeLaporan ? resDokterCuti.rows.some(c => 
@@ -180,16 +165,22 @@ export async function GET(request) {
     });
 
     /**
-     * ALGORITMA BARU: Kalkulasi Poin yang Benar dan Dibagi Rata Sesuai Jumlah Asisten
+     * ALGORITMA FINAL: KALKULASI POIN (BERDASARKAN TANGGAL & HARI)
      */
     const dailyPointsDict = {}; 
+    const getNamaHari = (thn, bln, tgl) => format(new Date(thn, bln - 1, tgl), "eeee", { locale: id });
     
-    // a. Kumpulkan total kunjungan pasien per grup simbol (e.g., Semua pasien NERS 3 hari itu)
+    // a. Kumpulkan pasien berdasarkan nama dokter dan jadwal_hari dokter tersebut
     dataPasienBulanIni.forEach(p => {
+        const namaHariPasien = getNamaHari(p.tahun, p.bulan, p.tanggal);
+        
+        // KUNCI PERBAIKAN: Cari simbol dokter SPESIFIK PADA HARI TERSEBUT
         const dokMatch = resMasterDokterAll.rows.find(md => 
             amanStr(md.nama_dokter) === amanStr(p.nama_dokter) && 
-            amanStr(md.klinik) === amanStr(p.klinik)
+            amanStr(md.klinik) === amanStr(p.klinik) &&
+            amanStr(md.jadwal_hari) === amanStr(namaHariPasien)
         );
+        
         const simbol = dokMatch ? amanStr(dokMatch.simbol_praktik) : (amanStr(p.klinik) || "LAINNYA");
         const dateKey = `${Number(p.tahun)}-${Number(p.bulan)}-${Number(p.tanggal)}_${simbol}`;
         
@@ -199,10 +190,10 @@ export async function GET(request) {
         dailyPointsDict[dateKey].totalPasien += Number(p.jumlah || 0);
     });
 
-    // b. Hitung berapa jumlah asisten perawat di masing-masing grup simbol hari itu
+    // b. Hitung jumlah asisten perawat langsung dari tabel jadwal dinas tanpa filter master
     semuaJadwalBulanIni.forEach(j => {
-        const simbol = getSimbolGrupGlobal(j.simbol);
-        const dateKey = `${Number(j.tahun)}-${Number(j.bulan)}-${Number(j.tanggal)}_${simbol}`;
+        const simbolAsisten = amanStr(j.simbol);
+        const dateKey = `${Number(j.tahun)}-${Number(j.bulan)}-${Number(j.tanggal)}_${simbolAsisten}`;
         
         if (!dailyPointsDict[dateKey]) {
             dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
@@ -217,7 +208,7 @@ export async function GET(request) {
         data.poin = Math.round(data.totalPasien / asisten);
     }
 
-    // Langkah 2: Distribusikan Poin yang Sudah Dihitung Rata ke Masing-Masing Perawat
+    // Distribusikan Poin ke Leaderboard
     const perawatUnik = [...new Set(semuaJadwalBulanIni.map(j => j.sdm_id))];
     const leaderboardBeban = perawatUnik.map(idSdm => {
       const infoSdm = semuaJadwalBulanIni.find(j => j.sdm_id === idSdm);
@@ -228,17 +219,14 @@ export async function GET(request) {
       const riwayatJadwalSdm = semuaJadwalBulanIni.filter(j => j.sdm_id === idSdm);
 
       riwayatJadwalSdm.forEach(jadwal => {
-        const targetSimbolGroup = getSimbolGrupGlobal(jadwal.simbol);
+        const targetSimbolGroup = amanStr(jadwal.simbol);
         const dateKey = `${Number(jadwal.tahun)}-${Number(jadwal.bulan)}-${Number(jadwal.tanggal)}_${targetSimbolGroup}`;
         
         const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poin : 0;
-        
         totalBebanBulanan += poinHarian;
 
-        // Identifikasi jadwal khusus HARI INI
         if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
             totalBebanHariIni += poinHarian;
-            
             if (targetSimbolGroup.startsWith('NERS')) {
                 daftarPoliDibantuHariIni.add(targetSimbolGroup); 
             } else {
@@ -260,7 +248,6 @@ export async function GET(request) {
       };
     }).filter(p => p.nama !== 'ADMIN');
 
-    // Urutkan berdasarkan total akumulasi sebulan terbanyak
     leaderboardBeban.sort((a, b) => b.total_pasien_bulanan - a.total_pasien_bulanan);
 
     const dataCutiSdmMapped = resSdmCuti.rows.map(s => ({
@@ -271,7 +258,6 @@ export async function GET(request) {
       tgl_selesai: format(new Date(s.tgl_selesai), "dd MMM")
     }));
 
-    // BUSTER CACHE AGAR FRONTEND SELALU TERUPDATE SAAT DIKLIK SIMPAN
     return NextResponse.json({
       summary: {
         totalSDM: sdmCount.rows[0]?.total || 0,
@@ -294,6 +280,42 @@ export async function GET(request) {
 
   } catch (error) {
     console.error("Dashboard API Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// =======================================================================
+// 2. FUNGSI PATCH: MENYIMPAN DATA JUMLAH PASIEN (UPSERT BULLETPROOF)
+// =======================================================================
+export async function PATCH(request) {
+  try {
+    const body = await request.json();
+    const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body;
+
+    const checkQuery = await turso.execute({
+      sql: `SELECT id FROM jumlah_pasien_poli 
+            WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
+      args: [nama_dokter, klinik, tanggal, bulan, tahun]
+    });
+
+    if (checkQuery.rows.length > 0) {
+      await turso.execute({
+        sql: `UPDATE jumlah_pasien_poli SET jumlah = ? 
+              WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
+        args: [jumlah, nama_dokter, klinik, tanggal, bulan, tahun]
+      });
+    } else {
+      await turso.execute({
+        sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, jumlah, tanggal, bulan, tahun) 
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [nama_dokter, klinik, jumlah, tanggal, bulan, tahun]
+      });
+    }
+
+    return NextResponse.json({ success: true, message: "Data pasien tersimpan" });
+
+  } catch (error) {
+    console.error("Gagal push ke database:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

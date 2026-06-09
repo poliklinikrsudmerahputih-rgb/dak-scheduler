@@ -809,7 +809,6 @@ export default function ViewJadwalPublic() {
           <div className="flex flex-wrap gap-4 justify-center">
             <button onClick={() => setShowAnalisisModal(true)} className="bg-indigo-600 hover:bg-indigo-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-indigo-800 text-white"><PieChart size={18} /> Analisis Riset</button>
             
-            {/* PERBAIKAN: TOMBOL LEADERBOARD KINI LANGSUNG MEMBUKA POPUP TANPA LOADING! */}
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
@@ -825,7 +824,6 @@ export default function ViewJadwalPublic() {
               <p className="text-lg font-black uppercase text-white leading-none tracking-tighter">{labelHariIni}</p>
               <div className="mt-3 flex items-center justify-center md:justify-end gap-2">
                  <Clock size={14} className="text-emerald-400" />
-                 {/* MEMANGGIL KOMPONEN JAM TERPISAH */}
                  <LiveClock />
               </div>
             </div>
@@ -965,7 +963,6 @@ export default function ViewJadwalPublic() {
                               )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            {/* BUNGKUS DENGAN FORM AGAR BISA TEKAN ENTER/GO DI KEYBOARD HP */}
                             <form 
                               onSubmit={(e) => {
                                 e.preventDefault();
@@ -980,7 +977,7 @@ export default function ViewJadwalPublic() {
                                 </div>
                                 <input 
                                   type="number" 
-                                  inputMode="numeric" // <-- MENAMPILKAN NUMPAD DI HP
+                                  inputMode="numeric"
                                   disabled={!editMode[originalIndex]} 
                                   className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[originalIndex] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
                                   value={inputPasien[originalIndex] || ""}
@@ -1004,7 +1001,6 @@ export default function ViewJadwalPublic() {
                               ) : (
                                 <button 
                                   type="submit"
-                                  // PERBAIKAN TOMBOL SIMPAN DI HP
                                   onMouseDown={(e) => e.preventDefault()} 
                                   onTouchStart={(e) => e.preventDefault()} 
                                   disabled={submitting}
@@ -1080,7 +1076,6 @@ export default function ViewJadwalPublic() {
                       </tr>
                     </thead>
                     <tbody className="text-xs font-bold uppercase tracking-tighter">
-                        {/* MENGGUNAKAN DATA BAWAAN API UTAMA SECARA LANGSUNG */}
                         {data?.leaderboard?.map((item, i) => (
                             <tr key={i} className="border-b border-slate-100 hover:bg-amber-50/50 transition-all">
                                 <td className="p-6">
@@ -1123,6 +1118,10 @@ export default function ViewJadwalPublic() {
               <ClipboardList size={24} className="text-blue-600" /> Form Pengajuan Izin
             </h3>
             <form onSubmit={handleSimpanCutiForm} className="space-y-6">
+              
+              {/* PENAMBAHAN INPUT HIDDEN UNTUK RUANGAN */}
+              <input type="hidden" name="ruangan" value={ruanganAktifGlobal} />
+
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Nama Staf (Real-time)</label>
                 <select 

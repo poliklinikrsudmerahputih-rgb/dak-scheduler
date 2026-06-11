@@ -27,26 +27,34 @@ export async function GET(request) {
       }
     }
 
-    // 1. Ambil data dasar SDM sesuai unit ruangan yang aktif (Isolasi Ketat)
+    // 1. Ambil data dasar SDM dengan SAFE-CATCH Kelonggaran Ruangan
     const resSdm = await turso.execute({
-      sql: `SELECT * FROM sdm WHERE ruangan = ? ORDER BY nama ASC`,
-      args: [userRuangan.toUpperCase()]
+      sql: `SELECT * FROM sdm 
+            WHERE ruangan IS NULL 
+               OR TRIM(ruangan) = '' 
+               OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) 
+            ORDER BY nama ASC`,
+      args: [userRuangan]
     });
     const daftarSdm = resSdm.rows;
 
-    // 2. Ambil komponen relasi dengan filter ruangan yang ketat
+    // 2. Ambil komponen relasi dengan filter ruangan yang ketat namun aman
     const [resJadwal, resPasienPoli, resMasterDokter] = await Promise.all([
       turso.execute({
-        sql: "SELECT * FROM jadwal_dinas WHERE bulan = ? AND tahun = ? AND ruangan = ?",
-        args: [bulan, tahun, userRuangan.toUpperCase()]
+        sql: `SELECT * FROM jadwal_dinas 
+              WHERE bulan = ? AND tahun = ? AND (
+                ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+              )`,
+        args: [bulan, tahun, userRuangan]
       }),
       turso.execute({
-        sql: "SELECT * FROM jumlah_pasien_poli WHERE bulan = ? AND tahun = ?",
+        sql: `SELECT * FROM jumlah_pasien_poli WHERE bulan = ? AND tahun = ?`,
         args: [bulan, tahun]
       }),
       turso.execute({
-        sql: "SELECT nama_dokter, klinik, simbol_praktik FROM master_dokter WHERE ruangan = ?",
-        args: [userRuangan.toUpperCase()]
+        sql: `SELECT nama_dokter, klinik, simbol_praktik FROM master_dokter 
+              WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`,
+        args: [userRuangan]
       })
     ]);
 

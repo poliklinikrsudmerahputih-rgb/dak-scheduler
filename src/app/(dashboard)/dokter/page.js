@@ -26,9 +26,11 @@ export default function MasterDokter() {
 
   const refreshData = async () => {
     try {
-      // Mengambil data Dokter dan Cuti sekaligus untuk sinkronisasi status
+      // Menambahkan parameter ?hari= agar backend bisa lebih fokus jika diperlukan
+      const queryHari = filterHari ? `?hari=${filterHari}` : "";
+      
       const [resDkt, resCuti] = await Promise.all([
-        fetch("/api/dokter"),
+        fetch(`/api/dokter${queryHari}`),
         fetch("/api/cuti-dokter")
       ]);
       
@@ -39,16 +41,13 @@ export default function MasterDokter() {
 
       if (Array.isArray(dDkt)) {
         const sortedData = dDkt.sort((a, b) => {
-          // 1. Prioritas hari yang dipilih di dropdown
           if (filterHari) {
             if (a.jadwal_hari === filterHari && b.jadwal_hari !== filterHari) return -1;
             if (a.jadwal_hari !== filterHari && b.jadwal_hari === filterHari) return 1;
           }
-          // 2. Sortir Kalender Senin-Minggu
           if (urutanHari[a.jadwal_hari] !== urutanHari[b.jadwal_hari]) {
             return urutanHari[a.jadwal_hari] - urutanHari[b.jadwal_hari];
           }
-          // 3. Sortir Jam
           if (a.jam_praktik !== b.jam_praktik) {
             return a.jam_praktik.localeCompare(b.jam_praktik);
           }
@@ -61,15 +60,24 @@ export default function MasterDokter() {
     }
   };
 
+  // 1. SETUP AWAL: Menentukan Hari Ini & Set Filter Default ke Hari Ini
   useEffect(() => {
     const skrg = new Date();
     const daftarHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-    setHariIni(daftarHari[skrg.getDay()]);
+    const hariSekarang = daftarHari[skrg.getDay()];
+    
+    setHariIni(hariSekarang);
     setTglSekarang(format(skrg, "yyyy-MM-dd"));
-    refreshData();
+    setFilterHari(hariSekarang); // Otomatis filter ke hari ini
+  }, []);
+
+  // 2. TRIGGER REFRESH: Jalankan refreshData setiap kali filterHari berubah
+  useEffect(() => {
+    if (filterHari !== "") {
+      refreshData();
+    }
   }, [filterHari]);
 
-  // FUNGSI CEK STATUS CUTI REAL-TIME
   const cekSedangCuti = (nama, simbol) => {
     return dataCuti.find(c => 
       c.nama_dokter === nama && 
@@ -84,7 +92,6 @@ export default function MasterDokter() {
     if (res.success) {
       alert(editData ? "✅ Perubahan Berhasil Disimpan!" : "✅ Data Dokter Berhasil Disimpan!");
       setEditData(null);
-      setFilterHari(""); 
       document.getElementById("form-dokter").reset();
       refreshData();
     } else {
@@ -149,10 +156,11 @@ export default function MasterDokter() {
                 </label>
                 <select 
                   name="hari" 
-                  value={editData?.jadwal_hari || filterHari || "Senin"}
+                  value={editData?.jadwal_hari || filterHari || hariIni}
                   onChange={(e) => setFilterHari(e.target.value)}
                   className="w-full bg-blue-50 border-2 border-blue-200 focus:border-blue-600 focus:bg-white p-4 rounded-2xl outline-none text-xs font-black uppercase cursor-pointer transition-all"
                 >
+                  <option value="">-- SEMUA HARI --</option>
                   <option value="Senin">Senin</option>
                   <option value="Selasa">Selasa</option>
                   <option value="Rabu">Rabu</option>
@@ -206,13 +214,12 @@ export default function MasterDokter() {
                 type="button"
                 onClick={() => { 
                   setEditData(null); 
-                  setFilterHari("");
+                  setFilterHari(""); // Reset memunculkan seluruh jadwal
                   document.getElementById("form-dokter").reset(); 
-                  refreshData(); 
                 }}
                 className="bg-slate-200 text-slate-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-300 transition-all"
               >
-                Batal / Reset Filter
+                Batal / Tampilkan Semua
               </button>
             )}
           </div>
@@ -225,7 +232,7 @@ export default function MasterDokter() {
           <div className="flex items-center gap-3">
             <Activity size={20} className="text-green-400 animate-pulse" />
             <span className="text-xs font-black uppercase tracking-widest italic">
-              {filterHari ? `Prioritas Hari: ${filterHari}` : "Monitoring Jadwal Dokter"}
+              {filterHari ? `Prioritas Hari: ${filterHari}` : "Monitoring Seluruh Jadwal Dokter"}
             </span>
           </div>
           <span className="text-[10px] font-black bg-white/10 px-4 py-2 rounded-xl text-blue-300 uppercase">
@@ -282,10 +289,21 @@ export default function MasterDokter() {
                           </div>
                         </td>
                         <td className="p-6">
-                           <div className="flex flex-col">
+                           <div className="flex flex-col items-start">
                               <span className={`text-sm tracking-tight ${isLagiCuti ? 'text-slate-400 line-through italic' : isSesuaiFilter || isAktifHariIni ? "font-black text-blue-700 underline decoration-blue-300 underline-offset-4" : "font-semibold text-slate-800"}`}>
                                   {d.nama_dokter}
                               </span>
+                              
+                              {/* FITUR AI: MENDETEKSI SIMBOL GANDA PADA DOKTER */}
+                              {d.ai_total_simbol > 1 && (
+                                <div className="mt-2 inline-flex items-center gap-1.5 bg-amber-50 text-amber-600 border border-amber-200 px-2 py-1 rounded-lg">
+                                  <AlertCircle size={10} className="animate-pulse" />
+                                  <span className="text-[7px] font-black uppercase tracking-widest">
+                                    Simbol Ganda: {d.ai_daftar_simbol}
+                                  </span>
+                                </div>
+                              )}
+
                               {isLagiCuti ? (
                                 <span className="text-[7px] text-red-500 font-black mt-1 uppercase italic">Izin s/d {format(new Date(dataIzin.tgl_selesai), 'dd MMM yyyy')}</span>
                               ) : isAktifHariIni && (
@@ -351,7 +369,7 @@ export default function MasterDokter() {
         <div className="inline-flex items-center gap-3 bg-white px-8 py-3 rounded-full text-slate-300 shadow-sm border border-slate-50">
           <ShieldCheck size={14} className="text-blue-500" />
           <p className="text-[9px] font-black uppercase tracking-widest italic leading-none">
-            DAK-DOCTOR SCHEDULING MODULE v.2.7 | Daniel Ari Kristianto Production
+            DAK-DOCTOR SCHEDULING MODULE AI v.2.8 | Daniel Ari Kristianto Production
           </p>
         </div>
       </footer>

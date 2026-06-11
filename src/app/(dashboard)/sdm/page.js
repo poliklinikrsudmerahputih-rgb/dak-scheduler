@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { simpanSDM, hapusSDM } from "./actions";
 import { 
   Pencil, Trash2, UserPlus, Users, BadgeCheck, 
-  Phone, ShieldCheck, Activity, AlertCircle, TrendingUp, Users2, MapPin
+  Phone, ShieldCheck, Activity, AlertCircle, TrendingUp, Users2, MapPin, HeartPulse, Plane, Coffee
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -19,7 +19,7 @@ export default function MasterSDM() {
   const [bulanFilter, setBulanFilter] = useState(new Date().getMonth() + 1);
   const [tahunFilter, setTahunFilter] = useState(new Date().getFullYear());
 
-  // URUTAN PROFESI SESUAI PERMINTAAN PAK DANIEL
+  // URUTAN PROFESI SESUAI PERMINTAAN
   const urutanProfesi = {
     "Bidan": 1,
     "Psikologi Klinis": 2,
@@ -31,7 +31,7 @@ export default function MasterSDM() {
 
   const refreshData = async () => {
     try {
-      // Mengambil data SDM (termasuk total_pasien & daftar_klinik) dan data Cuti
+      // Mengambil data SDM (termasuk total_pasien) dan data Cuti
       const [resSDM, resCuti] = await Promise.all([
         fetch(`/api/sdm?bulan=${bulanFilter}&tahun=${tahunFilter}`),
         fetch("/api/cuti-sdm")
@@ -44,17 +44,17 @@ export default function MasterSDM() {
 
       if (Array.isArray(dSDM)) {
         const sortedData = dSDM.sort((a, b) => {
-          // 1. PRIORITAS: Jabatan yang dipilih di dropdown naik ke paling atas
+          // 1. PRIORITAS
           if (filterJabatan) {
             if (a.jabatan === filterJabatan && b.jabatan !== filterJabatan) return -1;
             if (a.jabatan !== filterJabatan && b.jabatan === filterJabatan) return 1;
           }
-          // 2. KELOMPOK: Sortir berdasarkan urutan profesi (Bidan -> Admin)
+          // 2. KELOMPOK PROFESI
           const orderA = urutanProfesi[a.jabatan] || 99;
           const orderB = urutanProfesi[b.jabatan] || 99;
           if (orderA !== orderB) return orderA - orderB;
           
-          // 3. NAMA: Sortir alfabetis
+          // 3. ALFABETIS
           return a.nama.localeCompare(b.nama);
         });
         setDataSDM(sortedData);
@@ -70,7 +70,7 @@ export default function MasterSDM() {
     refreshData();
   }, [filterJabatan, bulanFilter, tahunFilter]);
 
-  // FUNGSI CEK STATUS CUTI (Hanya yang status_acc-nya "Disetujui")
+  // FUNGSI CEK STATUS BERHALANGAN HARI INI
   const cekSedangCuti = (nama) => {
     return dataCutiSDM.find(c => 
       c.nama_sdm === nama && 
@@ -78,6 +78,30 @@ export default function MasterSDM() {
       tglSekarang >= c.tgl_mulai && 
       tglSekarang <= c.tgl_selesai
     );
+  };
+
+  // FITUR AI: MENGHITUNG STATISTIK IZIN DALAM BULAN YANG DIPILIH
+  const getStatsCutiBulanan = (nama) => {
+    const riwayatBulanIni = dataCutiSDM.filter(c => {
+      if (c.nama_sdm !== nama || c.status_acc !== "Disetujui") return false;
+      const tglMulai = new Date(c.tgl_mulai);
+      return (tglMulai.getMonth() + 1) === bulanFilter && tglMulai.getFullYear() === tahunFilter;
+    });
+
+    const sakit = riwayatBulanIni.filter(c => c.jenis_cuti === 'CS').length;
+    const cuti = riwayatBulanIni.filter(c => c.jenis_cuti === 'CT' || c.jenis_cuti === 'CM').length;
+    const dl = riwayatBulanIni.filter(c => c.jenis_cuti === 'DL').length;
+    
+    return { sakit, cuti, dl, total: riwayatBulanIni.length };
+  };
+
+  // Menerjemahkan Kode Izin
+  const terjemahkanIzin = (kode) => {
+    if(kode === 'CS') return 'SEDANG SAKIT';
+    if(kode === 'CT') return 'CUTI TAHUNAN';
+    if(kode === 'DL') return 'DINAS LUAR';
+    if(kode === 'CM') return 'CUTI MELAHIRKAN';
+    return 'SEDANG IZIN';
   };
 
   async function handleSubmit(formData) {
@@ -253,9 +277,12 @@ export default function MasterSDM() {
                   const isSesuaiFilter = filterJabatan && sdm.jabatan === filterJabatan;
                   const isNewGroup = index === 0 || dataSDM[index-1].jabatan !== sdm.jabatan;
 
-                  // Kalkulasi Progress Bar (Target misal 500 pasien/bulan)
+                  // Kalkulasi Progress Bar
                   const totalPasien = sdm.total_pasien || 0;
                   const progressWidth = Math.min((totalPasien / 500) * 100, 100);
+                  
+                  // Kalkulasi AI Statistik Kehadiran SDM (Bulan Ini)
+                  const statsKehadiran = getStatsCutiBulanan(sdm.nama);
 
                   return (
                     <React.Fragment key={sdm.id}>
@@ -272,7 +299,7 @@ export default function MasterSDM() {
                             {isLagiCuti ? (
                               <>
                                 <span className="w-4 h-4 bg-red-600 rounded-full border-4 border-white shadow-lg animate-pulse"></span>
-                                <span className="text-[8px] text-red-600 font-black mt-2 uppercase tracking-tighter italic">CUTI</span>
+                                <span className="text-[8px] text-red-600 font-black mt-2 uppercase tracking-tighter italic">OFF</span>
                               </>
                             ) : (
                               <>
@@ -291,7 +318,7 @@ export default function MasterSDM() {
                               {!isLagiCuti && sdm.status === "PNS" && <BadgeCheck size={18} className="text-blue-500" />}
                             </div>
                             
-                            {/* FITUR BARU: RINCIAN KLINIK YANG DIPEGANG */}
+                            {/* RINCIAN KLINIK */}
                             {!isLagiCuti && sdm.daftar_klinik && (
                               <div className="flex flex-wrap gap-1 mt-2">
                                 {sdm.daftar_klinik.split(',').map((klinik, kIdx) => (
@@ -302,12 +329,35 @@ export default function MasterSDM() {
                               </div>
                             )}
 
-                            <div className={`text-[10px] font-mono mt-1 italic uppercase ${isLagiCuti ? 'text-slate-300' : 'text-slate-400'}`}>
+                            {/* FITUR AI: STATISTIK IZIN BULANAN */}
+                            {statsKehadiran.total > 0 && (
+                              <div className="flex gap-1.5 mt-2.5">
+                                {statsKehadiran.sakit > 0 && (
+                                  <span className="flex items-center gap-1 text-[7px] font-black bg-orange-50 text-orange-600 px-2 py-1 rounded-md border border-orange-100 uppercase tracking-widest">
+                                    <HeartPulse size={10} /> Sakit {statsKehadiran.sakit}x
+                                  </span>
+                                )}
+                                {statsKehadiran.cuti > 0 && (
+                                  <span className="flex items-center gap-1 text-[7px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-md border border-emerald-100 uppercase tracking-widest">
+                                    <Coffee size={10} /> Cuti {statsKehadiran.cuti}x
+                                  </span>
+                                )}
+                                {statsKehadiran.dl > 0 && (
+                                  <span className="flex items-center gap-1 text-[7px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-md border border-blue-100 uppercase tracking-widest">
+                                    <Plane size={10} /> Dinas {statsKehadiran.dl}x
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            <div className={`text-[10px] font-mono mt-1.5 italic uppercase ${isLagiCuti ? 'text-slate-300' : 'text-slate-400'}`}>
                               ID. {sdm.nip}
                             </div>
+                            
+                            {/* STATUS BERHALANGAN SAAT INI */}
                             {isLagiCuti && (
-                              <span className="text-[8px] text-red-500 font-black mt-2 bg-red-100 px-3 py-1 rounded-lg w-fit italic border border-red-200 uppercase">
-                                IZIN {dataCuti.jenis_cuti} s/d {format(new Date(dataCuti.tgl_selesai), 'dd MMM')}
+                              <span className="text-[8px] text-red-600 font-black mt-2 bg-red-100 px-3 py-1.5 rounded-lg w-fit italic border border-red-200 uppercase tracking-widest shadow-sm">
+                                {terjemahkanIzin(dataCuti.jenis_cuti)} s/d {format(new Date(dataCuti.tgl_selesai), 'dd MMM')}
                               </span>
                             )}
                           </div>
@@ -375,7 +425,7 @@ export default function MasterSDM() {
 
       <footer className="pt-10 text-center opacity-20">
         <div className="inline-flex items-center gap-3 bg-white px-8 py-3 rounded-full text-slate-400 border border-slate-100 shadow-sm uppercase italic text-[8px] font-black tracking-[0.5em]">
-          DAK-SDM ANALYTICS ENGINE v.2.9 | Daniel Ari Kristianto Production
+          DAK-SDM ANALYTICS ENGINE v.3.0 | Daniel Ari Kristianto Production
         </div>
       </footer>
     </div>

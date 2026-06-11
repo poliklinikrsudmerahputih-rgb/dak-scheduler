@@ -6,13 +6,17 @@ import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 
 // ====================================================================
-// FUNGSI GET (Mengambil Data Master Dokter untuk Tabel Monitor)
+// FUNGSI GET (Master Dokter + Fitur AI Deteksi Simbol Kembar)
 // ====================================================================
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     
-    // 1. ISOLASI KEAMANAN (RLS) SESI RUANGAN
+    // 1. TANGKAP PARAMETER HARI INI
+    // Membuka jalan agar frontend bisa meminta data khusus hari ini saja
+    const filterHari = searchParams.get("hari");
+    
+    // 2. ISOLASI KEAMANAN (RLS) SESI RUANGAN
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
     
@@ -30,29 +34,50 @@ export async function GET(request) {
       userRuangan = paramRuangan;
     }
 
-    const kunciRuangan = String(userRuangan).trim().toUpperCase();
+    // 3. EKSEKUSI QUERY DENGAN KECERDASAN BUATAN (AI)
+    let sqlQuery = `
+      SELECT 
+        md.id,
+        md.nama_dokter, 
+        md.klinik, 
+        md.jadwal_hari, 
+        md.jam_praktik, 
+        md.simbol_praktik,
+        md.ruangan,
+        
+        -- FITUR AI: Menghitung berapa banyak simbol unik yang dimiliki dokter ini
+        (SELECT COUNT(DISTINCT simbol_praktik) 
+         FROM master_dokter sub 
+         WHERE UPPER(TRIM(sub.nama_dokter)) = UPPER(TRIM(md.nama_dokter))
+        ) as ai_total_simbol,
+        
+        -- FITUR AI: Menuliskan apa saja simbol yang dimiliki dokter ini
+        (SELECT GROUP_CONCAT(DISTINCT simbol_praktik) 
+         FROM master_dokter sub 
+         WHERE UPPER(TRIM(sub.nama_dokter)) = UPPER(TRIM(md.nama_dokter))
+        ) as ai_daftar_simbol
 
-    // 2. EKSEKUSI QUERY KE TURSO
-    // Filter dilonggarkan: Mengambil seluruh dokter, lalu diurutkan dari yang terbaru.
-    // Jika suatu saat Bapak ingin membatasi hanya dokter di "POLIKLINIK" yang muncul, 
-    // cukup ubah menjadi: SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = ?
+      FROM master_dokter md
+      WHERE 1=1
+    `;
+    
+    let sqlArgs = [];
+
+    // Jika frontend meminta jadwal khusus hari ini
+    if (filterHari) {
+      sqlQuery += ` AND UPPER(TRIM(md.jadwal_hari)) = UPPER(TRIM(?))`;
+      sqlArgs.push(filterHari);
+    }
+
+    // Urutkan data berdasarkan hari dan jam agar tabel lebih rapi
+    sqlQuery += ` ORDER BY md.jadwal_hari ASC, md.jam_praktik ASC`;
+
     const result = await turso.execute({
-      sql: `
-        SELECT 
-          id,
-          nama_dokter, 
-          klinik, 
-          jadwal_hari, 
-          jam_praktik, 
-          simbol_praktik,
-          ruangan
-        FROM master_dokter 
-        ORDER BY id DESC
-      `,
-      args: [] 
+      sql: sqlQuery,
+      args: sqlArgs 
     });
 
-    // 3. KEMBALIKAN DATA KE FRONTEND
+    // 4. KEMBALIKAN DATA KE FRONTEND
     return NextResponse.json(result.rows || []);
     
   } catch (error) {
@@ -61,7 +86,3 @@ export async function GET(request) {
     return NextResponse.json([]); 
   }
 }
-
-// Catatan: Fungsi POST, PUT, dan DELETE tidak diletakkan di sini 
-// karena sistem Bapak sudah menggunakan Server Actions (actions.js) 
-// untuk manajemen datanya.

@@ -26,7 +26,9 @@ export default function MasterSDM() {
     "Perawat": 3,
     "Terapis Gigi": 4,
     "Fisioterapis": 5,
-    "Admin": 6
+    "Terapi Wicara": 6,
+    "Terapi Okupasi": 7,
+    "Admin": 8
   };
 
   const refreshData = async () => {

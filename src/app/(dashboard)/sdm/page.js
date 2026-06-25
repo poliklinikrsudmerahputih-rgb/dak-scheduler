@@ -3,7 +3,8 @@ import React, { useState, useEffect } from "react";
 import { simpanSDM, hapusSDM } from "./actions";
 import { 
   Pencil, Trash2, UserPlus, Users, BadgeCheck, 
-  Phone, ShieldCheck, Activity, AlertCircle, TrendingUp, Users2, MapPin, HeartPulse, Plane, Coffee
+  Phone, ShieldCheck, Activity, AlertCircle, TrendingUp, Users2, MapPin, HeartPulse, Plane, Coffee,
+  ShieldAlert, Scale, MinusCircle, PlusCircle, Save, Loader2, XCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -18,6 +19,12 @@ export default function MasterSDM() {
   // State Filter untuk Analytics Pasien & Rincian Klinik
   const [bulanFilter, setBulanFilter] = useState(new Date().getMonth() + 1);
   const [tahunFilter, setTahunFilter] = useState(new Date().getFullYear());
+
+  // --- STATE MODAL EVALUASI MUTU ---
+  const [showMutuModal, setShowMutuModal] = useState(false);
+  const [selectedMutuSDM, setSelectedMutuSDM] = useState(null);
+  const [mutuForm, setMutuForm] = useState({ jenis: 'POTONG', kategori: 'DISIPLIN', nominal: '', catatan: '' });
+  const [loadingMutu, setLoadingMutu] = useState(false);
 
   // URUTAN PROFESI SESUAI PERMINTAAN
   const urutanProfesi = {
@@ -97,7 +104,6 @@ export default function MasterSDM() {
     return { sakit, cuti, dl, total: riwayatBulanIni.length };
   };
 
-  // Menerjemahkan Kode Izin
   const terjemahkanIzin = (kode) => {
     if(kode === 'CS') return 'SEDANG SAKIT';
     if(kode === 'CT') return 'CUTI TAHUNAN';
@@ -119,11 +125,142 @@ export default function MasterSDM() {
     }
   }
 
+  // --- FUNGSI EKSEKUSI MUTU ---
+  const handleSimpanMutu = async (e) => {
+    e.preventDefault();
+    if (!mutuForm.nominal || mutuForm.nominal <= 0) return alert("Nominal harus diisi dan lebih dari 0!");
+    if (!mutuForm.catatan.trim()) return alert("Catatan/Alasan wajib diisi sebagai bukti log!");
+
+    setLoadingMutu(true);
+    try {
+      // API Ini akan kita buat selanjutnya untuk menyimpan log dan mengurangi saldo_mutu di database
+      const res = await fetch('/api/mutu-sdm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdm_id: selectedMutuSDM.id,
+          bulan: bulanFilter,
+          tahun: tahunFilter,
+          ...mutuForm
+        })
+      });
+
+      if (res.ok) {
+        alert(mutuForm.jenis === 'POTONG' ? "⚠️ Poin Mutu Berhasil Dipotong!" : "✅ Poin Berhasil Dipulihkan (Dispensasi)!");
+        setShowMutuModal(false);
+        setMutuForm({ jenis: 'POTONG', kategori: 'DISIPLIN', nominal: '', catatan: '' });
+        refreshData();
+      } else {
+        alert("Gagal menyimpan evaluasi mutu. Pastikan backend sudah siap.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan jaringan.");
+    } finally {
+      setLoadingMutu(false);
+    }
+  };
+
   const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-8 pb-20 font-sans">
       
+      {/* MODAL KENDALI MUTU (OVERRIDE KOORDINATOR) */}
+      {showMutuModal && selectedMutuSDM && (
+        <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 shadow-2xl border-4 border-slate-200 relative overflow-hidden">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black italic uppercase text-slate-800 flex items-center gap-2">
+                <Scale size={24} className="text-slate-800" /> Pengadilan Mutu
+              </h3>
+              <button onClick={() => setShowMutuModal(false)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200"><XCircle size={20}/></button>
+            </div>
+
+            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
+               <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Target Evaluasi</p>
+                  <p className="text-sm font-black uppercase text-slate-800 mt-1">{selectedMutuSDM.nama}</p>
+               </div>
+               <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Saldo Saat Ini</p>
+                  <p className={`text-xl font-black italic ${selectedMutuSDM.saldo_mutu < 300 ? 'text-red-600' : selectedMutuSDM.saldo_mutu < 400 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {selectedMutuSDM.saldo_mutu !== undefined ? selectedMutuSDM.saldo_mutu : 400} <span className="text-[10px] text-slate-400">/ 400</span>
+                  </p>
+               </div>
+            </div>
+
+            <form onSubmit={handleSimpanMutu} className="space-y-6">
+              {/* TOGGLE JENIS AKSI */}
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                <button 
+                  type="button" 
+                  onClick={() => setMutuForm({...mutuForm, jenis: 'POTONG'})}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mutuForm.jenis === 'POTONG' ? 'bg-red-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-200'}`}
+                >
+                  <MinusCircle size={14}/> Penalti / Potong
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setMutuForm({...mutuForm, jenis: 'PEMUTIHAN'})}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mutuForm.jenis === 'PEMUTIHAN' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-200'}`}
+                >
+                  <PlusCircle size={14}/> Dispensasi
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Indikator Penilaian</label>
+                  <select 
+                    value={mutuForm.kategori} 
+                    onChange={(e) => setMutuForm({...mutuForm, kategori: e.target.value})}
+                    className="w-full p-4 bg-white rounded-2xl font-black uppercase text-[10px] border-2 border-slate-200 outline-none focus:border-blue-500 text-slate-700"
+                  >
+                    <option value="DISIPLIN">Kedisiplinan & Kehadiran (Max 150)</option>
+                    <option value="SOP_ETIKA">Kepatuhan SOP & Etika Pelayanan (Max 150)</option>
+                    <option value="ASKEP">Mutu Administrasi & ASKEP (Max 100)</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex flex-col gap-1.5 w-1/3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Poin</label>
+                    <input 
+                      type="number" 
+                      min="1"
+                      value={mutuForm.nominal}
+                      onChange={(e) => setMutuForm({...mutuForm, nominal: e.target.value})}
+                      placeholder="0"
+                      className={`w-full p-4 bg-white rounded-2xl font-black text-center text-lg border-2 outline-none ${mutuForm.jenis === 'POTONG' ? 'border-red-200 text-red-600 focus:border-red-500' : 'border-emerald-200 text-emerald-600 focus:border-emerald-500'}`}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 w-2/3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Catatan Pembuktian (Log)</label>
+                    <input 
+                      type="text" 
+                      value={mutuForm.catatan}
+                      onChange={(e) => setMutuForm({...mutuForm, catatan: e.target.value})}
+                      placeholder="Contoh: Terlambat > 30 Menit..."
+                      className="w-full p-4 bg-white rounded-2xl font-black text-xs border-2 border-slate-200 outline-none focus:border-blue-500 text-slate-700"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loadingMutu}
+                className={`w-full py-5 rounded-2xl text-[11px] font-black uppercase shadow-xl flex justify-center items-center gap-2 transition-all italic tracking-widest ${mutuForm.jenis === 'POTONG' ? 'bg-red-600 text-white border-b-4 border-red-800 hover:bg-red-700' : 'bg-emerald-600 text-white border-b-4 border-emerald-800 hover:bg-emerald-700'}`}
+              >
+                {loadingMutu ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                {mutuForm.jenis === 'POTONG' ? 'EKSEKUSI PEMOTONGAN POIN' : 'PULIHKAN POIN STAF'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* --- HEADER --- */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none rotate-12"><Users2 size={200} /></div>
@@ -261,14 +398,15 @@ export default function MasterSDM() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
+          <table className="w-full text-left border-collapse min-w-[1100px]">
             <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-[0.2em]">
               <tr>
                 <th className="p-8 border-b text-center w-24">Status</th>
-                <th className="p-8 border-b">Detail Personil & Klinik</th>
+                <th className="p-8 border-b w-64">Detail Personil</th>
                 <th className="p-8 border-b">Profesi & Jabatan</th>
-                <th className="p-8 border-b text-center">Beban Kerja (Pasien)</th>
-                <th className="p-8 border-b text-center w-40">Aksi</th>
+                <th className="p-8 border-b text-center">Beban Jaspel (Kuantitatif)</th>
+                <th className="p-8 border-b text-center border-l border-slate-200">Saldo Mutu (Max 400)</th>
+                <th className="p-8 border-b text-center">Kendali Aksi</th>
               </tr>
             </thead>
             <tbody className="text-xs">
@@ -279,18 +417,30 @@ export default function MasterSDM() {
                   const isSesuaiFilter = filterJabatan && sdm.jabatan === filterJabatan;
                   const isNewGroup = index === 0 || dataSDM[index-1].jabatan !== sdm.jabatan;
 
-                  // Kalkulasi Progress Bar
+                  // Kalkulasi Progress Bar Pasien
                   const totalPasien = sdm.total_pasien || 0;
                   const progressWidth = Math.min((totalPasien / 500) * 100, 100);
                   
-                  // Kalkulasi AI Statistik Kehadiran SDM (Bulan Ini)
+                  // Kalkulasi AI Statistik Kehadiran SDM
                   const statsKehadiran = getStatsCutiBulanan(sdm.nama);
+
+                  // Default Saldo Mutu (Fallback jika backend belum punya data)
+                  const saldoMutu = sdm.saldo_mutu !== undefined ? sdm.saldo_mutu : 400;
+                  let colorClassMutu = "text-emerald-600 bg-emerald-50 border-emerald-100";
+                  let iconMutu = <ShieldCheck size={16} className="text-emerald-500" />;
+                  if (saldoMutu < 400 && saldoMutu >= 300) {
+                      colorClassMutu = "text-amber-600 bg-amber-50 border-amber-100";
+                      iconMutu = <ShieldAlert size={16} className="text-amber-500" />;
+                  } else if (saldoMutu < 300) {
+                      colorClassMutu = "text-red-600 bg-red-50 border-red-100";
+                      iconMutu = <ShieldAlert size={16} className="text-red-500" />;
+                  }
 
                   return (
                     <React.Fragment key={sdm.id}>
                       {isNewGroup && (
                         <tr className={`${isSesuaiFilter ? "bg-blue-600 text-white" : "bg-slate-100/50 text-slate-500"}`}>
-                          <td colSpan="5" className="px-8 py-3 text-[10px] font-black italic uppercase tracking-widest border-y border-slate-100">
+                          <td colSpan="6" className="px-8 py-3 text-[10px] font-black italic uppercase tracking-widest border-y border-slate-100">
                              {isSesuaiFilter ? `⭐ PRIORITAS: ${sdm.jabatan}` : `📁 GRUP: ${sdm.jabatan}`}
                           </td>
                         </tr>
@@ -374,6 +524,7 @@ export default function MasterSDM() {
                             </span>
                           </div>
                         </td>
+                        
                         <td className="p-8">
                            <div className="flex flex-col gap-3">
                               <div className="flex justify-between items-end">
@@ -393,18 +544,37 @@ export default function MasterSDM() {
                               </div>
                            </div>
                         </td>
+
+                        {/* --- INJEKSI KOLOM SALDO MUTU --- */}
+                        <td className="p-8 border-l border-slate-100 text-center bg-slate-50/30">
+                           <div className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border-2 shadow-sm ${colorClassMutu}`}>
+                              {iconMutu}
+                              <span className="font-black text-base">{saldoMutu}</span>
+                           </div>
+                        </td>
+
                         <td className="p-8">
-                          <div className="flex justify-center gap-3">
+                          <div className="flex justify-center gap-2">
+                            {/* Tombol Khusus Panel Mutu */}
+                            <button 
+                              onClick={() => { setSelectedMutuSDM(sdm); setShowMutuModal(true); }} 
+                              className="px-4 py-3 flex items-center gap-2 bg-slate-900 border border-slate-800 text-white rounded-2xl hover:bg-slate-800 transition-all shadow-lg border-b-4 active:border-b-0 active:mt-1"
+                              title="Kelola Poin Mutu (Kedisiplinan & Pelanggaran)"
+                            >
+                              <Scale size={16} className="text-amber-400" /> <span className="text-[9px] font-black tracking-widest uppercase">MUTU</span>
+                            </button>
+                            
+                            {/* Tombol Edit & Hapus Lama (Hanya Ikon agar rapi) */}
                             {sdm.no_wa && (
-                              <a href={`https://wa.me/${sdm.no_wa.replace(/^0/, '62')}`} target="_blank" className="p-4 bg-white border border-slate-100 text-emerald-600 rounded-[1.2rem] hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
-                                <Phone size={18} />
+                              <a href={`https://wa.me/${sdm.no_wa.replace(/^0/, '62')}`} target="_blank" className="p-3 bg-white border border-slate-100 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
+                                <Phone size={16} />
                               </a>
                             )}
-                            <button onClick={() => { setEditData(sdm); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 bg-white border border-slate-100 text-blue-600 rounded-[1.2rem] hover:bg-blue-600 hover:text-white transition-all shadow-sm">
-                              <Pencil size={18} />
+                            <button onClick={() => { setEditData(sdm); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-3 bg-white border border-slate-100 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
+                              <Pencil size={16} />
                             </button>
-                            <button onClick={async () => { if(confirm(`Hapus permanen ${sdm.nama}?`)) { await hapusSDM(sdm.id); refreshData(); } }} className="p-4 bg-white border border-slate-100 text-red-600 rounded-[1.2rem] hover:bg-red-600 hover:text-white transition-all shadow-sm">
-                              <Trash2 size={18} />
+                            <button onClick={async () => { if(confirm(`Hapus permanen ${sdm.nama}?`)) { await hapusSDM(sdm.id); refreshData(); } }} className="p-3 bg-white border border-slate-100 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm">
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>
@@ -414,7 +584,7 @@ export default function MasterSDM() {
                 })
               ) : (
                 <tr>
-                  <td colSpan="5" className="p-24 text-center opacity-20">
+                  <td colSpan="6" className="p-24 text-center opacity-20">
                     <Users size={60} className="mx-auto mb-4" />
                     <p className="text-[10px] font-black uppercase tracking-[0.5em] italic">Database Offline / Kosong</p>
                   </td>

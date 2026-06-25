@@ -5,9 +5,25 @@ import { id } from "date-fns/locale";
 import { 
   Search, ClipboardList, Clock, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, Play, Square, FileText, Trash2, PieChart
+  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, Play, Square, FileText, Trash2, PieChart,
+  ShieldCheck, ShieldAlert // <-- Tambahan icon untuk Lencana Mutu
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
+
+// ======================================================
+// FUNGSI KALKULASI DINAMIS (JASPEL KUANTITATIF)
+// ======================================================
+const hitungPoinJaspel = (pasien, bobot, timAsisten) => {
+  if (!timAsisten || timAsisten.length === 0) return 0;
+  
+  // Deteksi asisten yang hadir (TIDAK Cuti dan TIDAK Sakit)
+  const asistenHadir = timAsisten.filter(as => !as.isCuti && !as.isSakit).length;
+  
+  if (asistenHadir === 0) return 0; // Mencegah error pembagian dengan nol
+  
+  // Rumus: (Pasien * Bobot) / Jumlah Hadir
+  return ((pasien || 0) * parseFloat(bobot || 1.0)) / asistenHadir;
+};
 
 // ======================================================
 // KOMPONEN BARU: JAM BERJALAN (LIVE CLOCK) TERPISAH
@@ -504,7 +520,6 @@ export default function ViewJadwalPublic() {
   const [showCutiModal, setShowCutiModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   
-  // PERBAIKAN: Menghapus "Akumulasi Kerja" state sekunder, Leaderboard langsung memanggil true
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   
   // State untuk Riset
@@ -543,7 +558,6 @@ export default function ViewJadwalPublic() {
       
       if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
 
-      // Endpoint utama ini sudah otomatis mengembalikan data.leaderboard secara real-time
       const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`);
       const dDash = await resDash.json();
       const resSDM = await fetch("/api/sdm");
@@ -598,8 +612,6 @@ export default function ViewJadwalPublic() {
       if (res.ok) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
-        
-        // Cukup panggil fetchData() karena backend secara instan mengkalkulasi ulang poin leaderboard
         await fetchData(); 
       } else {
         alert("❌ Sesi Backend Menolak. Pastikan route API mengizinkan public.");
@@ -923,44 +935,77 @@ export default function ViewJadwalPublic() {
 
                         {!dok.isCuti ? (
                           <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
+                            
+                            {/* --- INTEGRASI PEMBAGI DINAMIS & LENCANA MUTU --- */}
                             <div className="flex flex-wrap gap-2">
-                              {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => (
-                                <div key={i} className="flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
-                                  <UserCheck size={12} className="text-emerald-500" /> 
-                                  <span className="mr-2">{as.nama}</span>
-                                  
-                                  <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                                      <button 
-                                        type="button"
-                                        onClick={() => { 
-                                          setPerawatTarget(as); 
-                                          setRuanganAktifGlobal(simbol); 
-                                          setKlinikAktifGlobal(dok.klinik);
-                                          setShowObservasiModal(true); 
-                                        }} 
-                                        className="flex items-center gap-1 px-2 py-1.5 hover:bg-emerald-500 hover:text-white transition-all text-slate-500" 
-                                        title="Time Study (Stopwatch)"
-                                      >
-                                          <ClipboardList size={12} /> <span className="text-[8px] not-italic">WAKTU</span>
-                                      </button>
-                                      <div className="w-[1px] bg-slate-200"></div>
-                                      <button 
-                                        type="button"
-                                        onClick={() => { 
-                                          setPerawatTarget(as); 
-                                          setRuanganAktifGlobal(simbol); 
-                                          setKlinikAktifGlobal(dok.klinik);
-                                          setShowNASAModal(true); 
-                                        }} 
-                                        className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-600 hover:text-white transition-all text-slate-500" 
-                                        title="Kuesioner NASA-TLX"
-                                      >
-                                          <FileText size={12} /> <span className="text-[8px] not-italic">STRES</span>
-                                      </button>
-                                  </div>
+                              {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => {
+                                // Eksekusi Kalkulasi Poin Dinamis
+                                const bobotDokter = dok.bobot_jaspel || 1.0;
+                                const totalPasien = dok.jumlah_pasien_poli || 0;
+                                const poinPerAsisten = hitungPoinJaspel(totalPasien, bobotDokter, dok.timAsisten);
+                                
+                                // Cek Status Kehadiran
+                                const isAbsen = as.isCuti || as.isSakit;
 
-                                </div>
-                              )) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
+                                return (
+                                  <div key={i} className={`flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2 py-1.5 rounded-xl border shadow-sm transition-all ${isAbsen ? 'border-red-200 bg-red-50/50 opacity-70' : 'border-slate-200'}`}>
+                                    {isAbsen ? <XCircle size={12} className="text-red-400" /> : <UserCheck size={12} className="text-emerald-500" />} 
+                                    
+                                    <span className={`mr-1 ${isAbsen ? 'line-through text-red-500' : ''}`}>{as.nama}</span>
+                                    
+                                    {/* Indikator Lencana Mutu & Tambahan Poin Jaspel */}
+                                    {!isAbsen && (
+                                      <div className="flex items-center gap-1 mr-2" title="Saldo Mutu Aman & Poin Terdistribusi">
+                                        <ShieldCheck size={12} className="text-emerald-500" />
+                                        <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold border border-blue-200 not-italic tracking-wider">
+                                          +{poinPerAsisten.toFixed(1)} Pts
+                                        </span>
+                                      </div>
+                                    )}
+                                    {isAbsen && (
+                                      <div className="flex items-center gap-1 mr-2" title="Perawat Absen - Poin Terkunci">
+                                        <ShieldAlert size={12} className="text-red-400" />
+                                        <span className="text-[8px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold border border-red-200 not-italic tracking-wider">
+                                          0 Pts (ABSEN)
+                                        </span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Tombol Aksi Riset (Hanya aktif jika tidak absen) */}
+                                    {!isAbsen && (
+                                      <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200 ml-1">
+                                          <button 
+                                            type="button"
+                                            onClick={() => { 
+                                              setPerawatTarget(as); 
+                                              setRuanganAktifGlobal(simbol); 
+                                              setKlinikAktifGlobal(dok.klinik);
+                                              setShowObservasiModal(true); 
+                                            }} 
+                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-emerald-500 hover:text-white transition-all text-slate-500" 
+                                            title="Time Study (Stopwatch)"
+                                          >
+                                              <ClipboardList size={12} /> <span className="text-[8px] not-italic">WAKTU</span>
+                                          </button>
+                                          <div className="w-[1px] bg-slate-200"></div>
+                                          <button 
+                                            type="button"
+                                            onClick={() => { 
+                                              setPerawatTarget(as); 
+                                              setRuanganAktifGlobal(simbol); 
+                                              setKlinikAktifGlobal(dok.klinik);
+                                              setShowNASAModal(true); 
+                                            }} 
+                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-600 hover:text-white transition-all text-slate-500" 
+                                            title="Kuesioner NASA-TLX"
+                                          >
+                                              <FileText size={12} /> <span className="text-[8px] not-italic">STRES</span>
+                                          </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
                             <form 
@@ -1028,37 +1073,49 @@ export default function ViewJadwalPublic() {
         </div>
 
         {/* BOTTOM SECTION: MONITOR IZIN CUTI */}
-        <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100">
-            <div className="flex items-center gap-3 px-4 mb-6"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3></div>
-            
-            {data?.sdmCuti?.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  {data?.sdmCuti?.map((s, i) => (
-                    <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
-                        <div className="max-w-[200px]">
-                          <div className="flex items-center gap-2 mb-2">
-                              <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
-                              <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
+        <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100 flex flex-col md:flex-row gap-8">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 px-4 mb-6"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3></div>
+              
+              {data?.sdmCuti?.length > 0 ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    {data?.sdmCuti?.map((s, i) => (
+                      <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
+                          <div className="max-w-[200px]">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
+                                <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
+                            </div>
+                            <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{s.tgl_mulai} - {s.tgl_selesai}</p>
                           </div>
-                          <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{s.tgl_mulai} - {s.tgl_selesai}</p>
-                        </div>
-                        {s.status_acc === 'Disetujui' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-amber-500" />}
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest">Tidak ada pengajuan izin di bulan ini.</p>
-            )}
+                          {s.status_acc === 'Disetujui' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-amber-500" />}
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest border-2 border-dashed border-slate-200 rounded-3xl">Tidak ada pengajuan izin di bulan ini.</p>
+              )}
+            </div>
+
+            {/* AREA BARU: LOG EVALUASI MUTU */}
+            <div className="md:w-1/3 bg-slate-50 p-6 rounded-[2.5rem] border-2 border-slate-100">
+               <div className="flex items-center gap-3 px-2 mb-6"><div className="w-2 h-6 bg-blue-600 rounded-full shadow-lg"></div><h3 className="text-[11px] font-black uppercase text-slate-800 tracking-widest italic leading-none">Log Peringatan Mutu</h3></div>
+               <div className="space-y-3">
+                  <p className="text-center text-[10px] font-black text-slate-400 italic py-8 uppercase tracking-widest">Sistem Mutu & Absensi Kamera<br/>Sedang Disiapkan...</p>
+               </div>
+            </div>
         </div>
       </div>
 
-      {/* POP-UP LEADERBOARD POIN KINERJA ASISTEN (INSTAN & REALTIME) */}
+      {/* ======================================================
+          PEROMBAKAN MODAL LEADERBOARD (DUA PILAR POIN)
+          ====================================================== */}
       {showLeaderboardModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-5xl rounded-[3rem] p-6 md:p-10 shadow-2xl border-4 border-amber-500/20 max-h-[90vh] flex flex-col">
+          <div className="bg-white w-full max-w-6xl rounded-[3rem] p-6 md:p-10 shadow-2xl border-4 border-amber-500/20 max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-amber-500 pl-4 flex items-center gap-3">
-                <TrendingUp size={24} className="text-amber-500" /> Akumulasi Poin Kinerja Asisten
+                <TrendingUp size={24} className="text-amber-500" /> Akumulasi Poin Terintegrasi
               </h3>
               <button onClick={() => setShowLeaderboardModal(false)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600">
                 <XCircle size={24} />
@@ -1069,40 +1126,68 @@ export default function ViewJadwalPublic() {
                   <table className="w-full text-left">
                     <thead className="sticky top-0 bg-slate-900 z-10 shadow-md">
                       <tr className="text-[9px] font-black uppercase italic tracking-widest text-white">
-                        <th className="p-6">Nama Staf</th>
-                        <th className="p-6 text-left">Tugas Hari Ini</th>
-                        <th className="p-6 text-center bg-blue-600/20 border-x border-slate-700">Poin Hari Ini</th>
-                        <th className="p-6 text-center text-amber-400 bg-amber-500/10">TOTAL POIN (BLN INI)</th>
+                        <th className="p-5">Nama Staf & Status</th>
+                        <th className="p-5 text-center bg-blue-600/20 border-x border-slate-700">Poin Jaspel<br/>(Kuantitatif)</th>
+                        <th className="p-5 text-center bg-emerald-600/20 border-r border-slate-700">Saldo Mutu<br/>(Max 400)</th>
+                        <th className="p-5 text-center text-amber-400 bg-amber-500/10">GRAND TOTAL POIN<br/>(Bulan Ini)</th>
                       </tr>
                     </thead>
                     <tbody className="text-xs font-bold uppercase tracking-tighter">
-                        {data?.leaderboard?.map((item, i) => (
+                        {data?.leaderboard?.map((item, i) => {
+                            // Dummy data fallback if backend hasn't supplied 'saldo_mutu' yet
+                            const saldoMutu = item.saldo_mutu !== undefined ? item.saldo_mutu : 400; 
+                            const poinJaspel = item.total_pasien_bulanan || item.total_pasien || 0;
+                            const grandTotal = poinJaspel + saldoMutu;
+
+                            // Pewarnaan Dinamis Lencana Mutu
+                            let colorClassMutu = "bg-emerald-100 text-emerald-700 border-emerald-200";
+                            let iconMutu = <ShieldCheck size={14} />;
+                            if (saldoMutu < 400 && saldoMutu >= 300) {
+                                colorClassMutu = "bg-amber-100 text-amber-700 border-amber-200";
+                                iconMutu = <ShieldAlert size={14} />;
+                            } else if (saldoMutu < 300) {
+                                colorClassMutu = "bg-red-100 text-red-700 border-red-200";
+                                iconMutu = <ShieldAlert size={14} />;
+                            }
+
+                            return (
                             <tr key={i} className="border-b border-slate-100 hover:bg-amber-50/50 transition-all">
-                                <td className="p-6">
-                                  <p className="text-slate-800 font-black italic">{item.nama}</p>
-                                  <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest leading-none">Rank #{i+1}</p>
+                                <td className="p-5">
+                                  <p className="text-slate-800 font-black italic text-sm">{item.nama}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[8px] text-white bg-slate-800 px-2 py-0.5 rounded uppercase font-black tracking-widest leading-none">Rank #{i+1}</span>
+                                    <span className="text-slate-400 text-[9px] uppercase tracking-wider">{item.detail_poli || "OFF / LIBUR"}</span>
+                                  </div>
                                 </td>
-                                <td className="p-6">
-                                  <span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[9px] border border-slate-200 font-black">
-                                    {item.detail_poli || "OFF / LIBUR"}
-                                  </span>
+                                
+                                {/* KOLOM 1: POIN KUANTITATIF (JASPEL) */}
+                                <td className="p-5 text-center border-x border-slate-100 bg-blue-50/30">
+                                  <div className="flex flex-col items-center justify-center">
+                                      <span className="text-blue-700 font-black text-base">{poinJaspel} Pts</span>
+                                      {item.total_pasien_hari_ini > 0 && (
+                                        <span className="text-[8px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full mt-1 flex items-center gap-1 font-black tracking-wider">
+                                          +{item.total_pasien_hari_ini} HARI INI
+                                        </span>
+                                      )}
+                                  </div>
                                 </td>
-                                <td className="p-6 text-center border-x border-slate-100 bg-blue-50/30">
-                                  {item.total_pasien_hari_ini > 0 ? (
-                                    <span className="text-blue-600 font-black text-sm flex items-center justify-center gap-1">
-                                      +{item.total_pasien_hari_ini} <CheckCircle2 size={12}/>
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300">-</span>
-                                  )}
+
+                                {/* KOLOM 2: SALDO MUTU (KUALITATIF) */}
+                                <td className="p-5 text-center border-r border-slate-100 bg-slate-50/30">
+                                    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black border ${colorClassMutu}`} title="Batas Maksimal 400 Poin">
+                                        {iconMutu} {saldoMutu}
+                                    </div>
                                 </td>
-                                <td className="p-6 text-center bg-amber-50/30">
-                                  <div className="inline-block px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-lg shadow-md italic">
-                                    {item.total_pasien_bulanan || item.total_pasien || 0}
+
+                                {/* KOLOM 3: GRAND TOTAL */}
+                                <td className="p-5 text-center bg-amber-50/30">
+                                  <div className="inline-block px-5 py-2.5 rounded-[1rem] bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black text-xl shadow-lg border-b-4 border-amber-700 italic">
+                                    {grandTotal.toFixed(1)}
                                   </div>
                                 </td>
                             </tr>
-                        ))}
+                            )
+                        })}
                     </tbody>
                   </table>
             </div>

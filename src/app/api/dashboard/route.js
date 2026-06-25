@@ -115,7 +115,7 @@ export async function GET(request) {
 
     // Ambil Master Dokter
     const resMasterDokterAll = await turso.execute({
-      sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
+      sql: "SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
       args: [kunciRuangan]
     });
 
@@ -124,7 +124,7 @@ export async function GET(request) {
       resMasterDokterHariIni = resMasterDokterAll;
     } else {
       resMasterDokterHariIni = await turso.execute({
-        sql: "SELECT * FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND jadwal_hari = ?",
+        sql: "SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND jadwal_hari = ?",
         args: [kunciRuangan, namaHariIndo]
       });
     }
@@ -145,36 +145,52 @@ export async function GET(request) {
       );
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
-      // LANGSUNG cocokkan dengan simbol di jadwal dinas hari itu
       const timHarian = !isModeLaporan ? semuaJadwalBulanIni.filter(j => 
         Number(j.tanggal) === pTanggal && amanStr(j.simbol) === amanStr(dok.simbol_praktik)
       ) : [];
 
-      const isCuti = !isModeLaporan ? resDokterCuti.rows.some(c => 
+      const isCutiDokter = !isModeLaporan ? resDokterCuti.rows.some(c => 
         amanStr(c.nama_dokter) === amanStr(dok.nama_dokter) && 
         formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
       ) : false;
 
+      // Injeksi Status Cuti/Sakit untuk UI Coretan Merah
+      const asistenMapped = timHarian.map(t => {
+        const isCutiSDM = resSdmCuti.rows.some(c => 
+            amanStr(c.nama_sdm) === amanStr(t.nama) &&
+            c.status_acc === 'Disetujui' &&
+            formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
+        );
+        const isSakit = ['CS', 'S'].includes(amanStr(t.simbol));
+
+        return { 
+          id: t.sdm_id, 
+          nama: t.nama, 
+          isCuti: isCutiSDM,
+          isSakit: isSakit
+        };
+      });
+
       return {
         ...dok,
-        isCuti,
+        bobot_jaspel: dok.bobot_jaspel || 1.0, 
+        isCuti: isCutiDokter,
         jumlah_pasien_poli: recordPasienHarian ? Number(recordPasienHarian.jumlah) : 0, 
         total_pasien_bulanan: totalPasienRentang, 
-        timAsisten: timHarian.map(t => ({ id: t.sdm_id, nama: t.nama }))
+        timAsisten: asistenMapped
       };
     });
 
     /**
-     * ALGORITMA FINAL: KALKULASI POIN (BERDASARKAN TANGGAL & HARI)
+     * ALGORITMA FINAL: PEMBAGI DINAMIS & BOBOT JASPEL (SISI SERVER)
      */
     const dailyPointsDict = {}; 
     const getNamaHari = (thn, bln, tgl) => format(new Date(thn, bln - 1, tgl), "eeee", { locale: id });
     
-    // a. Kumpulkan pasien berdasarkan nama dokter dan jadwal_hari dokter tersebut
+    // a. Agregasi Pasien + Kalikan Bobot
     dataPasienBulanIni.forEach(p => {
         const namaHariPasien = getNamaHari(p.tahun, p.bulan, p.tanggal);
         
-        // KUNCI PERBAIKAN: Cari simbol dokter SPESIFIK PADA HARI TERSEBUT
         const dokMatch = resMasterDokterAll.rows.find(md => 
             amanStr(md.nama_dokter) === amanStr(p.nama_dokter) && 
             amanStr(md.klinik) === amanStr(p.klinik) &&
@@ -182,33 +198,52 @@ export async function GET(request) {
         );
         
         const simbol = dokMatch ? amanStr(dokMatch.simbol_praktik) : (amanStr(p.klinik) || "LAINNYA");
+        const bobotDokter = dokMatch ? parseFloat(dokMatch.bobot_jaspel || 1.0) : 1.0;
+        
         const dateKey = `${Number(p.tahun)}-${Number(p.bulan)}-${Number(p.tanggal)}_${simbol}`;
         
         if (!dailyPointsDict[dateKey]) {
-            dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
+            dailyPointsDict[dateKey] = { totalPasienKotor: 0, totalPoinBobot: 0, jumlahAsistenHadir: 0, poinFinal: 0 };
         }
-        dailyPointsDict[dateKey].totalPasien += Number(p.jumlah || 0);
+        
+        const hitunganPasien = Number(p.jumlah || 0);
+        dailyPointsDict[dateKey].totalPasienKotor += hitunganPasien;
+        dailyPointsDict[dateKey].totalPoinBobot += (hitunganPasien * bobotDokter);
     });
 
-    // b. Hitung jumlah asisten perawat langsung dari tabel jadwal dinas tanpa filter master
+    // b. Hitung Asisten Hadir (Exlcude yang Sakit/Cuti/Libur)
     semuaJadwalBulanIni.forEach(j => {
         const simbolAsisten = amanStr(j.simbol);
         const dateKey = `${Number(j.tahun)}-${Number(j.bulan)}-${Number(j.tanggal)}_${simbolAsisten}`;
         
         if (!dailyPointsDict[dateKey]) {
-            dailyPointsDict[dateKey] = { totalPasien: 0, jumlahAsisten: 0, poin: 0 };
+            dailyPointsDict[dateKey] = { totalPasienKotor: 0, totalPoinBobot: 0, jumlahAsistenHadir: 0, poinFinal: 0 };
         }
-        dailyPointsDict[dateKey].jumlahAsisten += 1;
+
+        const dateStr = `${j.tahun}-${String(j.bulan).padStart(2,'0')}-${String(j.tanggal).padStart(2,'0')}`;
+        
+        // Pengecekan Absensi
+        const isCutiAcc = resSdmCuti.rows.some(c => 
+             amanStr(c.nama_sdm) === amanStr(j.nama) &&
+             c.status_acc === 'Disetujui' &&
+             dateStr >= c.tgl_mulai && dateStr <= c.tgl_selesai
+        );
+        const isSimbolAbsen = ['CT', 'CM', 'CS', 'S', 'I', 'L', 'OFF'].includes(simbolAsisten);
+
+        // Jika dia masuk kerja, tambahkan sebagai pembagi
+        if (!isCutiAcc && !isSimbolAbsen) {
+             dailyPointsDict[dateKey].jumlahAsistenHadir += 1;
+        }
     });
 
-    // c. Kalkulasi poin akhir = Total Pasien Grup / Jumlah Asisten Grup
+    // c. Kalkulasi Poin Akhir per Poli per Hari
     for (const key in dailyPointsDict) {
         const data = dailyPointsDict[key];
-        const asisten = data.jumlahAsisten > 0 ? data.jumlahAsisten : 1;
-        data.poin = Math.round(data.totalPasien / asisten);
+        const asistenPembagi = data.jumlahAsistenHadir > 0 ? data.jumlahAsistenHadir : 1;
+        data.poinFinal = data.totalPoinBobot / asistenPembagi;
     }
 
-    // Distribusikan Poin ke Leaderboard
+    // Distribusi Poin ke Leaderboard Individu
     const perawatUnik = [...new Set(semuaJadwalBulanIni.map(j => j.sdm_id))];
     const leaderboardBeban = perawatUnik.map(idSdm => {
       const infoSdm = semuaJadwalBulanIni.find(j => j.sdm_id === idSdm);
@@ -222,17 +257,28 @@ export async function GET(request) {
         const targetSimbolGroup = amanStr(jadwal.simbol);
         const dateKey = `${Number(jadwal.tahun)}-${Number(jadwal.bulan)}-${Number(jadwal.tanggal)}_${targetSimbolGroup}`;
         
-        const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poin : 0;
-        totalBebanBulanan += poinHarian;
+        const dateStr = `${jadwal.tahun}-${String(jadwal.bulan).padStart(2,'0')}-${String(jadwal.tanggal).padStart(2,'0')}`;
+        const isCutiAcc = resSdmCuti.rows.some(c => 
+             amanStr(c.nama_sdm) === amanStr(infoSdm.nama) &&
+             c.status_acc === 'Disetujui' &&
+             dateStr >= c.tgl_mulai && dateStr <= c.tgl_selesai
+        );
+        const isSimbolAbsen = ['CT', 'CM', 'CS', 'S', 'I', 'L', 'OFF'].includes(targetSimbolGroup);
 
-        if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
-            totalBebanHariIni += poinHarian;
-            if (targetSimbolGroup.startsWith('NERS')) {
-                daftarPoliDibantuHariIni.add(targetSimbolGroup); 
-            } else {
-                const namaPoliBersih = targetSimbolGroup.replace('POLI', '').trim();
-                daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); 
-            }
+        // Jangan berikan poin jika perawat tersebut bolos/cuti hari itu
+        if (!isCutiAcc && !isSimbolAbsen) {
+             const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poinFinal : 0;
+             totalBebanBulanan += poinHarian;
+
+             if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
+                 totalBebanHariIni += poinHarian;
+                 if (targetSimbolGroup.startsWith('NERS')) {
+                     daftarPoliDibantuHariIni.add(targetSimbolGroup); 
+                 } else {
+                     const namaPoliBersih = targetSimbolGroup.replace('POLI', '').trim();
+                     daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); 
+                 }
+             }
         }
       });
 
@@ -242,12 +288,14 @@ export async function GET(request) {
       return {
         id: idSdm,
         nama: infoSdm.nama,
-        total_pasien_bulanan: totalBebanBulanan,
-        total_pasien_hari_ini: totalBebanHariIni,
-        detail_poli: teksPoli
+        total_pasien_bulanan: parseFloat(totalBebanBulanan.toFixed(1)),
+        total_pasien_hari_ini: parseFloat(totalBebanHariIni.toFixed(1)),
+        detail_poli: teksPoli,
+        saldo_mutu: 400 // <-- Injeksi Saldo Dasar untuk fitur Kedisiplinan 400 Poin UI
       };
     }).filter(p => p.nama !== 'ADMIN');
 
+    // Sorting Descending
     leaderboardBeban.sort((a, b) => b.total_pasien_bulanan - a.total_pasien_bulanan);
 
     const dataCutiSdmMapped = resSdmCuti.rows.map(s => ({

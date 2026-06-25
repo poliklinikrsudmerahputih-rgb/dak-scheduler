@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 
 // ====================================================================
-// FUNGSI GET (Master Dokter + Fitur AI Deteksi Simbol Kembar)
+// FUNGSI GET (Master Dokter + Fitur AI Deteksi Simbol Kembar + Bobot Jaspel)
 // ====================================================================
 export async function GET(request) {
   try {
@@ -44,6 +44,9 @@ export async function GET(request) {
         md.jam_praktik, 
         md.simbol_praktik,
         md.ruangan,
+        
+        -- PENAMBAHAN BARU: Menarik data bobot jaspel dari database
+        md.bobot_jaspel,
         
         -- FITUR AI: Menghitung berapa banyak simbol unik yang dimiliki dokter ini
         (SELECT COUNT(DISTINCT simbol_praktik) 

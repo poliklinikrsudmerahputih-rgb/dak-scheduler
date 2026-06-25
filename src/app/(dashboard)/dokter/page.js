@@ -26,7 +26,6 @@ export default function MasterDokter() {
 
   const refreshData = async () => {
     try {
-      // Menambahkan parameter ?hari= agar backend bisa lebih fokus jika diperlukan
       const queryHari = filterHari ? `?hari=${filterHari}` : "";
       
       const [resDkt, resCuti] = await Promise.all([
@@ -60,7 +59,6 @@ export default function MasterDokter() {
     }
   };
 
-  // 1. SETUP AWAL: Menentukan Hari Ini & Set Filter Default ke Hari Ini
   useEffect(() => {
     const skrg = new Date();
     const daftarHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -68,10 +66,9 @@ export default function MasterDokter() {
     
     setHariIni(hariSekarang);
     setTglSekarang(format(skrg, "yyyy-MM-dd"));
-    setFilterHari(hariSekarang); // Otomatis filter ke hari ini
+    setFilterHari(hariSekarang); 
   }, []);
 
-  // 2. TRIGGER REFRESH: Jalankan refreshData setiap kali filterHari berubah
   useEffect(() => {
     if (filterHari !== "") {
       refreshData();
@@ -185,18 +182,38 @@ export default function MasterDokter() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2">
-                <Tag size={14}/> Simbol Praktik
-              </label>
-              <input 
-                name="simbol" 
-                defaultValue={editData?.simbol_praktik || ""}
-                required 
-                placeholder="MATA-1" 
-                className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 focus:bg-white p-4 rounded-2xl outline-none text-xs font-black transition-all uppercase font-mono" 
-              />
+            {/* --- PENAMBAHAN FITUR INPUT BOBOT & SIMBOL --- */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2">
+                  <Tag size={14}/> Simbol Praktik
+                </label>
+                <input 
+                  name="simbol" 
+                  defaultValue={editData?.simbol_praktik || ""}
+                  required 
+                  placeholder="MATA-1" 
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 focus:bg-white p-4 rounded-2xl outline-none text-xs font-black transition-all uppercase font-mono" 
+                />
+              </div>
+              
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2">
+                  <Activity size={14}/> Bobot Jaspel
+                </label>
+                <input 
+                  type="number"
+                  step="0.1"
+                  name="bobot_jaspel" 
+                  defaultValue={editData?.bobot_jaspel || "1.0"}
+                  required 
+                  placeholder="1.0" 
+                  className="w-full bg-amber-50 border-2 border-amber-200 focus:border-amber-600 focus:bg-white p-4 rounded-2xl outline-none text-xs font-black transition-all font-mono text-amber-900" 
+                />
+              </div>
             </div>
+            {/* --- SELESAI PENAMBAHAN --- */}
+
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-10">
@@ -214,7 +231,7 @@ export default function MasterDokter() {
                 type="button"
                 onClick={() => { 
                   setEditData(null); 
-                  setFilterHari(""); // Reset memunculkan seluruh jadwal
+                  setFilterHari(""); 
                   document.getElementById("form-dokter").reset(); 
                 }}
                 className="bg-slate-200 text-slate-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-300 transition-all"
@@ -241,7 +258,7 @@ export default function MasterDokter() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[900px]">
             <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-[0.2em]">
               <tr>
                 <th className="p-6 border-b text-center w-24">Status</th>
@@ -249,6 +266,7 @@ export default function MasterDokter() {
                 <th className="p-6 border-b">Jadwal</th>
                 <th className="p-6 border-b">Klinik</th>
                 <th className="p-6 border-b text-center">Simbol</th>
+                <th className="p-6 border-b text-center">Bobot</th>
                 <th className="p-6 border-b text-center">Aksi</th>
               </tr>
             </thead>
@@ -265,7 +283,7 @@ export default function MasterDokter() {
                     <React.Fragment key={d.id}>
                       {isNewDay && (
                         <tr className={`${isSesuaiFilter ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-400"}`}>
-                          <td colSpan="6" className="px-6 py-2 text-[10px] font-black border-y border-slate-100 italic uppercase tracking-widest">
+                          <td colSpan="7" className="px-6 py-2 text-[10px] font-black border-y border-slate-100 italic uppercase tracking-widest">
                             {isSesuaiFilter ? `⭐ PRIORITAS HARI ${d.jadwal_hari}` : `📅 KELOMPOK HARI ${d.jadwal_hari}`}
                           </td>
                         </tr>
@@ -294,7 +312,6 @@ export default function MasterDokter() {
                                   {d.nama_dokter}
                               </span>
                               
-                              {/* FITUR AI: MENDETEKSI SIMBOL GANDA PADA DOKTER */}
                               {d.ai_total_simbol > 1 && (
                                 <div className="mt-2 inline-flex items-center gap-1.5 bg-amber-50 text-amber-600 border border-amber-200 px-2 py-1 rounded-lg">
                                   <AlertCircle size={10} className="animate-pulse" />
@@ -329,6 +346,18 @@ export default function MasterDokter() {
                               {d.simbol_praktik}
                            </span>
                         </td>
+                        {/* --- KOLOM BOBOT JASPEL --- */}
+                        <td className="p-6 text-center">
+                           <span className={`px-3 py-1.5 rounded-xl font-black font-mono shadow-sm border ${
+                              isLagiCuti 
+                                ? 'bg-slate-50 text-slate-300 border-slate-100' 
+                                : parseFloat(d.bobot_jaspel) > 1.5 
+                                  ? 'bg-amber-100 text-amber-700 border-amber-200' 
+                                  : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                           }`}>
+                              {d.bobot_jaspel ? parseFloat(d.bobot_jaspel).toFixed(1) : "1.0"}
+                           </span>
+                        </td>
                         <td className="p-6">
                           <div className="flex justify-center gap-2">
                             <button 
@@ -356,7 +385,7 @@ export default function MasterDokter() {
                 })
               ) : (
                 <tr>
-                  <td colSpan="6" className="p-20 text-center text-slate-300 italic">Database Kosong</td>
+                  <td colSpan="7" className="p-20 text-center text-slate-300 italic">Database Kosong</td>
                 </tr>
               )}
             </tbody>

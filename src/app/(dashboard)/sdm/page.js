@@ -125,7 +125,7 @@ export default function MasterSDM() {
     }
   }
 
-  // --- FUNGSI EKSEKUSI MUTU ---
+  // --- FUNGSI EKSEKUSI MUTU (DIPERBAIKI) ---
   const handleSimpanMutu = async (e) => {
     e.preventDefault();
     if (!mutuForm.nominal || mutuForm.nominal <= 0) return alert("Nominal harus diisi dan lebih dari 0!");
@@ -133,15 +133,18 @@ export default function MasterSDM() {
 
     setLoadingMutu(true);
     try {
-      // API Ini akan kita buat selanjutnya untuk menyimpan log dan mengurangi saldo_mutu di database
-      const res = await fetch('/api/mutu-sdm', {
+      // PERBAIKAN 1 & 2: Tembak ke API /api/sdm dan pastikan nominal dikirim sebagai Number
+      const res = await fetch('/api/sdm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sdm_id: selectedMutuSDM.id,
           bulan: bulanFilter,
           tahun: tahunFilter,
-          ...mutuForm
+          jenis: mutuForm.jenis,
+          kategori: mutuForm.kategori,
+          nominal: Number(mutuForm.nominal),
+          catatan: mutuForm.catatan
         })
       });
 
@@ -184,8 +187,9 @@ export default function MasterSDM() {
                </div>
                <div className="text-right">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Saldo Saat Ini</p>
-                  <p className={`text-xl font-black italic ${selectedMutuSDM.saldo_mutu < 300 ? 'text-red-600' : selectedMutuSDM.saldo_mutu < 400 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    {selectedMutuSDM.saldo_mutu !== undefined ? selectedMutuSDM.saldo_mutu : 400} <span className="text-[10px] text-slate-400">/ 400</span>
+                  {/* PERBAIKAN 3A: Ubah saldo_mutu menjadi poin_akhir */}
+                  <p className={`text-xl font-black italic ${selectedMutuSDM.poin_akhir < 300 ? 'text-red-600' : selectedMutuSDM.poin_akhir < 400 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {selectedMutuSDM.poin_akhir !== undefined ? selectedMutuSDM.poin_akhir : 400} <span className="text-[10px] text-slate-400">/ 400</span>
                   </p>
                </div>
             </div>
@@ -424,8 +428,8 @@ export default function MasterSDM() {
                   // Kalkulasi AI Statistik Kehadiran SDM
                   const statsKehadiran = getStatsCutiBulanan(sdm.nama);
 
-                  // Default Saldo Mutu (Fallback jika backend belum punya data)
-                  const saldoMutu = sdm.saldo_mutu !== undefined ? sdm.saldo_mutu : 400;
+                  // PERBAIKAN 3B: Ubah saldo_mutu menjadi poin_akhir pada Tabel
+                  const saldoMutu = sdm.poin_akhir !== undefined ? sdm.poin_akhir : 400;
                   let colorClassMutu = "text-emerald-600 bg-emerald-50 border-emerald-100";
                   let iconMutu = <ShieldCheck size={16} className="text-emerald-500" />;
                   if (saldoMutu < 400 && saldoMutu >= 300) {

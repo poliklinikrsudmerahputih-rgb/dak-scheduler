@@ -1,0 +1,279 @@
+# jadwal-dinas-app - Cursor Rules
+
+## Project Overview
+**jadwal-dinas-app** is a healthcare staff scheduling system for managing shifts, leave requests, and patient capacity tracking. 
+- **Stack:** Next.js 16, React 19, Tailwind CSS 4, Turso (SQLite), Bcrypt
+- **Auth:** Cookie-based sessions with department (ruangan) row-level security
+- **Language:** 100% Bahasa Indonesia UI
+- **Pattern:** Server actions + API routes for data mutations
+
+## Quick Setup
+```bash
+npm install
+npm run dev  # localhost:3000
+npm run build && npm start  # production
+npm run lint
+```
+
+**Environment:** `.env.local` must have:
+```
+TURSO_DATABASE_URL=...
+TURSO_AUTH_TOKEN=...
+```
+
+## Key Conventions
+
+### 1. Authentication & Session Management
+- **Session Cookie:** `session_dak_pro` (24h, NOT httpOnly, production secure)
+- **Session Format:** JSON `{id, nama, role, ruangan}`
+- **Protected Routes:** All `/dashboard/*`, `/api/*` require session
+- **Public Routes:** `/login`, `/signup`, `/forgot-password`, `/view-jadwal`
+- **Import Helper:** Always call `getSessionRuangan()` in API routes to get user's department
+
+**Pattern (API routes):**
+```javascript
+import { cookies } from "next/headers";
+import { turso } from "@/lib/turso";
+
+async function getSessionRuangan() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session_dak_pro");
+  if (!session) return null;
+  try {
+    const userData = JSON.parse(session.value);
+    return userData.ruangan || "POLIKLINIK";
+  } catch {
+    return null;
+  }
+}
+
+export async function GET(req) {
+  const userRuangan = await getSessionRuangan();
+  if (!userRuangan) return NextResponse.json({error: "Unauthorized"}, {status: 401});
+  // proceed with ruangan filter...
+}
+```
+
+### 2. Database Patterns
+- **Client:** LibSQL (`@libsql/client`)
+- **Import:** `import { turso } from "@/lib/turso";`
+- **Data Normalization:** Always use `UPPER(TRIM())` in WHERE clauses
+- **Backward Compatibility:** Query pattern: `WHERE field IS NULL OR TRIM(field) = '' OR UPPER(TRIM(field)) = ?`
+- **Batch Operations:** Prefer batch() for multiple queries (DELETE + INSERT atomicity)
+- **Error Handling:** Return empty arrays on error, never throw to frontend
+
+**Pattern (Batch INSERT/UPDATE):**
+```javascript
+const queries = [
+  { sql: "DELETE FROM table WHERE ruangan = ? AND bulan = ? AND tahun = ?", args: [ruangan, bulan, tahun] },
+  { sql: "INSERT INTO table (col1, col2, ruangan) VALUES (?, ?, ?)", args: [val1, val2, ruangan] },
+];
+const result = await turso.batch(queries, "write");
+```
+
+### 3. Data Values & Enums
+- **Units (ruangan):** Always UPPERCASE - `POLIKLINIK`, `IGD`, `ICU`, `LABORATORIUM`, etc.
+- **Leave Types:** `CS` (Sakit), `DL` (Dinas Luar), `CT` (Cuti Tahunan), `L` (Libur)
+- **Leave Status:** `Disetujui` (approved), `Menunggu` (pending), `Ditolak` (rejected)
+- **Shift Symbols:** `P` (Pagi/Morning), `S` (Siang/Afternoon), `M` (Malam/Night)
+
+### 4. API Route Structure
+- **Location:** `src/app/api/[resource]/route.js`
+- **Response Format:** `{ success: boolean, data?: [], error?: string }`
+- **Caching:** Always set `export const dynamic = "force-dynamic";`
+- **HTTP Status:** Use appropriate codes (200, 400, 401, 500)
+- **Validation:** Check session/auth first, then ruangan isolation, then data validation
+
+**Template:**
+```javascript
+export const dynamic = "force-dynamic";
+
+export async function POST(req) {
+  try {
+    const userRuangan = await getSessionRuangan();
+    if (!userRuangan) return NextResponse.json({error: "Unauthorized"}, {status: 401});
+
+    const body = await req.json();
+    // validate body...
+    
+    const result = await turso.execute({
+      sql: "INSERT INTO table (...) VALUES (...)",
+      args: [..., userRuangan]
+    });
+    
+    return NextResponse.json({ success: true, data: result });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ success: false, error: "User-friendly message" }, {status: 500});
+  }
+}
+```
+
+### 5. Frontend Patterns
+
+**Always add `"use client"` at top of interactive components:**
+```javascript
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function Page() {
+  const router = useRouter();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  // ...
+}
+```
+
+**Fetch Pattern (Check Auth):**
+```javascript
+const res = await fetch("/api/route", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload)
+});
+
+if (res.status === 401) {
+  router.push("/login");
+  return;
+}
+
+const result = await res.json();
+if (!result.success) {
+  setError(result.error);
+  return;
+}
+// proceed...
+```
+
+**Server Actions (For Simple Mutations):**
+```javascript
+"use server";
+import { revalidatePath } from "next/cache";
+import { turso } from "@/lib/turso";
+
+export async function simpanData(formData) {
+  const nama = formData.get("nama");
+  // process...
+  revalidatePath("/path");
+  return { success: true };
+}
+```
+
+### 6. Styling & UI Conventions
+
+**Tailwind patterns:**
+- Headers: `text-[10px] font-black uppercase tracking-widest`
+- Dark theme: `bg-slate-900 text-white`
+- Rounded corners: `rounded-2xl`, `rounded-[2.5rem]`
+- Shadows: `shadow-xl`, `shadow-2xl`
+- Loading spinner: `<Loader2 className="animate-spin" />`
+- Error alert: `<AlertCircle />` icon with red styling
+- Success prefix: "✅ ", Error prefix: "❌ "
+
+**Icon Library:** Lucide React
+```javascript
+import { AlertCircle, Loader2, Plus, Edit2, Trash2 } from "lucide-react";
+```
+
+**Form Status State:**
+```javascript
+const [status, setStatus] = useState(null); // null | 'loading' | 'success' | 'error'
+```
+
+### 7. File Organization
+```
+src/
+  app/
+    (auth)/                 # Public auth routes
+      login/page.js
+      signup/page.js
+    (dashboard)/            # Protected dashboard routes
+      layout.js             # Navigation sidebar
+      page.js               # Main dashboard
+      [feature]/
+        page.js
+        actions.js          # Server actions if needed
+    api/                    # API routes
+      [resource]/
+        route.js            # GET, POST, PATCH, DELETE
+        swap/route.js       # Nested routes
+    globals.css
+    layout.js
+  lib/
+    turso.js                # Database client (DO NOT EDIT)
+  middleware.js             # Route protection
+```
+
+### 8. Date Handling
+- **Library:** `date-fns` with Bahasa Indonesia locale
+- **Import:** `import { format, parse } from "date-fns"; import { id } from "date-fns/locale";`
+- **Format pattern:** `format(new Date(), "dd MMMM yyyy", { locale: id })`
+
+### 9. Security Rules
+- ✅ Always validate ruangan in API routes (prevents data leaks)
+- ✅ Always hash passwords with bcrypt (saltRounds=10)
+- ✅ Check session cookie first in every protected route
+- ✅ Return friendly error messages (hide DB errors)
+- ✅ Use HTTPS in production (Secure flag on cookies)
+- ❌ Never expose DB errors to frontend
+- ❌ Never allow unauthenticated API calls
+- ❌ Never trust ruangan from request body (use session only)
+- ❌ Never skip UPPER(TRIM()) normalization in WHERE clauses
+
+### 10. Common API Response Patterns
+**Success (200):** `{ success: true, data: [...] }`
+**Error (400):** `{ success: false, error: "Validasi gagal: ..." }`
+**Unauthorized (401):** `{ error: "Unauthorized" }` (no success field)
+**Server Error (500):** `{ success: false, error: "Terjadi kesalahan" }`
+
+### 11. Naming Conventions
+- **Components:** PascalCase (`DashboardHeader.js`)
+- **Functions:** camelCase (`fetchData()`, `simpanData()`)
+- **Constants:** UPPERCASE_SNAKE_CASE (`DEFAULT_RUANGAN = "POLIKLINIK"`)
+- **CSS classes:** lowercase-with-hyphens (Tailwind default)
+- **Folders:** lowercase (`dashboard`, `api`)
+- **Database columns:** snake_case (`nama_sdm`, `tgl_mulai`)
+
+### 12. Testing & Linting
+```bash
+npm run lint  # ESLint check
+# Fix: eslint --fix .
+```
+- Config: `eslint-config-next/core-web-vitals`
+- Ignores: `.next/`, `build/`, `next-env.d.ts`
+
+### 13. Deployment
+- **Next.js Compiler:** React Compiler enabled in next.config.mjs
+- **Tailwind:** v4 with @tailwindcss/postcss
+- **Build:** `npm run build` → `npm start`
+
+## Tips for Productivity
+
+1. **Use @ alias:** Always import from root: `import { turso } from "@/lib/turso";`
+2. **Session first:** Every API route should call `getSessionRuangan()` immediately
+3. **Batch operations:** Never do single INSERT/UPDATE; batch DELETE + INSERT
+4. **Test auth flow:** After any auth changes, verify `/login` → cookie → protected route redirect
+5. **Console logs:** Add `console.error(err)` in catch blocks for debugging
+6. **Date format:** Always use `date-fns` + Bahasa Indonesia locale, never hardcode dates
+7. **UI feedback:** Always show loading spinners and error messages to users
+8. **Revalidate:** After mutations with server actions, call `revalidatePath()`
+
+## Red Flags to Avoid
+- ❌ Using `next/router` instead of `next/navigation`
+- ❌ Forgetting `"use client"` on interactive components
+- ❌ Querying without ruangan filter
+- ❌ Not checking `res.status === 401` after auth
+- ❌ Using `httpOnly: true` cookies (breaks frontend session reading)
+- ❌ Uppercase in WHERE without TRIM()
+- ❌ Forgetting `export const dynamic = "force-dynamic";` in API routes
+- ❌ Throwing errors in API routes (return JSON instead)
+- ❌ Not using batch() for multi-statement operations
+
+## Resources
+- [Next.js 16 Docs](https://nextjs.org/docs)
+- [Tailwind CSS v4](https://tailwindcss.com)
+- [date-fns](https://date-fns.org)
+- [Lucide React Icons](https://lucide.dev)
+- [LibSQL Client](https://github.com/libsql/libsql-client-ts)

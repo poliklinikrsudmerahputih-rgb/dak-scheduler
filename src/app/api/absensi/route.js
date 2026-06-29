@@ -119,26 +119,26 @@ export async function POST(request) {
 
     // 2. Cek apakah master Saldo Mutu bulan ini sudah ada untuk SDM ini
     const cekSaldo = await db.execute({
-        sql: `SELECT id, poin_akhir FROM saldo_mutu WHERE sdm_id = ? AND bulan = ? AND tahun = ?`,
+        sql: `SELECT id FROM saldo_mutu WHERE sdm_id = ? AND bulan = ? AND tahun = ?`,
         args: [sdm_id, bulan, tahun]
     });
 
     if (cekSaldo.rows.length === 0) {
-        // Jika belum ada, buat record 400 poin dan langsung potong jika ada penalti
+        // Jika belum ada, buat record 400 poin dengan penalti_disiplin (karena absensi = pelanggaran disiplin)
+        // CATATAN: poin_akhir dan total_penalti adalah GENERATED ALWAYS, jangan diisi!
         await db.execute({
-            sql: `INSERT INTO saldo_mutu (sdm_id, bulan, tahun, poin_awal, total_penalti, poin_akhir) 
-                  VALUES (?, ?, ?, 400, ?, ?)`,
-            args: [sdm_id, bulan, tahun, hasilDisiplin.penalti, 400 - hasilDisiplin.penalti]
+            sql: `INSERT INTO saldo_mutu (sdm_id, bulan, tahun, poin_awal, penalti_disiplin) 
+                  VALUES (?, ?, ?, 400, ?)`,
+            args: [sdm_id, bulan, tahun, hasilDisiplin.penalti]
         });
     } else {
-        // Jika sudah ada, tambahkan total penalti dan kurangi poin akhirnya
+        // Jika sudah ada, tambahkan penalti_disiplin (poin_akhir otomatis dihitung database)
         await db.execute({
             sql: `UPDATE saldo_mutu 
-                  SET total_penalti = total_penalti + ?, 
-                      poin_akhir = poin_akhir - ?, 
+                  SET penalti_disiplin = penalti_disiplin + ?, 
                       updated_at = CURRENT_TIMESTAMP 
                   WHERE sdm_id = ? AND bulan = ? AND tahun = ?`,
-            args: [hasilDisiplin.penalti, hasilDisiplin.penalti, sdm_id, bulan, tahun]
+            args: [hasilDisiplin.penalti, sdm_id, bulan, tahun]
         });
     }
 

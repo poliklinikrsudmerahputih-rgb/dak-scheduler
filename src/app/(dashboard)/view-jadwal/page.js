@@ -6,7 +6,7 @@ import {
   Search, Camera, Clock, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin,
-  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut
+  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -269,101 +269,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 }
 
 // ======================================================
-// 2. MODAL NASA-TLX (KUESIONER SUBJEKTIF)
-// ======================================================
-function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSelected }) {
-  const [scores, setScores] = useState({ mental: 50, fisik: 50, waktu: 50, performa: 50, usaha: 50, frustrasi: 50 });
-  const [catatan, setCatatan] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  if (!isOpen || !perawatSelected) return null;
-
-  let namaRuanganTampil = ruanganAktif || 'POLIKLINIK';
-  if (namaRuanganTampil.trim().toUpperCase() === 'NERS 3' && klinikSelected) {
-      const kl = klinikSelected.toUpperCase();
-      if (kl.includes('THT')) namaRuanganTampil = 'NERS 3 (THT)';
-      else if (kl.includes('MATA')) namaRuanganTampil = 'NERS 3 (MATA)';
-      else if (kl.includes('PARU')) namaRuanganTampil = 'NERS 3 (PARU)';
-      else namaRuanganTampil = `NERS 3 (${klinikSelected})`;
-  }
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/nasa-tlx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          sdm_id: perawatSelected.id, 
-          ruangan: namaRuanganTampil, 
-          ...scores, 
-          catatan 
-        })
-      });
-      
-      const data = await res.json(); 
-      
-      if (res.ok) {
-        alert("✅ Evaluasi NASA-TLX Berhasil Disimpan!");
-        onClose();
-      } else { 
-        alert("❌ Data gagal disimpan:\n" + (data.error || "Kesalahan Server")); 
-      }
-    } catch (e) { 
-      alert("❌ Terjadi kesalahan jaringan."); 
-    } finally { 
-      setSubmitting(false); 
-    }
-  };
-
-  const Slider = ({ label, val, keyName, descKiri, descKanan }) => (
-    <div className="mb-5 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-      <div className="flex justify-between items-end mb-3">
-        <label className="text-[10px] font-black uppercase tracking-widest text-slate-800">{label}</label>
-        <span className="text-sm font-black text-blue-600 bg-blue-100 px-3 py-1 rounded-lg">{val}</span>
-      </div>
-      <input type="range" min="0" max="100" value={val} onChange={(e) => setScores({...scores, [keyName]: parseInt(e.target.value)})} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-2" />
-      <div className="flex justify-between text-[8px] font-bold uppercase text-slate-400">
-        <span>{descKiri}</span><span>{descKanan}</span>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
-      <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-blue-600/20 max-h-[90vh] overflow-y-auto custom-scrollbar">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-blue-600 pl-4">E-Log NASA-TLX</h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 rounded-full"><XCircle size={20}/></button>
-        </div>
-        <div className="mb-6 bg-blue-50 p-4 rounded-2xl text-[10px] font-black uppercase text-blue-800 border border-blue-100 space-y-1">
-            <p>Responden: <span className="italic font-black text-slate-900">{perawatSelected.nama}</span></p>
-            <p>Stasiun Riset: <span className="italic font-black text-slate-900">{namaRuanganTampil}</span></p>
-        </div>
-        
-        <Slider label="1. Kebutuhan Mental" val={scores.mental} keyName="mental" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
-        <Slider label="2. Kebutuhan Fisik" val={scores.fisik} keyName="fisik" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
-        <Slider label="3. Tekanan Waktu" val={scores.waktu} keyName="waktu" descKiri="Sangat Longgar" descKanan="Sangat Mendesak" />
-        <Slider label="4. Performa Kerja" val={scores.performa} keyName="performa" descKiri="Tidak Puas" descKanan="Sangat Puas" />
-        <Slider label="5. Tingkat Usaha" val={scores.usaha} keyName="usaha" descKiri="Sangat Ringan" descKanan="Sangat Keras" />
-        <Slider label="6. Tingkat Frustrasi" val={scores.frustrasi} keyName="frustrasi" descKiri="Sangat Rendah" descKanan="Sangat Tinggi" />
-
-        <div className="mt-6">
-            <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Catatan Kualitatif Lapangan (Opsional)</label>
-            <textarea placeholder="Tulis kendala sistem, alur pasien, atau alasan jika skor frustrasi tinggi..." value={catatan} onChange={(e) => setCatatan(e.target.value)} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl text-xs font-medium mt-2 outline-none focus:border-blue-500" rows={3} />
-        </div>
-        
-        <button type="button" onClick={handleSubmit} disabled={submitting} className="mt-6 w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl italic tracking-widest border-b-4 border-blue-800 transition-all flex justify-center items-center gap-2">
-          {submitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
-          {submitting ? "MENYIMPAN DATA..." : "KIRIM EVALUASI KERJA"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ======================================================
-// 3. MODAL LAPORAN ABSEN HARIAN
+// 2. MODAL LAPORAN ABSEN HARIAN
 // ======================================================
 function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }) {
     if (!isOpen) return null;
@@ -402,7 +308,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                 <th className="p-5 text-left">Shift</th>
                                 <th className="p-5 text-center bg-emerald-600/30">Jam Masuk</th>
                                 <th className="p-5 text-center bg-blue-600/30">Status Disiplin</th>
-                                <th className="p-5 text-center bg-red-600/30">Penalti Mutu</th>
+                                <th className="p-5 text-center bg-red-600/30">Potongan Absen</th>
                                 <th className="p-5 text-left">Lokasi (GPS)</th>
                             </tr>
                         </thead>
@@ -423,7 +329,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                         }`}>{row.status}</span>
                                     </td>
                                     <td className="p-5 text-center font-black bg-red-50/30">
-                                        <span className="text-red-600">-{row.penalti_mutu} Pts</span>
+                                        <span className="text-red-600">-{row.potongan_absen || row.penalti_mutu || 0} Pts</span>
                                     </td>
                                     <td className="p-5 text-[9px] text-slate-500 max-w-xs">
                                         {row.lokasi_masuk && row.lokasi_masuk.includes('maps') ? (
@@ -446,7 +352,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
 }
 
 // ======================================================
-// 4. KOMPONEN UTAMA
+// 3. KOMPONEN UTAMA
 // ======================================================
 export default function ViewJadwalPublic() {
   const [data, setData] = useState(null);
@@ -474,17 +380,10 @@ export default function ViewJadwalPublic() {
   const [dataLaporanAbsen, setDataLaporanAbsen] = useState([]);
   const [loadingAbsen, setLoadingAbsen] = useState(false);
   
-  // State Baru: Modal Absensi Kamera Langsung
+  // State: Modal Absensi Kamera Langsung
   const [showKameraModal, setShowKameraModal] = useState(false);
-
-  // State Mutu lokal (dibuka dari View Jadwal)
-  const [showMutuModal, setShowMutuModal] = useState(false);
-  const [selectedMutuSDM, setSelectedMutuSDM] = useState(null);
-  const [mutuForm, setMutuForm] = useState({ jenis: 'POTONG', kategori: 'DISIPLIN', nominal: '', catatan: '' });
-  const [loadingMutu, setLoadingMutu] = useState(false);
   const [perawatTarget, setPerawatTarget] = useState(null);
   const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
-  const [klinikAktifGlobal, setKlinikAktifGlobal] = useState('');
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
@@ -754,7 +653,6 @@ export default function ViewJadwalPublic() {
       
       {/* RENDER MODALS */}
       <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} />
-      <ModalNASATLX isOpen={showMutuModal} onClose={() => setShowMutuModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} klinikSelected={klinikAktifGlobal} />
       <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
 
       {/* HEADER SECTION */}
@@ -910,7 +808,7 @@ export default function ViewJadwalPublic() {
                         {!dok.isCuti ? (
                           <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
                             
-                            {/* --- INTEGRASI PEMBAGI DINAMIS & LENCANA MUTU --- */}
+                            {/* --- INTEGRASI PEMBAGI DINAMIS & POTONGAN ABSENSI --- */}
                             <div className="flex flex-wrap gap-2">
                               {dok.timAsisten && dok.timAsisten.length > 0 ? dok.timAsisten.map((as, i) => {
                                 // Eksekusi Kalkulasi Poin Dinamis
@@ -918,8 +816,9 @@ export default function ViewJadwalPublic() {
                                 const totalPasien = dok.jumlah_pasien_poli || 0;
                                 const poinPerAsisten = hitungPoinJaspel(totalPasien, bobotDokter, dok.timAsisten);
                                 
-                                // Cek Status Kehadiran
+                                // Cek Status Kehadiran & Pemotongan
                                 const isAbsen = as.isCuti || as.isSakit;
+                                const totalPotonganAbsen = as.potongan_absen || as.penalti_absen || 0;
 
                                 return (
                                   <div key={i} className={`flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase italic text-slate-700 bg-white px-2 py-1.5 rounded-xl border shadow-sm transition-all ${isAbsen ? 'border-red-200 bg-red-50/50 opacity-70' : 'border-slate-200'}`}>
@@ -927,15 +826,28 @@ export default function ViewJadwalPublic() {
                                     
                                     <span className={`mr-1 ${isAbsen ? 'line-through text-red-500' : ''}`}>{as.nama}</span>
                                     
-                                    {/* Indikator Lencana Mutu & Tambahan Poin Jaspel */}
+                                    {/* Indikator Poin & Pemotongan Absensi dari Master SDM */}
                                     {!isAbsen && (
-                                      <div className="flex items-center gap-1 mr-2" title="Saldo Mutu Aman & Poin Terdistribusi">
-                                        <ShieldCheck size={12} className="text-emerald-500" />
-                                        <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold border border-blue-200 not-italic tracking-wider">
-                                          +{poinPerAsisten.toFixed(1)} Pts
-                                        </span>
+                                      <div className="flex items-center gap-1.5 mr-2">
+                                        <div className="flex items-center gap-1" title="Saldo Aman & Poin Terdistribusi">
+                                          <ShieldCheck size={12} className="text-emerald-500" />
+                                          <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold border border-blue-200 not-italic tracking-wider">
+                                            +{poinPerAsisten.toFixed(1)} Pts
+                                          </span>
+                                        </div>
+                                        
+                                        {/* INTEGRASI PEMOTONGAN ABSENSI */}
+                                        {totalPotonganAbsen > 0 && (
+                                            <div className="flex items-center gap-1" title="Potongan Kedisiplinan / Absensi">
+                                                <MinusCircle size={12} className="text-red-500" />
+                                                <span className="text-[8px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold border border-red-200 not-italic tracking-wider">
+                                                  -{totalPotonganAbsen} Pts
+                                                </span>
+                                            </div>
+                                        )}
                                       </div>
                                     )}
+                                    
                                     {isAbsen && (
                                       <div className="flex items-center gap-1 mr-2" title="Perawat Absen - Poin Terkunci">
                                         <ShieldAlert size={12} className="text-red-400" />
@@ -945,36 +857,20 @@ export default function ViewJadwalPublic() {
                                       </div>
                                     )}
                                     
-                                    {/* Tombol Absensi & NASA-TLX */}
+                                    {/* Tombol Absensi Kamera Saja */}
                                     {!isAbsen && (
-                                      <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200 ml-1">
-                                          <button 
-                                            type="button"
-                                            onClick={() => { 
-                                              setPerawatTarget(as); 
-                                              setRuanganAktifGlobal(simbol); 
-                                              setShowKameraModal(true); 
-                                            }} 
-                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-emerald-500 hover:text-white transition-all text-slate-500" 
-                                            title="Absensi Kamera"
-                                          >
-                                              <Camera size={12} /> <span className="text-[8px] not-italic">ABSEN</span>
-                                          </button>
-                                          <div className="w-[1px] bg-slate-200"></div>
-                                          <button 
-                                            type="button"
-                                            onClick={() => { 
-                                              setPerawatTarget(as); 
-                                              setRuanganAktifGlobal(simbol); 
-                                              setKlinikAktifGlobal(dok.klinik);
-                                              setShowMutuModal(true); 
-                                            }} 
-                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-600 hover:text-white transition-all text-slate-500" 
-                                            title="Kuesioner NASA-TLX"
-                                          >
-                                              <FileText size={12} /> <span className="text-[8px] not-italic">NASA</span>
-                                          </button>
-                                      </div>
+                                      <button 
+                                        type="button"
+                                        onClick={() => { 
+                                          setPerawatTarget(as); 
+                                          setRuanganAktifGlobal(simbol); 
+                                          setShowKameraModal(true); 
+                                        }} 
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-emerald-500 hover:text-white border border-slate-200 rounded-lg transition-all text-slate-600 shadow-sm ml-1" 
+                                        title="Terminal Absensi Kamera"
+                                      >
+                                          <Camera size={12} /> <span className="text-[8px] not-italic font-black">ABSEN</span>
+                                      </button>
                                     )}
                                   </div>
                                 );
@@ -1070,18 +966,18 @@ export default function ViewJadwalPublic() {
               )}
             </div>
 
-            {/* AREA BARU: LOG EVALUASI MUTU */}
+            {/* AREA BARU: LOG PEMOTONGAN ABSENSI */}
             <div className="md:w-1/3 bg-slate-50 p-6 rounded-[2.5rem] border-2 border-slate-100">
-               <div className="flex items-center gap-3 px-2 mb-6"><div className="w-2 h-6 bg-blue-600 rounded-full shadow-lg"></div><h3 className="text-[11px] font-black uppercase text-slate-800 tracking-widest italic leading-none">Log Peringatan Mutu</h3></div>
+               <div className="flex items-center gap-3 px-2 mb-6"><div className="w-2 h-6 bg-red-500 rounded-full shadow-lg"></div><h3 className="text-[11px] font-black uppercase text-slate-800 tracking-widest italic leading-none">Log Peringatan Absensi</h3></div>
                <div className="space-y-3">
-                  <p className="text-center text-[10px] font-black text-slate-400 italic py-8 uppercase tracking-widest">Sistem Mutu & Absensi Kamera<br/>Sedang Disiapkan...</p>
+                  <p className="text-center text-[10px] font-black text-slate-400 italic py-8 uppercase tracking-widest">Data Pemotongan Keterlambatan<br/>Terintegrasi Dengan Master SDM</p>
                </div>
             </div>
         </div>
       </div>
 
       {/* ======================================================
-          PEROMBAKAN MODAL LEADERBOARD (DUA PILAR POIN)
+          MODAL LEADERBOARD (DUA PILAR POIN TERINTEGRASI ABSENSI)
           ====================================================== */}
       {showLeaderboardModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
@@ -1101,18 +997,18 @@ export default function ViewJadwalPublic() {
                       <tr className="text-[9px] font-black uppercase italic tracking-widest text-white">
                         <th className="p-5">Nama Staf & Status</th>
                         <th className="p-5 text-center bg-blue-600/20 border-x border-slate-700">Poin Jaspel<br/>(Kuantitatif)</th>
-                        <th className="p-5 text-center bg-emerald-600/20 border-r border-slate-700">Saldo Mutu<br/>(Max 400)</th>
+                        <th className="p-5 text-center bg-emerald-600/20 border-r border-slate-700">Saldo Disiplin<br/>(Kehadiran)</th>
                         <th className="p-5 text-center text-amber-400 bg-amber-500/10">GRAND TOTAL POIN<br/>(Bulan Ini)</th>
                       </tr>
                     </thead>
                     <tbody className="text-xs font-bold uppercase tracking-tighter">
                         {data?.leaderboard?.map((item, i) => {
-                            // Dummy data fallback if backend hasn't supplied 'saldo_mutu' yet
+                            // Penyesuaian Saldo Kedisiplinan
                             const saldoMutu = item.saldo_mutu !== undefined ? item.saldo_mutu : 400; 
                             const poinJaspel = item.total_pasien_bulanan || item.total_pasien || 0;
                             const grandTotal = poinJaspel + saldoMutu;
 
-                            // Pewarnaan Dinamis Lencana Mutu
+                            // Pewarnaan Dinamis Kedisiplinan
                             let colorClassMutu = "bg-emerald-100 text-emerald-700 border-emerald-200";
                             let iconMutu = <ShieldCheck size={14} />;
                             if (saldoMutu < 400 && saldoMutu >= 300) {
@@ -1145,9 +1041,9 @@ export default function ViewJadwalPublic() {
                                   </div>
                                 </td>
 
-                                {/* KOLOM 2: SALDO MUTU (KUALITATIF) */}
+                                {/* KOLOM 2: SALDO DISIPLIN (ABSENSI) */}
                                 <td className="p-5 text-center border-r border-slate-100 bg-slate-50/30">
-                                    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black border ${colorClassMutu}`} title="Batas Maksimal 400 Poin">
+                                    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black border ${colorClassMutu}`} title="Saldo Poin Kedisiplinan Absen">
                                         {iconMutu} {saldoMutu}
                                     </div>
                                 </td>
@@ -1177,7 +1073,6 @@ export default function ViewJadwalPublic() {
             </h3>
             <form onSubmit={handleSimpanCutiForm} className="space-y-6">
               
-              {/* PENAMBAHAN INPUT HIDDEN UNTUK RUANGAN */}
               <input type="hidden" name="ruangan" value={ruanganAktifGlobal} />
 
               <div className="space-y-2">

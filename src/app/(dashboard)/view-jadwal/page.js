@@ -1,12 +1,12 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { 
   Search, Camera, Clock, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin,
-  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle // <-- Tambahan icon untuk Lencana Mutu
+  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -46,8 +46,231 @@ const LiveClock = () => {
 };
 
 // ======================================================
-// 1. MODAL NASA-TLX (KUESIONER SUBJEKTIF)
-// ======================================================"
+// 1. MODAL ABSENSI KAMERA & GPS (INTEGRASI LANGSUNG)
+// ======================================================
+function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  
+  const [errorKamera, setErrorKamera] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [sukses, setSukses] = useState(false);
+  
+  const [lokasiGPS, setLokasiGPS] = useState(null);
+  const [statusGPS, setStatusGPS] = useState('Mencari sinyal GPS...');
+  const [shiftAktif, setShiftAktif] = useState('PAGI (07:15 - 14:00)');
+  const [tipeAbsen, setTipeAbsen] = useState('MASUK'); 
+
+  useEffect(() => {
+    let streamReference = null;
+
+    if (isOpen) {
+      setSukses(false);
+      setLokasiGPS(null);
+      setStatusGPS('Mencari sinyal GPS...');
+      setErrorKamera(null);
+
+      // Inisialisasi Kamera
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+        .then(stream => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+          streamReference = stream;
+        })
+        .catch(err => {
+          console.error("Gagal akses kamera:", err);
+          setErrorKamera("Kamera ditolak. Pastikan akses HTTPS dan beri izin kamera di browser.");
+        });
+
+      // Inisialisasi GPS
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setLokasiGPS(`${position.coords.latitude}, ${position.coords.longitude}`);
+            setStatusGPS("Titik Koordinat Terkunci ✅");
+          },
+          (err) => {
+            console.error(err);
+            setStatusGPS("Gagal melacak lokasi. Pastikan GPS / Location Services menyala.");
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      } else {
+        setStatusGPS("GPS tidak didukung di perangkat ini.");
+      }
+    } else {
+      // Matikan kamera jika modal ditutup
+      if (streamReference) {
+        streamReference.getTracks().forEach(track => track.stop());
+      }
+    }
+
+    return () => {
+      if (streamReference) {
+        streamReference.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isOpen]);
+
+  const handleClockIn = async (mode) => {
+    if (!lokasiGPS && mode !== 'MANUAL') {
+        const paksa = window.confirm("Sinyal GPS belum terkunci. Lanjutkan absensi tanpa data lokasi?");
+        if (!paksa) return;
+    }
+
+    setLoading(true);
+    let fotoBase64 = null;
+
+    if (mode === 'KAMERA' && videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      fotoBase64 = canvas.toDataURL('image/jpeg', 0.5); 
+    }
+
+    try {
+      const res = await fetch('/api/absensi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdm_id: perawatSelected.id,
+          nama_sdm: perawatSelected.nama,
+          ruangan: ruanganAktif,
+          shift: shiftAktif,
+          tipe_absen: tipeAbsen, 
+          lokasi: lokasiGPS || "Akses GPS Ditolak/Gagal",
+          catatan: mode === 'MANUAL' ? `Clock-${tipeAbsen} Manual` : `Clock-${tipeAbsen} Sistem`,
+          foto_base64: fotoBase64
+        })
+      });
+
+      if (res.ok) {
+        setSukses(true);
+        setTimeout(() => {
+          onClose(); // Tutup pop-up setelah sukses
+        }, 1500);
+      } else {
+        const errorData = await res.json();
+        alert("Gagal mencatat absensi: " + (errorData.error || "Kesalahan Server"));
+      }
+    } catch (err) {
+      alert("Koneksi jaringan bermasalah.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen || !perawatSelected) return null;
+
+  if (sukses) {
+    return (
+      <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+        <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-500/20 text-center">
+          <CheckCircle2 size={80} className="text-emerald-500 mx-auto mb-6 animate-bounce" />
+          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-widest italic">Berhasil!</h2>
+          <p className="text-emerald-600 font-bold mt-2 text-sm">Data kehadiran & lokasi terkunci.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-md bg-white rounded-[3rem] p-6 md:p-8 shadow-2xl relative border-4 border-emerald-500/20">
+        
+        <button onClick={onClose} className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full">
+            <XCircle size={20} />
+        </button>
+
+        <div className="text-center mt-4 mb-6">
+            <h1 className="text-2xl font-black uppercase text-slate-800 italic border-b-4 border-emerald-500 inline-block pb-1">TERMINAL ABSEN</h1>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-3">{perawatSelected.nama}</p>
+            <p className="text-[10px] text-emerald-600 font-black bg-emerald-50 w-fit mx-auto px-3 py-1 rounded-full mt-1 border border-emerald-200">{ruanganAktif}</p>
+        </div>
+
+        <div className={`mb-6 p-3 rounded-2xl border flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider ${lokasiGPS ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse'}`}>
+            <MapPin size={16} className={lokasiGPS ? 'text-blue-500' : 'text-amber-500'} />
+            {statusGPS}
+        </div>
+
+        <div className="flex gap-2 mb-6">
+            <div className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-2xl p-2 relative">
+                <label className="text-[8px] font-black uppercase text-slate-400 ml-1 block mb-1">Pilih Shift</label>
+                <select 
+                    value={shiftAktif} 
+                    onChange={(e) => setShiftAktif(e.target.value)}
+                    className="w-full bg-transparent text-[10px] font-black text-slate-800 outline-none appearance-none cursor-pointer"
+                >
+                    <option value="PAGI (07:15 - 14:00)">PAGI (07:15 - 14:00)</option>
+                    <option value="MID 1 (09:00 - 16:00)">MID 1 (09:00 - 16:00)</option>
+                    <option value="MID 2 (10:00 - 17:00)">MID 2 (10:00 - 17:00)</option>
+                    <option value="MID 3 (11:00 - 18:00)">MID 3 (11:00 - 18:00)</option>
+                    <option value="MID 4 (12:00 - 19:00)">MID 4 (12:00 - 19:00)</option>
+                </select>
+                <Clock size={12} className="absolute right-3 top-6 text-slate-300 pointer-events-none" />
+            </div>
+
+            <div className="flex-1 flex p-1 bg-slate-100 rounded-2xl border border-slate-200">
+                <button 
+                    onClick={() => setTipeAbsen('MASUK')} 
+                    className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'MASUK' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+                >
+                    <LogIn size={14} className="mb-1" /> MASUK
+                </button>
+                <button 
+                    onClick={() => setTipeAbsen('PULANG')} 
+                    className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'PULANG' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+                >
+                    <LogOut size={14} className="mb-1" /> PULANG
+                </button>
+            </div>
+        </div>
+
+        {errorKamera ? (
+           <div className="w-full bg-red-50 p-6 rounded-3xl border-2 border-red-200 text-center mb-6">
+               <AlertCircle size={30} className="text-red-400 mx-auto mb-3" />
+               <p className="text-[10px] font-black text-red-700 leading-relaxed uppercase">{errorKamera}</p>
+           </div>
+        ) : (
+           <div className="w-full bg-slate-900 rounded-3xl mb-6 relative overflow-hidden shadow-inner border-4 border-slate-100 flex items-center justify-center min-h-[220px]">
+               <video ref={videoRef} autoPlay playsInline muted className="w-full h-auto object-cover transform scale-x-[-1]"></video>
+               <canvas ref={canvasRef} className="hidden"></canvas>
+               
+               <div className={`absolute inset-0 border-[3px] border-dashed m-6 rounded-2xl pointer-events-none ${tipeAbsen === 'MASUK' ? 'border-emerald-400/40' : 'border-red-400/40'}`}></div>
+               <div className={`absolute bottom-3 text-[8px] font-black px-2 py-1 rounded bg-black/50 text-white ${tipeAbsen === 'MASUK' ? 'text-emerald-400' : 'text-red-400'}`}>
+                   MODE: ABSEN {tipeAbsen}
+               </div>
+           </div>
+        )}
+
+        <div className="space-y-3">
+            {!errorKamera && (
+                <button 
+                    onClick={() => handleClockIn('KAMERA')} 
+                    disabled={loading} 
+                    className={`w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 transition-all flex justify-center items-center gap-2 ${tipeAbsen === 'MASUK' ? 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700' : 'bg-red-600 border-red-800 hover:bg-red-700'}`}
+                >
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                    {loading ? 'MEMPROSES...' : `REKAM WAJAH & CLOCK-${tipeAbsen === 'MASUK' ? 'IN' : 'OUT'}`}
+                </button>
+            )}
+            
+            <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase text-[9px] border-2 border-slate-200 hover:bg-slate-200 transition-all">
+                Absen Manual (Gagal Kamera)
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================================================
+// 2. MODAL NASA-TLX (KUESIONER SUBJEKTIF)
+// ======================================================
 function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSelected }) {
   const [scores, setScores] = useState({ mental: 50, fisik: 50, waktu: 50, performa: 50, usaha: 50, frustrasi: 50 });
   const [catatan, setCatatan] = useState('');
@@ -140,7 +363,7 @@ function ModalNASATLX({ isOpen, onClose, perawatSelected, ruanganAktif, klinikSe
 }
 
 // ======================================================
-// 2. MODAL LAPORAN ABSEN HARIAN
+// 3. MODAL LAPORAN ABSEN HARIAN
 // ======================================================
 function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }) {
     if (!isOpen) return null;
@@ -223,10 +446,6 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
 }
 
 // ======================================================
-// 3. MODAL LIVE ANALISIS RISET (DIHAPUS - DIGANTI DENGAN LAPORAN ABSEN)
-// ======================================================
-
-// ======================================================
 // 4. KOMPONEN UTAMA
 // ======================================================
 export default function ViewJadwalPublic() {
@@ -255,6 +474,9 @@ export default function ViewJadwalPublic() {
   const [dataLaporanAbsen, setDataLaporanAbsen] = useState([]);
   const [loadingAbsen, setLoadingAbsen] = useState(false);
   
+  // State Baru: Modal Absensi Kamera Langsung
+  const [showKameraModal, setShowKameraModal] = useState(false);
+
   // State Mutu lokal (dibuka dari View Jadwal)
   const [showMutuModal, setShowMutuModal] = useState(false);
   const [selectedMutuSDM, setSelectedMutuSDM] = useState(null);
@@ -532,6 +754,8 @@ export default function ViewJadwalPublic() {
       
       {/* RENDER MODALS */}
       <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} />
+      <ModalNASATLX isOpen={showMutuModal} onClose={() => setShowMutuModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} klinikSelected={klinikAktifGlobal} />
+      <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
 
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
@@ -721,23 +945,36 @@ export default function ViewJadwalPublic() {
                                       </div>
                                     )}
                                     
-                                    {/* Tombol Aksi Riset (Hanya aktif jika tidak absen) */}
+                                    {/* Tombol Absensi & NASA-TLX */}
                                     {!isAbsen && (
-                                      <button 
-                                        type="button"
-                                        onClick={() => {
-                                          const params = new URLSearchParams({
-                                            nama: as.nama,
-                                            sdm_id: as.id,
-                                            ruangan: simbol
-                                          });
-                                          window.location.href = `/absensi?${params.toString()}`;
-                                        }}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg border border-emerald-600 shadow-md hover:bg-emerald-600 transition-all" 
-                                        title="Sistem Absensi Kamera & GPS"
-                                      >
-                                        <Camera size={12} /> <span className="text-[8px] not-italic font-black">ABSENSI</span>
-                                      </button>
+                                      <div className="flex bg-slate-100 rounded-lg overflow-hidden border border-slate-200 ml-1">
+                                          <button 
+                                            type="button"
+                                            onClick={() => { 
+                                              setPerawatTarget(as); 
+                                              setRuanganAktifGlobal(simbol); 
+                                              setShowKameraModal(true); 
+                                            }} 
+                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-emerald-500 hover:text-white transition-all text-slate-500" 
+                                            title="Absensi Kamera"
+                                          >
+                                              <Camera size={12} /> <span className="text-[8px] not-italic">ABSEN</span>
+                                          </button>
+                                          <div className="w-[1px] bg-slate-200"></div>
+                                          <button 
+                                            type="button"
+                                            onClick={() => { 
+                                              setPerawatTarget(as); 
+                                              setRuanganAktifGlobal(simbol); 
+                                              setKlinikAktifGlobal(dok.klinik);
+                                              setShowMutuModal(true); 
+                                            }} 
+                                            className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-600 hover:text-white transition-all text-slate-500" 
+                                            title="Kuesioner NASA-TLX"
+                                          >
+                                              <FileText size={12} /> <span className="text-[8px] not-italic">NASA</span>
+                                          </button>
+                                      </div>
                                     )}
                                   </div>
                                 );

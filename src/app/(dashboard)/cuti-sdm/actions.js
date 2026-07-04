@@ -16,20 +16,22 @@ export async function simpanCuti(formData) {
   const tgl_input = new Date().toISOString();
 
   try {
+    const ruangan = formData.get("ruangan") || null;
+
     if (id) {
       // 1. LOGIKA UPDATE (Jika sedang mode Edit)
       await turso.execute({
         sql: `UPDATE cuti_sdm 
-              SET nama_sdm = ?, jenis_cuti = ?, tgl_mulai = ?, tgl_selesai = ?, alasan = ? 
+              SET nama_sdm = ?, jenis_cuti = ?, tgl_mulai = ?, tgl_selesai = ?, alasan = ?, ruangan = COALESCE(?, ruangan) 
               WHERE id = ?`,
-        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, id]
+        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, ruangan, id]
       });
     } else {
       // 2. LOGIKA INSERT (Jika data baru)
       await turso.execute({
-        sql: `INSERT INTO cuti_sdm (nama_sdm, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tanggal_input, status_acc) 
-              VALUES (?, ?, ?, ?, ?, ?, 'Menunggu')`,
-        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tgl_input]
+        sql: `INSERT INTO cuti_sdm (nama_sdm, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tanggal_input, status_acc, ruangan) 
+              VALUES (?, ?, ?, ?, ?, ?, 'Menunggu', ?)`,
+        args: [nama, jenis_cuti, tgl_mulai, tgl_selesai, alasan, tgl_input, ruangan]
       });
     }
     

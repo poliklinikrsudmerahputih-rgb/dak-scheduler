@@ -66,6 +66,11 @@ export async function GET(request) {
     
     let sqlArgs = [];
 
+    if (userRuangan) {
+      sqlQuery += ` AND (md.ruangan IS NULL OR TRIM(md.ruangan) = '' OR UPPER(TRIM(md.ruangan)) = UPPER(TRIM(?)))`;
+      sqlArgs.push(userRuangan);
+    }
+
     // Jika frontend meminta jadwal khusus hari ini
     if (filterHari) {
       sqlQuery += ` AND UPPER(TRIM(md.jadwal_hari)) = UPPER(TRIM(?))`;

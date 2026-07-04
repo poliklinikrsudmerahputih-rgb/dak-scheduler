@@ -1,14 +1,35 @@
 "use client";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { 
   Search, Camera, Clock, Cpu, 
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin,
+  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
   ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
+
+const normalisasiSimbolTampilan = (value) => String(value || "")
+  .trim()
+  .replace(/[^A-Za-z0-9]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim()
+  .toUpperCase();
+
+const ambilGrupSimbolDokter = (value) => {
+  const normalized = normalisasiSimbolTampilan(value);
+  if (!normalized) return "LAINNYA";
+
+  const nersMatch = normalized.match(/NERS\s*\d+/i);
+  if (nersMatch) return nersMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
+
+  const poliMatch = normalized.match(/POLI\s*[A-Z0-9]+/i);
+  if (poliMatch) return poliMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
+
+  return normalized;
+};
 
 // ======================================================
 // FUNGSI KALKULASI DINAMIS (JASPEL KUANTITATIF)
@@ -60,12 +81,64 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
   const [statusGPS, setStatusGPS] = useState('Mencari sinyal GPS...');
   const [shiftAktif, setShiftAktif] = useState('PAGI (07:15 - 14:00)');
   const [tipeAbsen, setTipeAbsen] = useState('MASUK'); 
+  const [previewFoto, setPreviewFoto] = useState(null);
+
+  const capturePreviewFoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const fotoBase64 = canvas.toDataURL('image/jpeg', 0.6);
+    setPreviewFoto(fotoBase64);
+  };
+
+  const handleKirimAbsensi = async () => {
+    if (!previewFoto && tipeAbsen === 'MASUK') {
+      return alert('Silakan ambil foto terlebih dahulu untuk pratinjau sebelum mengirim.');
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/absensi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdm_id: perawatSelected.id,
+          nama_sdm: perawatSelected.nama,
+          ruangan: ruanganAktif,
+          shift: shiftAktif,
+          tipe_absen: tipeAbsen,
+          lokasi: lokasiGPS || 'Akses GPS Ditolak/Gagal',
+          catatan: previewFoto ? `Clock-${tipeAbsen} Dengan Preview` : `Clock-${tipeAbsen} Sistem`,
+          foto_base64: previewFoto || null
+        })
+      });
+
+      if (res.ok) {
+        setSukses(true);
+        setTimeout(() => {
+          onClose();
+        }, 1500);
+      } else {
+        const errorData = await res.json();
+        alert('Gagal mencatat absensi: ' + (errorData.error || 'Kesalahan Server'));
+      }
+    } catch (err) {
+      alert('Koneksi jaringan bermasalah.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let streamReference = null;
 
     if (isOpen) {
       setSukses(false);
+      setPreviewFoto(null);
       setLokasiGPS(null);
       setStatusGPS('Mencari sinyal GPS...');
       setErrorKamera(null);
@@ -249,14 +322,36 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 
         <div className="space-y-3">
             {!errorKamera && (
+              <>
                 <button 
-                    onClick={() => handleClockIn('KAMERA')} 
-                    disabled={loading} 
+                    onClick={capturePreviewFoto} 
+                    disabled={loading}
+                    className="w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 bg-blue-600 border-blue-800 hover:bg-blue-700 transition-all flex justify-center items-center gap-2"
+                >
+                    <Camera size={16} />
+                    AMBIL FOTO PRATINJAU
+                </button>
+
+                {previewFoto ? (
+                  <div className="rounded-3xl border border-slate-200 overflow-hidden bg-slate-950 p-2">
+                    <p className="text-[10px] uppercase font-black text-slate-300 mb-2">Pratinjau Foto</p>
+                    <Image src={previewFoto} alt="Pratinjau Absen" width={720} height={480} className="w-full h-auto rounded-[1.5rem] object-cover" unoptimized />
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-[10px] font-black uppercase text-slate-500">
+                    Foto pratinjau akan tampil di sini setelah Anda menekan tombol Ambil Foto.
+                  </div>
+                )}
+
+                <button 
+                    onClick={handleKirimAbsensi} 
+                    disabled={loading || (tipeAbsen === 'MASUK' && !previewFoto)}
                     className={`w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 transition-all flex justify-center items-center gap-2 ${tipeAbsen === 'MASUK' ? 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700' : 'bg-red-600 border-red-800 hover:bg-red-700'}`}
                 >
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-                    {loading ? 'MEMPROSES...' : `REKAM WAJAH & CLOCK-${tipeAbsen === 'MASUK' ? 'IN' : 'OUT'}`}
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                    {loading ? 'MEMPROSES...' : `KIRIM ABSEN ${tipeAbsen === 'MASUK' ? 'MASUK' : 'PULANG'}`}
                 </button>
+              </>
             )}
             
             <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase text-[9px] border-2 border-slate-200 hover:bg-slate-200 transition-all">
@@ -331,6 +426,13 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                     <td className="p-5 text-center font-black bg-red-50/30">
                                         <span className="text-red-600">-{row.potongan_absen || row.penalti_mutu || 0} Pts</span>
                                     </td>
+                                    <td className="p-5 text-left">
+                                        {row.foto_masuk ? (
+                                          <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={160} height={112} className="rounded-xl border border-slate-200 object-cover" unoptimized />
+                                        ) : (
+                                          <span className="text-[10px] text-slate-400 uppercase font-black">Tidak ada</span>
+                                        )}
+                                    </td>
                                     <td className="p-5 text-[9px] text-slate-500 max-w-xs">
                                         {row.lokasi_masuk && row.lokasi_masuk.includes('maps') ? (
                                             <a href={row.lokasi_masuk} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
@@ -369,9 +471,12 @@ export default function ViewJadwalPublic() {
   const tahun = parseInt(selectedDateFull.split('-')[0], 10);
   
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchCutiTerm, setSearchCutiTerm] = useState("");
+  const [searchMissingTerm, setSearchMissingTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [showCutiModal, setShowCutiModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showMissingModal, setShowMissingModal] = useState(false);
   
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   
@@ -404,7 +509,7 @@ export default function ViewJadwalPublic() {
     };
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -422,6 +527,9 @@ export default function ViewJadwalPublic() {
 
       if (dDash) {
         setData(dDash);
+        if (dDash.summary?.ruangan) {
+          setRuanganAktifGlobal(dDash.summary.ruangan);
+        }
         const savedValues = {};
         const editStatus = {};
         
@@ -437,11 +545,11 @@ export default function ViewJadwalPublic() {
     } finally { 
       setLoading(false); 
     }
-  };
+  }, [tanggal, bulan, tahun]);
 
   useEffect(() => {
     fetchData();
-  }, [selectedDateFull]);
+  }, [fetchData]);
 
   const handleUpdatePasienSpesifik = async (idx) => {
     const jmlTotal = inputPasien[idx];
@@ -633,7 +741,7 @@ export default function ViewJadwalPublic() {
   const labelHariIni = format(parseISO(selectedDateFull), "eeee, dd MMMM yyyy", { locale: id });
 
   const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
-    const simbol = dok.simbol_praktik?.trim().toUpperCase() || "LAINNYA";
+    const simbol = ambilGrupSimbolDokter(dok.simbol_praktik || dok.simbol || dok.klinik);
     if (!acc[simbol]) acc[simbol] = [];
     acc[simbol].push(dok);
     return acc;
@@ -696,7 +804,13 @@ export default function ViewJadwalPublic() {
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
-            
+
+            {data?.missingPasien?.length > 0 && (
+              <button onClick={() => setShowMissingModal(true)} className="bg-red-500 hover:bg-red-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-red-700 text-white">
+                <Bell size={18} /> {data.missingPasien.length} Belum Isi Point
+              </button>
+            )}
+
             <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800">
                 <Edit3 size={18} /> Ajukan Cuti Staf
             </button>
@@ -716,7 +830,6 @@ export default function ViewJadwalPublic() {
       </div>
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 -mt-16 space-y-8">
-        
         {/* FILTER CONTROL (INPUT DATE TUNGGAL) */}
         <div className="bg-white/80 backdrop-blur-xl p-6 rounded-[3rem] shadow-2xl border border-white flex flex-col lg:flex-row gap-6 items-center">
           <div className="flex-1 flex items-center gap-4 bg-slate-100/50 px-8 py-5 rounded-[2rem] w-full border border-slate-100">
@@ -942,37 +1055,58 @@ export default function ViewJadwalPublic() {
         </div>
 
         {/* BOTTOM SECTION: MONITOR IZIN CUTI */}
-        <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100 flex flex-col md:flex-row gap-8">
+        <div className="mt-12 bg-white rounded-[3.5rem] shadow-xl p-8 border border-slate-100 flex flex-col lg:flex-row gap-8">
             <div className="flex-1">
-              <div className="flex items-center gap-3 px-4 mb-6"><div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div><h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3></div>
-              
-              {data?.sdmCuti?.length > 0 ? (
+              <div className="flex items-center gap-3 px-4 mb-6">
+                <div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div>
+                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3>
+              </div>
+
+              <div className="flex flex-wrap gap-3 px-4 mb-6">
+                <div className="rounded-3xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-[10px] font-black uppercase text-emerald-700">Disetujui: {data?.sdmCuti?.filter(c => c.status_acc === 'Disetujui').length || 0}</div>
+                <div className="rounded-3xl bg-amber-50 border border-amber-100 px-4 py-3 text-[10px] font-black uppercase text-amber-700">Menunggu: {data?.sdmCuti?.filter(c => c.status_acc === 'Menunggu').length || 0}</div>
+                <div className="rounded-3xl bg-red-50 border border-red-100 px-4 py-3 text-[10px] font-black uppercase text-red-700">Ditolak: {data?.sdmCuti?.filter(c => c.status_acc === 'Ditolak').length || 0}</div>
+              </div>
+
+              <div className="w-full max-w-md bg-slate-50 border border-slate-200 rounded-[2rem] px-4 py-3 flex items-center gap-3 mb-8">
+                <Search size={16} className="text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama pengajuan cuti..."
+                  className="bg-transparent w-full text-[10px] font-black uppercase outline-none placeholder:text-slate-400"
+                  value={searchCutiTerm}
+                  onChange={(e) => setSearchCutiTerm(e.target.value)}
+                />
+              </div>
+
+              {data?.sdmIzinList?.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                    {data?.sdmCuti?.map((s, i) => (
-                      <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
-                          <div className="max-w-[200px]">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
-                                <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
-                            </div>
-                            <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{s.tgl_mulai} - {s.tgl_selesai}</p>
-                          </div>
-                          {s.status_acc === 'Disetujui' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-amber-500" />}
+                  {data?.sdmIzinList?.filter(s => s.nama_sdm.toLowerCase().includes(searchCutiTerm.toLowerCase()) || s.jenis_cuti.toLowerCase().includes(searchCutiTerm.toLowerCase())).map((s, i) => (
+                    <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' || s.status_acc === 'Tercatat' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
+                      <div className="max-w-[220px]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-1 rounded-md italic">{s.jenis_cuti}</span>
+                          <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{format(parseISO(s.tgl_mulai), 'dd MMM yyyy')} - {format(parseISO(s.tgl_selesai), 'dd MMM yyyy')}</p>
                       </div>
-                    ))}
+                      <div className="text-right">
+                        <span className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase ${s.status_acc === 'Disetujui' || s.status_acc === 'Tercatat' ? 'bg-emerald-100 text-emerald-700' : s.status_acc === 'Ditolak' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{s.status_acc}</span>
+                      </div>
+                    </div>
+                  ))}
+
+                  {data?.sdmIzinList?.filter(s => s.nama_sdm.toLowerCase().includes(searchCutiTerm.toLowerCase()) || s.jenis_cuti.toLowerCase().includes(searchCutiTerm.toLowerCase())).length === 0 && (
+                    <div className="col-span-1 lg:col-span-2 text-center text-xs font-black text-slate-400 uppercase italic py-12 border border-dashed border-slate-200 rounded-[2rem]">
+                      Tidak ditemukan pengajuan atau catatan sakit/DL dengan kata kunci tersebut.
+                    </div>
+                  )}
                 </div>
               ) : (
-                <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest border-2 border-dashed border-slate-200 rounded-3xl">Tidak ada pengajuan izin di bulan ini.</p>
+                <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest border-2 border-dashed border-slate-200 rounded-3xl">Tidak ada pengajuan izin/cuti/sakit di bulan ini.</p>
               )}
             </div>
 
-            {/* AREA BARU: LOG PEMOTONGAN ABSENSI */}
-            <div className="md:w-1/3 bg-slate-50 p-6 rounded-[2.5rem] border-2 border-slate-100">
-               <div className="flex items-center gap-3 px-2 mb-6"><div className="w-2 h-6 bg-red-500 rounded-full shadow-lg"></div><h3 className="text-[11px] font-black uppercase text-slate-800 tracking-widest italic leading-none">Log Peringatan Absensi</h3></div>
-               <div className="space-y-3">
-                  <p className="text-center text-[10px] font-black text-slate-400 italic py-8 uppercase tracking-widest">Data Pemotongan Keterlambatan<br/>Terintegrasi Dengan Master SDM</p>
-               </div>
-            </div>
         </div>
       </div>
 
@@ -1065,6 +1199,71 @@ export default function ViewJadwalPublic() {
       )}
 
       {/* POP-UP CUTI SDM REAL-TIME */}
+      {showMissingModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-red-500/20 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-start gap-4 mb-6">
+              <div>
+                <h3 className="text-xl font-black uppercase tracking-widest text-slate-900">Detail Entri Belum Input Point</h3>
+                <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] mt-2">Dokter dan perawat yang terjadwal bulan ini tetapi belum mengisi jumlah pasien.</p>
+              </div>
+              <button onClick={() => setShowMissingModal(false)} className="p-3 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600">
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-6 bg-slate-50 border border-slate-200 rounded-3xl px-4 py-3">
+              <Search size={18} className="text-slate-400" />
+              <input
+                type="text"
+                value={searchMissingTerm}
+                onChange={(e) => setSearchMissingTerm(e.target.value)}
+                placeholder="Cari nama / klinik / tanggal..."
+                className="w-full bg-transparent outline-none text-[10px] font-black uppercase placeholder:text-slate-400"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {data?.missingPasien?.filter(entry => {
+                  const keyword = searchMissingTerm.toLowerCase();
+                  return (
+                    entry.nama.toLowerCase().includes(keyword) ||
+                    (entry.klinik || '').toLowerCase().includes(keyword) ||
+                    entry.tanggal.toLowerCase().includes(keyword) ||
+                    (entry.role || '').toLowerCase().includes(keyword)
+                  );
+                }).map((entry, idx) => (
+                  <div key={`${entry.nama}-${entry.tanggal}-${idx}`} className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.3em] font-black text-slate-400">{entry.role}</p>
+                        <h4 className="text-sm font-black uppercase tracking-tight text-slate-900">{entry.nama}</h4>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-[0.3em] text-red-600">{entry.tanggal.split('-').reverse().join('/')}</span>
+                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Belum Mengisi Total Pasien</p>
+                  </div>
+                ))}
+                {data?.missingPasien?.filter(entry => {
+                  const keyword = searchMissingTerm.toLowerCase();
+                  return (
+                    entry.nama.toLowerCase().includes(keyword) ||
+                    (entry.klinik || '').toLowerCase().includes(keyword) ||
+                    entry.tanggal.toLowerCase().includes(keyword) ||
+                    (entry.role || '').toLowerCase().includes(keyword)
+                  );
+                }).length === 0 && (
+                  <div className="col-span-1 md:col-span-2 rounded-[2rem] border border-dashed border-slate-200 bg-slate-50 p-10 text-center text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">
+                    Tidak ada entri yang cocok dengan kata kunci pencarian.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCutiModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-blue-600/20">

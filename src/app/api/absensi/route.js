@@ -47,7 +47,7 @@ function hitungPenaltiKedisiplinan(shift, jamWIB) {
 
   // Aturan Shift Berdasarkan Blueprint
   if (shift.includes("PAGI")) {
-      targetJam = 7.5;         // 07:30 (Target)
+      targetJam = 7.5833;     // 07:35 = batas meeting morning, tidak dipotong sampai 07:35
       batasRingan = 7.983;     // 07:59 (Toleransi Ringan -5)
       batasSedang = 8.5;       // 08:30 (Toleransi Sedang -15, > 08:30 -30 Poin)
   } else if (shift.includes("MID 1")) {
@@ -150,7 +150,7 @@ export async function POST(request) {
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
             sdm_id, nama_sdm, ruangan, shift, tanggalWIB, jamWIB, 
-            linkMaps, foto_base64 || "-", hasilDisiplin.status, hasilDisiplin.penalti
+            linkMaps, foto_base64 || null, hasilDisiplin.status, hasilDisiplin.penalti
         ]
     });
 
@@ -191,6 +191,8 @@ export async function GET(request) {
         jam_masuk: row.jam_masuk,
         jam_pulang: row.jam_pulang || "Belum Pulang",
         lokasi_masuk: row.lokasi_masuk,
+        foto_masuk: row.foto_masuk || null,
+        foto_pulang: row.foto_pulang || null,
         status: row.status_kedisiplinan,
         penalti_mutu: row.penalti_mutu
     }));

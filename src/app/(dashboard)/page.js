@@ -198,7 +198,7 @@ export default function DashboardUtama() {
                   <td class="center">${i + 1}</td>
                   <td>${item.nama}</td>
                   <td>${item.detail_poli || "Cadangan/Lainnya"}</td>
-                  <td class="center"><b>${item.total_pasien}</b> Poin</td>
+                  <td class="center"><b>${item.total_pasien_bulanan || item.total_pasien || 0}</b> Poin</td>
                 </tr>
               `).join('')}
             </table>
@@ -454,8 +454,8 @@ export default function DashboardUtama() {
                       <p className="text-[7px] text-slate-400 mt-1 uppercase italic font-black tracking-widest">Rank #{i+1}</p>
                     </td>
                     <td className="p-8 text-center">
-                      <span className={`px-5 py-3 rounded-2xl font-black text-sm ${item.total_pasien > 0 ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-slate-100 text-slate-300'}`}>
-                        {item.total_pasien}
+                      <span className={`px-5 py-3 rounded-2xl font-black text-sm ${(item.total_pasien_bulanan || item.total_pasien) > 0 ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-slate-100 text-slate-300'}`}>
+                        {item.total_pasien_bulanan || item.total_pasien || 0}
                       </span>
                     </td>
                     <td className="p-8 max-w-[200px]">
@@ -464,7 +464,7 @@ export default function DashboardUtama() {
                       </p>
                     </td>
                     <td className="p-8 text-center">
-                      {item.total_pasien > 0 ? (
+                      {(item.total_pasien_bulanan || item.total_pasien) > 0 ? (
                         <span className="text-emerald-500 flex items-center justify-center gap-2 italic text-[8px] font-black tracking-widest"><CheckCircle2 size={12}/> UPDATED</span>
                       ) : (
                         <span className="text-red-400 flex items-center justify-center gap-2 animate-pulse italic text-[8px] font-black tracking-widest"><AlertCircle size={12}/> PENDING</span>

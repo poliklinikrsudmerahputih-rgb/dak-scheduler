@@ -1,14 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@libsql/client';
+import { turso } from '@/lib/turso';
 
-// =====================================================================
-// KONFIGURASI DATABASE TURSO
-// Pastikan TURSO_DATABASE_URL & TURSO_AUTH_TOKEN ada di file .env.local
-// =====================================================================
-const db = createClient({
-  url: process.env.TURSO_DATABASE_URL || "file:./local.db", // Fallback local jika env belum siap
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
-});
+export const dynamic = 'force-dynamic';
 
 // =====================================================================
 // FUNGSI HELPER: WAKTU WIB & KALKULATOR PENALTI
@@ -97,7 +90,7 @@ export async function POST(request) {
     // ALUR 1: ABSEN PULANG (Hanya Update Jam & Lokasi Pulang)
     // -------------------------------------------------------------
     if (tipe_absen === 'PULANG') {
-        const updatePulang = await db.execute({
+        const updatePulang = await turso.execute({
             sql: `UPDATE absensi 
                   SET jam_pulang = ?, lokasi_pulang = ?, foto_pulang = ? 
                   WHERE sdm_id = ? AND tanggal = ?`,
@@ -118,7 +111,7 @@ export async function POST(request) {
     const hasilDisiplin = hitungPenaltiKedisiplinan(shift, jamWIB);
 
     // 2. Cek apakah master Saldo Mutu bulan ini sudah ada untuk SDM ini
-    const cekSaldo = await db.execute({
+    const cekSaldo = await turso.execute({
         sql: `SELECT id FROM saldo_mutu WHERE sdm_id = ? AND bulan = ? AND tahun = ?`,
         args: [sdm_id, bulan, tahun]
     });
@@ -126,14 +119,14 @@ export async function POST(request) {
     if (cekSaldo.rows.length === 0) {
         // Jika belum ada, buat record 400 poin dengan penalti_disiplin (karena absensi = pelanggaran disiplin)
         // CATATAN: poin_akhir dan total_penalti adalah GENERATED ALWAYS, jangan diisi!
-        await db.execute({
+        await turso.execute({
             sql: `INSERT INTO saldo_mutu (sdm_id, bulan, tahun, poin_awal, penalti_disiplin) 
                   VALUES (?, ?, ?, 400, ?)`,
             args: [sdm_id, bulan, tahun, hasilDisiplin.penalti]
         });
     } else {
         // Jika sudah ada, tambahkan penalti_disiplin (poin_akhir otomatis dihitung database)
-        await db.execute({
+        await turso.execute({
             sql: `UPDATE saldo_mutu 
                   SET penalti_disiplin = penalti_disiplin + ?, 
                       updated_at = CURRENT_TIMESTAMP 
@@ -143,7 +136,7 @@ export async function POST(request) {
     }
 
     // 3. Simpan ke Tabel Absensi
-    await db.execute({
+    await turso.execute({
         sql: `INSERT INTO absensi (
                 sdm_id, nama_sdm, ruangan, shift, tanggal, jam_masuk, lokasi_masuk, 
                 foto_masuk, status_kedisiplinan, penalti_mutu
@@ -175,9 +168,9 @@ export async function GET(request) {
     const filterTanggal = url.searchParams.get('tanggal') || tanggalWIB;
 
     // Ambil data absensi hari ini (atau sesuai filter tanggal)
-    const dataAbsen = await db.execute({
-        sql: `SELECT * FROM absensi WHERE tanggal = ? ORDER BY jam_masuk DESC`,
-        args: [filterTanggal]
+    const dataAbsen = await turso.execute({
+        sql: `SELECT * FROM absensi WHERE tanggal LIKE ? ORDER BY jam_masuk DESC`,
+        args: [`${filterTanggal}%`]
     });
 
     // Formatting hasil untuk dikirim ke UI
@@ -201,5 +194,29 @@ export async function GET(request) {
   } catch (error) {
     console.error("Error GET API Absensi:", error);
     return NextResponse.json({ success: false, error: "Gagal mengambil log absensi." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const body = await request.json();
+    const { id } = body;
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'ID absensi diperlukan.' }, { status: 400 });
+    }
+
+    const deleteResult = await turso.execute({
+      sql: `DELETE FROM absensi WHERE id = ?`,
+      args: [id]
+    });
+
+    if (deleteResult.rowsAffected === 0) {
+      return NextResponse.json({ success: false, error: 'Data absen tidak ditemukan.' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: 'Data absen berhasil dihapus.' });
+  } catch (error) {
+    console.error('Error DELETE API Absensi:', error);
+    return NextResponse.json({ success: false, error: 'Gagal menghapus data absen.' }, { status: 500 });
   }
 }

@@ -136,7 +136,8 @@ export async function GET(request) {
 
     // Ambil Master Dokter
     const resMasterDokterAll = await turso.execute({
-      sql: "SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
+      sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter
+            WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`,
       args: [kunciRuangan]
     });
 
@@ -145,9 +146,15 @@ export async function GET(request) {
       resMasterDokterHariIni = resMasterDokterAll;
     } else {
       resMasterDokterHariIni = await turso.execute({
-        sql: "SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?)) AND jadwal_hari = ?",
+        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter
+              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
+                AND jadwal_hari = ?`,
         args: [kunciRuangan, namaHariIndo]
       });
+      if (!resMasterDokterHariIni.rows || resMasterDokterHariIni.rows.length === 0) {
+        // Fallback: jika tidak ada match hari, tampilkan semua dokter di ruangan
+        resMasterDokterHariIni = resMasterDokterAll;
+      }
     }
 
     const amanStr = (str) => String(str || "").trim().toUpperCase();
@@ -163,16 +170,73 @@ export async function GET(request) {
       if (!normalized) return "";
 
       const nersMatch = normalized.match(/NERS\s*\d+/i);
-      if (nersMatch) {
-        const nersNum = nersMatch[0].match(/\d+/)?.[0];
-        return nersNum ? `NERS_${nersNum}` : nersMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
-      }
+      if (nersMatch) return nersMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
 
       const poliMatch = normalized.match(/POLI\s*[A-Z0-9]+/i);
-      if (poliMatch) return `POLI_${poliMatch[0].replace(/\s+/g, " ").trim().toUpperCase()}`;
+      if (poliMatch) return poliMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
 
       return normalized;
     };
+
+    const normalizeKey = (str) => String(str || "").trim().toUpperCase();
+    const buildMapKey = (nama, klinik) => `${normalizeKey(nama)}|${normalizeKey(klinik)}`;
+
+    const masterDokterByExact = new Map();
+    const masterDokterByNama = new Map();
+    const masterDokterByKlinik = new Map();
+    const masterDokterBySimbol = new Map();
+    const masterDokterByJadwalHari = new Map();
+
+    resMasterDokterAll.rows.forEach(md => {
+      const exactKey = buildMapKey(md.nama_dokter, md.klinik);
+      if (!masterDokterByExact.has(exactKey)) masterDokterByExact.set(exactKey, md);
+
+      const namaKey = normalizeKey(md.nama_dokter);
+      if (namaKey && !masterDokterByNama.has(namaKey)) masterDokterByNama.set(namaKey, md);
+
+      const klinikKey = normalizeKey(md.klinik);
+      if (klinikKey && !masterDokterByKlinik.has(klinikKey)) masterDokterByKlinik.set(klinikKey, md);
+
+      const simbolKey = normalizeSimbol(md.simbol_praktik || md.klinik || md.nama_dokter);
+      if (simbolKey && !masterDokterBySimbol.has(simbolKey)) masterDokterBySimbol.set(simbolKey, md);
+
+      const jadwalHariKey = normalizeKey(md.jadwal_hari);
+      if (jadwalHariKey && !masterDokterByJadwalHari.has(jadwalHariKey)) masterDokterByJadwalHari.set(jadwalHariKey, md);
+    });
+
+    const findMasterDokter = (namaDokter, klinik) => {
+      const exactKey = buildMapKey(namaDokter, klinik);
+      if (masterDokterByExact.has(exactKey)) return masterDokterByExact.get(exactKey);
+
+      const targetNama = normalizeKey(namaDokter);
+      const targetKlinik = normalizeKey(klinik);
+
+      if (targetNama && masterDokterByNama.has(targetNama)) return masterDokterByNama.get(targetNama);
+      if (targetKlinik && masterDokterByKlinik.has(targetKlinik)) return masterDokterByKlinik.get(targetKlinik);
+
+      const combinedKey = normalizeSimbol(namaDokter || klinik);
+      if (combinedKey && masterDokterBySimbol.has(combinedKey)) return masterDokterBySimbol.get(combinedKey);
+
+      if (targetNama && masterDokterByJadwalHari.has(targetNama)) return masterDokterByJadwalHari.get(targetNama);
+
+      return resMasterDokterAll.rows.find(md =>
+        (targetNama && normalizeKey(md.nama_dokter) === targetNama) ||
+        (targetKlinik && normalizeKey(md.klinik) === targetKlinik) ||
+        normalizeSimbol(md.simbol_praktik) === combinedKey ||
+        normalizeSimbol(md.klinik) === combinedKey ||
+        normalizeSimbol(md.nama_dokter) === combinedKey
+      );
+    };
+
+    const pasienByDokterId = new Map();
+    dataPasienBulanIni.forEach(p => {
+      const dokMatch = findMasterDokter(p.nama_dokter, p.klinik);
+      if (!dokMatch) return;
+
+      const list = pasienByDokterId.get(dokMatch.id) || [];
+      list.push(p);
+      pasienByDokterId.set(dokMatch.id, list);
+    });
 
     const simbolMatches = (a, b) => {
       const ka = getSimbolKey(a);
@@ -198,34 +262,6 @@ export async function GET(request) {
       return false;
     };
     const numberEquals = (a, b) => String(a || "").trim() === String(b || "").trim();
-    const findMasterDokter = (namaDokter, klinik) => {
-      const targetNama = amanStr(namaDokter);
-      const targetKlinik = amanStr(klinik);
-
-      let dokter = resMasterDokterAll.rows.find(md => 
-        amanStr(md.nama_dokter) === targetNama && 
-        amanStr(md.klinik) === targetKlinik
-      );
-      if (!dokter && targetNama) {
-        dokter = resMasterDokterAll.rows.find(md => amanStr(md.nama_dokter) === targetNama);
-      }
-      if (!dokter && targetKlinik) {
-        dokter = resMasterDokterAll.rows.find(md => amanStr(md.klinik) === targetKlinik);
-      }
-      if (!dokter && targetNama) {
-        dokter = resMasterDokterAll.rows.find(md => 
-          amanStr(md.nama_dokter).includes(targetNama) ||
-          targetNama.includes(amanStr(md.nama_dokter))
-        );
-      }
-      if (!dokter && targetKlinik) {
-        dokter = resMasterDokterAll.rows.find(md => 
-          amanStr(md.klinik).includes(targetKlinik) ||
-          targetKlinik.includes(amanStr(md.klinik))
-        );
-      }
-      return dokter;
-    };
 
     const getSimbolGrup = (jadwalSimbol) => {
       const jKey = getSimbolKey(jadwalSimbol);
@@ -416,6 +452,7 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
         id: idSdm,
         nama: infoSdm.nama,
         total_pasien_bulanan: parseFloat(totalBebanBulanan.toFixed(1)),
+        total_pasien: parseFloat(totalBebanBulanan.toFixed(1)),
         total_pasien_hari_ini: parseFloat(totalBebanHariIni.toFixed(1)),
         detail_poli: teksPoli,
         saldo_mutu: 400 // <-- Injeksi Saldo Dasar untuk fitur Kedisiplinan 400 Poin UI

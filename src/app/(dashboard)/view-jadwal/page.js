@@ -366,7 +366,9 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 // ======================================================
 // 2. MODAL LAPORAN ABSEN HARIAN
 // ======================================================
-function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }) {
+function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, onDeleteAbsen }) {
+    const [previewImage, setPreviewImage] = useState(null);
+
     if (!isOpen) return null;
 
     return (
@@ -405,6 +407,8 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                 <th className="p-5 text-center bg-blue-600/30">Status Disiplin</th>
                                 <th className="p-5 text-center bg-red-600/30">Potongan Absen</th>
                                 <th className="p-5 text-left">Lokasi (GPS)</th>
+                                <th className="p-5 text-left">Foto</th>
+                                <th className="p-5 text-left">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="text-xs font-bold uppercase tracking-tighter text-slate-700">
@@ -416,22 +420,22 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                     <td className="p-5 text-slate-800 font-black">{row.shift_pilihan}</td>
                                     <td className="p-5 text-center text-emerald-700 bg-emerald-50/30 font-black text-sm">{row.jam_masuk}</td>
                                     <td className="p-5 text-center">
-                                        <span className={`inline-block px-3 py-1 rounded-lg text-[9px] font-black ${
-                                            row.status === 'Tepat Waktu' ? 'bg-emerald-100 text-emerald-700' :
-                                            row.status === 'Terlambat Ringan' ? 'bg-amber-100 text-amber-700' :
-                                            row.status === 'Terlambat Sedang' ? 'bg-orange-100 text-orange-700' :
-                                            'bg-red-100 text-red-700'
-                                        }`}>{row.status}</span>
+                                        {(() => {
+                                          const statusValue = String(row.status || '').toUpperCase();
+                                          return (
+                                            <span className={`inline-block px-3 py-1 rounded-lg text-[9px] font-black ${
+                                                statusValue === 'TEPAT WAKTU' ? 'bg-emerald-100 text-emerald-700' :
+                                                statusValue === 'TERLAMBAT RINGAN' ? 'bg-amber-100 text-amber-700' :
+                                                statusValue === 'TERLAMBAT SEDANG' ? 'bg-orange-100 text-orange-700' :
+                                                'bg-red-100 text-red-700'
+                                            }`}>
+                                              {row.status}
+                                            </span>
+                                          );
+                                        })()}
                                     </td>
                                     <td className="p-5 text-center font-black bg-red-50/30">
                                         <span className="text-red-600">-{row.potongan_absen || row.penalti_mutu || 0} Pts</span>
-                                    </td>
-                                    <td className="p-5 text-left">
-                                        {row.foto_masuk ? (
-                                          <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={160} height={112} className="rounded-xl border border-slate-200 object-cover" unoptimized />
-                                        ) : (
-                                          <span className="text-[10px] text-slate-400 uppercase font-black">Tidak ada</span>
-                                        )}
                                     </td>
                                     <td className="p-5 text-[9px] text-slate-500 max-w-xs">
                                         {row.lokasi_masuk && row.lokasi_masuk.includes('maps') ? (
@@ -442,11 +446,64 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel }
                                             <span>{row.lokasi_masuk || '-'}</span>
                                         )}
                                     </td>
+                                    <td className="p-5 text-left">
+                                        {row.foto_masuk ? (
+                                          <button type="button" onClick={() => setPreviewImage(row.foto_masuk)} className="group block rounded-xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all">
+                                            <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={220} height={154} className="rounded-xl object-cover transition-transform duration-200 group-hover:scale-105" unoptimized />
+                                          </button>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-400 uppercase font-black">Tidak ada</span>
+                                        )}
+                                    </td>
+                                    <td className="p-5 text-left flex flex-col gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (!confirm('Yakin ingin menghapus data absen ini?')) return;
+                                            onDeleteAbsen(row.id, false, row);
+                                          }}
+                                          className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-red-500 hover:bg-red-600 text-white"
+                                        >
+                                          Hapus Absen
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (!confirm('Ulang absen? Data ini akan dihapus sehingga bisa diinput ulang.')) return;
+                                            onDeleteAbsen(row.id, true, row);
+                                          }}
+                                          className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white"
+                                        >
+                                          Ulang Absen
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
+            )}
+
+            {previewImage && (
+              <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/95 p-4">
+                <div className="relative max-w-[95vw] max-h-[95vh]">
+                  <button
+                    onClick={() => setPreviewImage(null)}
+                    className="absolute top-3 right-3 z-20 rounded-full bg-white/90 p-2 shadow-lg text-slate-700"
+                    aria-label="Tutup pratinjau foto"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                  <Image
+                    src={previewImage}
+                    alt="Pratinjau Foto Absen"
+                    width={1200}
+                    height={900}
+                    className="max-w-full max-h-[95vh] rounded-[2rem] object-contain shadow-2xl"
+                    unoptimized
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -518,9 +575,12 @@ export default function ViewJadwalPublic() {
       
       if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
 
-      const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`);
+      const [resDash, resSDM] = await Promise.all([
+        fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`),
+        fetch("/api/sdm")
+      ]);
+
       const dDash = await resDash.json();
-      const resSDM = await fetch("/api/sdm");
       const dSDM = await resSDM.json();
       
       setDaftarSDM(Array.isArray(dSDM) ? dSDM : []);
@@ -558,7 +618,7 @@ export default function ViewJadwalPublic() {
     setSubmitting(true);
     try {
       const dok = data.dokterPraktik[idx];
-      const res = await fetch("/api/jadwal?isPublic=true", {
+      const res = await fetch("/api/dashboard?isPublic=true", {
         method: "PATCH",
         headers: { 
             "Content-Type": "application/json",
@@ -572,17 +632,46 @@ export default function ViewJadwalPublic() {
         })
       });
 
-      if (res.ok) {
+      const result = await res.json();
+      if (res.ok && result.success) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setEditMode({...editMode, [idx]: false});
         await fetchData(); 
       } else {
-        alert("❌ Sesi Backend Menolak. Pastikan route API mengizinkan public.");
+        alert("❌ Gagal menyimpan total pasien. " + (result.error || result.message || "Periksa koneksi dan akses publik."));
       }
     } catch (e) {
       alert("❌ Gagal menyimpan data ke tabel poli.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteAbsen = async (absenId, isRepeat = false, row = null) => {
+    if (!absenId) return;
+    setLoadingAbsen(true);
+    try {
+      const res = await fetch('/api/absensi', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: absenId })
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || 'Gagal menghapus data absen.');
+      }
+      setDataLaporanAbsen(prev => prev.filter(item => item.id !== absenId));
+      alert(isRepeat ? 'Absen dihapus. Silakan ulangi absen.' : 'Absen berhasil dihapus.');
+      if (isRepeat) {
+        setShowLaporanAbsenModal(false);
+        setPerawatTarget({ id: row?.sdm_id || null, nama: row?.nama_sdm || '' });
+        setShowKameraModal(true);
+      }
+    } catch (err) {
+      console.error('Gagal menghapus absen:', err);
+      alert(err?.message || 'Gagal menghapus data absen.');
+    } finally {
+      setLoadingAbsen(false);
     }
   };
 
@@ -760,7 +849,7 @@ export default function ViewJadwalPublic() {
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
       
       {/* RENDER MODALS */}
-      <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} />
+      <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} onDeleteAbsen={handleDeleteAbsen} />
       <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
 
       {/* HEADER SECTION */}
@@ -787,9 +876,13 @@ export default function ViewJadwalPublic() {
                 try {
                   const res = await fetch(`/api/absensi?tanggal=${selectedDateFull}`);
                   const result = await res.json();
-                  setDataLaporanAbsen(result.data || []);
+                  if (!res.ok || !result.success || !Array.isArray(result.data)) {
+                    throw new Error(result.error || 'Gagal mengambil laporan absensi.');
+                  }
+                  setDataLaporanAbsen(result.data);
                 } catch (err) {
                   console.error("Gagal fetch laporan absen:", err);
+                  alert(err?.message || 'Gagal mengambil laporan absensi.');
                   setDataLaporanAbsen([]);
                 } finally {
                   setLoadingAbsen(false);

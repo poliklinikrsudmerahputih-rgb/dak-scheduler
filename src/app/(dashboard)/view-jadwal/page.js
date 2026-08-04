@@ -143,7 +143,8 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
       setStatusGPS('Mencari sinyal GPS...');
       setErrorKamera(null);
 
-      // Inisialisasi Kamera
+      // Inisialisasi Kamera — prefer rear camera on mobile but fall back to front camera
+      // Use front camera (selfie) for attendance on mobile
       navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
         .then(stream => {
           if (videoRef.current) {
@@ -590,15 +591,16 @@ export default function ViewJadwalPublic() {
         if (dDash.summary?.ruangan) {
           setRuanganAktifGlobal(dDash.summary.ruangan);
         }
-        const savedValues = {};
-        const editStatus = {};
+          const savedValues = {};
+          const editStatus = {};
         
-        dDash.dokterPraktik?.forEach((dok, idx) => {
-          savedValues[idx] = dok.jumlah_pasien_poli || "";
-          editStatus[idx] = !(dok.jumlah_pasien_poli > 0); 
-        });
-        setInputPasien(savedValues);
-        setEditMode(editStatus);
+          dDash.dokterPraktik?.forEach((dok) => {
+            const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+            savedValues[key] = dok.jumlah_pasien_poli || "";
+            editStatus[key] = !(dok.jumlah_pasien_poli > 0);
+          });
+          setInputPasien(savedValues);
+          setEditMode(editStatus);
       }
     } catch (e) { 
       console.error("Gagal sinkronisasi data:", e); 
@@ -611,13 +613,13 @@ export default function ViewJadwalPublic() {
     fetchData();
   }, [fetchData]);
 
-  const handleUpdatePasienSpesifik = async (idx) => {
-    const jmlTotal = inputPasien[idx];
+  const handleUpdatePasienSpesifik = async (dok) => {
+    const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+    const jmlTotal = inputPasien[key];
     if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
-    
+
     setSubmitting(true);
     try {
-      const dok = data.dokterPraktik[idx];
       const res = await fetch("/api/dashboard?isPublic=true", {
         method: "PATCH",
         headers: { 
@@ -635,7 +637,7 @@ export default function ViewJadwalPublic() {
       const result = await res.json();
       if (res.ok && result.success) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
-        setEditMode({...editMode, [idx]: false});
+        setEditMode({...editMode, [key]: false});
         await fetchData(); 
       } else {
         alert("❌ Gagal menyimpan total pasien. " + (result.error || result.message || "Periksa koneksi dan akses publik."));
@@ -990,10 +992,10 @@ export default function ViewJadwalPublic() {
 
                 <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {filteredDokter.map((dok, idx) => {
-                    const originalIndex = data.dokterPraktik.findIndex(dp => dp.nama_dokter === dok.nama_dokter && dp.klinik === dok.klinik);
+                    const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
 
                     return (
-                      <div key={idx} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
+                      <div key={key} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div>
                             <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
@@ -1086,32 +1088,32 @@ export default function ViewJadwalPublic() {
                             <form 
                               onSubmit={(e) => {
                                 e.preventDefault();
-                                if(editMode[originalIndex]) handleUpdatePasienSpesifik(originalIndex);
+                                if(editMode[key]) handleUpdatePasienSpesifik(dok);
                               }} 
                               className="flex gap-3 items-end pt-2"
                             >
                               <div className="flex-1">
                                 <div className="flex justify-between items-center mb-1.5 ml-1">
                                   <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest italic">Input Kunjungan</span>
-                                  {!editMode[originalIndex] ? <span className="text-[8px] text-red-500 flex items-center gap-0.5 font-bold"><Lock size={8}/> Kunci</span> : <span className="text-[8px] text-emerald-500 flex items-center gap-0.5 font-bold"><Unlock size={8}/> Buka</span>}
+                                  {!editMode[key] ? <span className="text-[8px] text-red-500 flex items-center gap-0.5 font-bold"><Lock size={8}/> Kunci</span> : <span className="text-[8px] text-emerald-500 flex items-center gap-0.5 font-bold"><Unlock size={8}/> Buka</span>}
                                 </div>
                                 <input 
                                   type="number" 
                                   inputMode="numeric"
-                                  disabled={!editMode[originalIndex]} 
-                                  className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[originalIndex] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
-                                  value={inputPasien[originalIndex] || ""}
-                                  onChange={(e) => setInputPasien({...inputPasien, [originalIndex]: e.target.value})}
+                                  disabled={!editMode[key]} 
+                                  className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[key] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
+                                  value={inputPasien[key] || ""}
+                                  onChange={(e) => setInputPasien({...inputPasien, [key]: e.target.value})}
                                   placeholder="Total..."
                                 />
                               </div>
                               
-                              {!editMode[originalIndex] ? (
+                              {!editMode[key] ? (
                                 <button 
                                   type="button"
                                   onClick={(e) => {
                                     e.preventDefault();
-                                    setEditMode({...editMode, [originalIndex]: true});
+                                    setEditMode({...editMode, [key]: true});
                                   }}
                                   className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700"
                                   title="Edit Data"

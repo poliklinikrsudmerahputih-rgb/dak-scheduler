@@ -1,0 +1,51 @@
+﻿{
+    "attempts":  [
+                     {
+                         "nama":  "dr.\tAntonius\tPriyohartono,\tSp.PD",
+                         "klinik":  "Poliklinik Dalam",
+                         "attemptJumlah":  2,
+                         "response":  {
+                                          "success":  true,
+                                          "message":  "Data pasien tersimpan"
+                                      },
+                         "index":  0
+                     },
+                     {
+                         "nama":  "dr. Danu Lestariyanto, Sp.OG",
+                         "klinik":  "Obsgyn",
+                         "attemptJumlah":  14,
+                         "response":  {
+                                          "success":  true,
+                                          "message":  "Data pasien tersimpan"
+                                      },
+                         "index":  16
+                     },
+                     {
+                         "nama":  "TERAPIS OKUPASI",
+                         "klinik":  "Rehabilitasi Medik",
+                         "attemptJumlah":  3,
+                         "response":  {
+                                          "success":  true,
+                                          "message":  "Data pasien tersimpan"
+                                      },
+                         "index":  32
+                     }
+                 ],
+    "verification":  {
+                         "dokMid":  {
+                                        "nama_dokter":  "dr. Danu Lestariyanto, Sp.OG",
+                                        "klinik":  "Obsgyn",
+                                        "jumlah_pasien_poli":  14
+                                    },
+                         "dok0":  {
+                                      "nama_dokter":  "dr.\tAntonius\tPriyohartono,\tSp.PD",
+                                      "klinik":  "Poliklinik Dalam",
+                                      "jumlah_pasien_poli":  2
+                                  },
+                         "dokLast":  {
+                                         "nama_dokter":  "TERAPIS OKUPASI",
+                                         "klinik":  "Rehabilitasi Medik",
+                                         "jumlah_pasien_poli":  3
+                                     }
+                     }
+}

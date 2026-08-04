@@ -179,7 +179,10 @@ export async function GET(request) {
       return normalized;
     };
 
-    const normalizeKey = (str) => String(str || "").trim().toUpperCase();
+    const normalizeKey = (str) => String(str || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
     const buildMapKey = (nama, klinik) => `${normalizeKey(nama)}|${normalizeKey(klinik)}`;
 
     const masterDokterByExact = new Map();
@@ -634,8 +637,8 @@ export async function PATCH(request) {
   try {
     const body = await request.json();
     let { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body || {};
-    nama_dokter = String(nama_dokter || '').trim();
-    klinik = String(klinik || '').trim();
+    nama_dokter = String(nama_dokter || '').replace(/\s+/g, ' ').trim();
+    klinik = String(klinik || '').replace(/\s+/g, ' ').trim();
     tanggal = String(tanggal || '').trim();
     bulan = String(bulan || '').trim();
     tahun = String(tahun || '').trim();

@@ -302,13 +302,11 @@ export async function GET(request) {
     // Mapping Dokter Praktik (Card UI)
     const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
       const recordPasienHarian = !isModeLaporan ? dataPasienBulanIni.find(p => {
-        const matchedDokter = findMasterDokter(p.nama_dokter, p.klinik);
-        return matchedDokter?.id === dok.id && Number(p.tanggal) === pTanggal;
+        return normalizeKey(p.nama_dokter) === normalizeKey(dok.nama_dokter) && normalizeKey(p.klinik) === normalizeKey(dok.klinik) && Number(p.tanggal) === pTanggal;
       }) : null;
 
       const listPasienRentang = dataPasienBulanIni.filter(p => {
-        const matchedDokter = findMasterDokter(p.nama_dokter, p.klinik);
-        return matchedDokter?.id === dok.id;
+        return normalizeKey(p.nama_dokter) === normalizeKey(dok.nama_dokter) && normalizeKey(p.klinik) === normalizeKey(dok.klinik);
       });
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
@@ -646,6 +644,40 @@ export async function PATCH(request) {
 
     console.log('[PATCH /api/dashboard] incoming:', { nama_dokter, klinik, tanggal, bulan, tahun, jumlah });
 
+    // Try to resolve incoming nama/klinik to a canonical master_dokter entry
+    let matchedNama = nama_dokter;
+    let matchedKlinik = klinik;
+    try {
+      const resExact = await turso.execute({
+        sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
+        args: [nama_dokter, klinik]
+      });
+      if (resExact.rows && resExact.rows.length > 0) {
+        matchedNama = resExact.rows[0].nama_dokter;
+        matchedKlinik = resExact.rows[0].klinik;
+      } else {
+        const resName = await turso.execute({
+          sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) LIMIT 1`,
+          args: [nama_dokter]
+        });
+        if (resName.rows && resName.rows.length > 0) {
+          matchedNama = resName.rows[0].nama_dokter;
+          matchedKlinik = resName.rows[0].klinik;
+        } else {
+          const resKlinik = await turso.execute({
+            sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
+            args: [klinik]
+          });
+          if (resKlinik.rows && resKlinik.rows.length > 0) {
+            matchedNama = resKlinik.rows[0].nama_dokter;
+            matchedKlinik = resKlinik.rows[0].klinik;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[PATCH /api/dashboard] master lookup error', err?.message || err);
+    }
+
     if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {
       return NextResponse.json({ error: 'Invalid payload: missing required fields' }, { status: 400 });
     }
@@ -653,20 +685,20 @@ export async function PATCH(request) {
     const checkQuery = await turso.execute({
       sql: `SELECT id FROM jumlah_pasien_poli 
             WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
-      args: [nama_dokter, klinik, tanggal, bulan, tahun]
+      args: [matchedNama, matchedKlinik, tanggal, bulan, tahun]
     });
 
     if (checkQuery.rows.length > 0) {
       await turso.execute({
         sql: `UPDATE jumlah_pasien_poli SET jumlah = ? 
               WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
-        args: [jumlah, nama_dokter, klinik, tanggal, bulan, tahun]
+        args: [jumlah, matchedNama, matchedKlinik, tanggal, bulan, tahun]
       });
     } else {
       await turso.execute({
         sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, jumlah, tanggal, bulan, tahun) 
               VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [nama_dokter, klinik, jumlah, tanggal, bulan, tahun]
+        args: [matchedNama, matchedKlinik, jumlah, tanggal, bulan, tahun]
       });
     }
 

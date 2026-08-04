@@ -53,22 +53,40 @@ export async function PATCH(req) {
     
     // 2. Jika tidak ada sesi DAN bukan dari jalur publik, baru ditolak
     if (!userRuangan && !isPublic) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const body = await req.json();
+    // Basic validation + normalization
+    let { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body || {};
+    nama_dokter = String(nama_dokter || '').trim();
+    klinik = String(klinik || '').trim();
+    tanggal = String(tanggal || '').trim();
+    bulan = String(bulan || '').trim();
+    tahun = String(tahun || '').trim();
+    jumlah = Number(jumlah || 0);
 
-    const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = await req.json();
+    console.log('[PATCH /api/jadwal] incoming:', { nama_dokter, klinik, tanggal, bulan, tahun, jumlah, isPublic });
 
-    // Jalankan operasi DELETE dan INSERT dalam satu batch (Murni sinkronisasi poin ke tabel)
-    const queries = [
-      {
-        sql: `DELETE FROM jumlah_pasien_poli WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
-        args: [nama_dokter, klinik, tanggal, bulan, tahun]
-      },
-      {
-        sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, tanggal, bulan, tahun, jumlah) VALUES (?, ?, ?, ?, ?, ?)`,
+    if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {
+      return NextResponse.json({ error: 'Invalid payload: missing required fields' }, { status: 400 });
+    }
+
+    // Use an UPSERT-like approach (SELECT -> UPDATE or INSERT)
+    const check = await turso.execute({
+      sql: `SELECT id FROM jumlah_pasien_poli WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
+      args: [nama_dokter, klinik, tanggal, bulan, tahun]
+    });
+
+    if (check.rows && check.rows.length > 0) {
+      await turso.execute({
+        sql: `UPDATE jumlah_pasien_poli SET jumlah = ? WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
+        args: [jumlah, nama_dokter, klinik, tanggal, bulan, tahun]
+      });
+    } else {
+      await turso.execute({
+        sql: `INSERT INTO jumlah_pasien_poli (nama_dokter, klinik, tanggal, bulan, tahun, jumlah) VALUES (?, ?, ?, ?, ?, ?)` ,
         args: [nama_dokter, klinik, tanggal, bulan, tahun, jumlah]
-      }
-    ];
+      });
+    }
 
-    await turso.batch(queries, "write");
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("PATCH Error Spesifik Poli:", error);

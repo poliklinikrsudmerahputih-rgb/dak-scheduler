@@ -61,21 +61,12 @@ export async function GET(request) {
     const cutiRangeStart = queryTglAwalBulan;
     const cutiRangeEnd = queryTglAkhirBulan;
 
-    // Ambil Summary Statis
-    const sdmCount = await turso.execute({
-      sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
-      args: [kunciRuangan]
-    });
-    const dokterCount = await turso.execute({
-      sql: "SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))",
-      args: [kunciRuangan]
-    });
-
-    // Ambil Jadwal Perawat
-    let sqlJadwal = "";
-    let argsJadwal = [];
+    // Prepare reusable clause
     const ruanganMatchClause = `(j.ruangan IS NULL OR TRIM(j.ruangan) = '' OR UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?)))`;
 
+    // Prepare SQL for jadwal
+    let sqlJadwal = "";
+    let argsJadwal = [];
     if (isModeLaporan) {
         sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id 
                      WHERE ${ruanganMatchClause} 
@@ -87,10 +78,8 @@ export async function GET(request) {
                      AND CAST(j.tahun AS INTEGER) = ? AND CAST(j.bulan AS INTEGER) = ?`;
         argsJadwal = [kunciRuangan, pTahun, pBulan];
     }
-    const resJadwal = await turso.execute({ sql: sqlJadwal, args: argsJadwal });
-    const semuaJadwalBulanIni = resJadwal.rows;
 
-    // Ambil Data Pasien Poli
+    // Prepare SQL for pasien
     let sqlPasien = "";
     let argsPasien = [];
     if (isModeLaporan) {
@@ -102,20 +91,32 @@ export async function GET(request) {
                      WHERE CAST(tahun AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ?`;
         argsPasien = [pTahun, pBulan];
     }
-    const resPasienPoli = await turso.execute({ sql: sqlPasien, args: argsPasien });
-    const dataPasienBulanIni = resPasienPoli.rows;
 
-    const resAbsensiHariIni = await turso.execute({
-      sql: `SELECT * FROM absensi 
-            WHERE tanggal = ? 
-              AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))`,
-      args: [formatTglTarget, kunciRuangan]
-    });
+    // Execute independent queries in parallel to reduce total latency
+    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resAbsensiHariIni] = await Promise.all([
+      turso.execute({ sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
+      turso.execute({ sql: "SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
+      turso.execute({ sql: sqlJadwal, args: argsJadwal }),
+      turso.execute({ sql: sqlPasien, args: argsPasien }),
+      turso.execute({
+        sql: `SELECT * FROM absensi 
+              WHERE tanggal = ? 
+                AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))`,
+        args: [formatTglTarget, kunciRuangan]
+      })
+    ]);
+
+    const semuaJadwalBulanIni = resJadwal.rows;
+    const dataPasienBulanIni = resPasienPoli.rows;
 
     const absensiMap = resAbsensiHariIni.rows.reduce((acc, row) => {
       acc[row.sdm_id] = row;
       return acc;
     }, {});
+
+    // Backwards-compat: expose variables expected by later code
+    const sdmCount = sdmCountRes;
+    const dokterCount = dokterCountRes;
 
     // Ambil Data Cuti
     const [resSdmCuti, resDokterCuti] = await Promise.all([
@@ -632,18 +633,30 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body;
+    let { nama_dokter, klinik, tanggal, bulan, tahun, jumlah } = body || {};
+    nama_dokter = String(nama_dokter || '').trim();
+    klinik = String(klinik || '').trim();
+    tanggal = String(tanggal || '').trim();
+    bulan = String(bulan || '').trim();
+    tahun = String(tahun || '').trim();
+    jumlah = Number(jumlah || 0);
+
+    console.log('[PATCH /api/dashboard] incoming:', { nama_dokter, klinik, tanggal, bulan, tahun, jumlah });
+
+    if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {
+      return NextResponse.json({ error: 'Invalid payload: missing required fields' }, { status: 400 });
+    }
 
     const checkQuery = await turso.execute({
       sql: `SELECT id FROM jumlah_pasien_poli 
-            WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
+            WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
       args: [nama_dokter, klinik, tanggal, bulan, tahun]
     });
 
     if (checkQuery.rows.length > 0) {
       await turso.execute({
         sql: `UPDATE jumlah_pasien_poli SET jumlah = ? 
-              WHERE nama_dokter = ? AND klinik = ? AND tanggal = ? AND bulan = ? AND tahun = ?`,
+              WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) AND tanggal = ? AND bulan = ? AND tahun = ?`,
         args: [jumlah, nama_dokter, klinik, tanggal, bulan, tahun]
       });
     } else {
@@ -654,7 +667,7 @@ export async function PATCH(request) {
       });
     }
 
-    return NextResponse.json({ success: true, message: "Data pasien tersimpan" });
+    return NextResponse.json({ success: true, message: 'Data pasien tersimpan' });
 
   } catch (error) {
     console.error("Gagal push ke database:", error);

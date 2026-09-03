@@ -492,6 +492,7 @@ export default function BuatJadwal() {
                                       <option key={s} value={s}>{s}</option>
                                     ))}
                                     <option value="M">M</option>
+                                    <option value="T">T</option>
                                   </optgroup>
                                 </select>
 

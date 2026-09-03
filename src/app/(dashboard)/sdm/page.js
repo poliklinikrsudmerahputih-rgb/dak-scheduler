@@ -461,10 +461,10 @@ export default function MasterSDM() {
             </div>
           </div>
 
-          <div className="flex items-end gap-3 lg:col-span-1 pt-4">
+          <div className="flex items-center gap-3 lg:col-span-3 pt-4 justify-end">
             <button 
               type="submit" 
-              className={`w-full font-black py-5 rounded-3xl text-[10px] text-white transition-all shadow-2xl active:scale-95 uppercase tracking-[0.3em] ${
+              className={`font-black py-4 px-6 rounded-3xl text-[10px] text-white transition-all shadow-2xl active:scale-95 uppercase tracking-[0.3em] ${
                 editData ? "bg-orange-600 shadow-orange-200" : "bg-slate-900 shadow-slate-200"
               }`}
             >
@@ -474,7 +474,7 @@ export default function MasterSDM() {
               <button 
                 type="button" 
                 onClick={() => { setEditData(null); setFilterJabatan(""); setSearchTerm(""); setStatusFilter("SEMUA"); document.getElementById("form-sdm").reset(); refreshData(); }}
-                className="bg-slate-200 text-slate-600 px-8 py-5 rounded-3xl text-[10px] font-black uppercase hover:bg-slate-300 transition-all"
+                className="bg-slate-200 text-slate-600 px-6 py-3 rounded-3xl text-[10px] font-black uppercase hover:bg-slate-300 transition-all"
               >
                 RESET
               </button>

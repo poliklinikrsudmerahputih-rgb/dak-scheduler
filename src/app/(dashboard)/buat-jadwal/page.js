@@ -15,6 +15,7 @@ export default function BuatJadwal() {
   const [dataMasterDokter, setDataMasterDokter] = useState([]);
   const [isiJadwal, setIsiJadwal] = useState({});
   const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -67,8 +68,72 @@ export default function BuatJadwal() {
         const dJadwal = await resJadwal.json();
         const dCuti = await resCuti.json();
 
-        const sortedSDM = Array.isArray(dSDM) ? dSDM.sort((a, b) => (urutanProfesi[a.jabatan] || 99) - (urutanProfesi[b.jabatan] || 99)) : [];
-        setDaftarSDM(sortedSDM);
+        // Build daftar SDM to show in the schedule editor:
+        // - Active SDM (is_aktif == 1) are used for automatic scheduling
+        // - Historical SDM that appear in the jadwal for the selected month
+        //   are appended so past months keep the names visible even if
+        //   the person is no longer active.
+        const allSdm = Array.isArray(dSDM) ? dSDM : [];
+        // Determine viewing month boundaries based on selected bulan/tahun
+        const viewingFirstDay = new Date(tahun, bulan - 1, 1);
+        const viewingLastDay = new Date(tahun, bulan, 0);
+
+        // Include SDM for scheduling if:
+        // - they are active and their end-date (tanggal_akhir_kerja) is not before the month start
+        // - OR they were mutated/non-aktif but the mutation happened during the month (> firstDay)
+        const activeSdm = allSdm.filter(s => {
+          // Respect the tampil_di_jadwal flag: if explicitly hidden, exclude from daftar
+          if (s.tampil_di_jadwal === 0 || s.tampil_di_jadwal === '0') return false;
+          const isAktifFlag = s.is_aktif === 1 || s.is_aktif === '1' || s.is_aktif === true;
+          const tanggalAkhir = s.tanggal_akhir_kerja ? new Date(s.tanggal_akhir_kerja) : null;
+          const lastMutasi = s.last_mutasi ? new Date(s.last_mutasi) : null;
+
+          // If active flag true and no end-date before month start => include
+          if (isAktifFlag) {
+            if (!tanggalAkhir) return true;
+            // keep in month if their end date is after or within the month
+            return tanggalAkhir >= viewingFirstDay;
+          }
+
+          // If not active or status changed, keep only when last_mutasi is during the month
+          if (lastMutasi && lastMutasi > viewingFirstDay) return true;
+
+          return false;
+        });
+
+        const sortedActive = activeSdm.sort((a, b) => (urutanProfesi[a.jabatan] || 99) - (urutanProfesi[b.jabatan] || 99));
+
+        // Map active IDs for quick lookup
+        const activeIds = new Set(sortedActive.map(s => String(s.id)));
+
+        // Find SDM IDs referenced in jadwal and add their metadata if missing
+        // but only include historical (inactive) entries when viewing
+        // a month that is NOT the current month. For the active/current
+        // month (creation flow) we show active SDM only.
+        const historicalExtras = [];
+        const viewingDate = new Date(tahun, bulan - 1);
+        const now = new Date();
+        const isViewingCurrentMonth = (viewingDate.getMonth() === now.getMonth() && viewingDate.getFullYear() === now.getFullYear());
+
+        if (!isViewingCurrentMonth && Array.isArray(dJadwal)) {
+          const seen = new Set();
+          dJadwal.forEach(j => {
+            const sid = String(j.sdm_id || '');
+            if (!sid) return;
+            if (activeIds.has(sid)) return;
+            if (seen.has(sid)) return;
+            seen.add(sid);
+            historicalExtras.push({
+              id: sid,
+              nama: j.sdm_nama || `ID:${sid}`,
+              jabatan: j.sdm_jabatan || '',
+              is_aktif: j.sdm_is_aktif === 1 || j.sdm_is_aktif === '1' || j.sdm_is_aktif === true,
+            });
+          });
+        }
+
+        const merged = isViewingCurrentMonth ? sortedActive : [...sortedActive, ...historicalExtras];
+        setDaftarSDM(merged);
         setDataMasterDokter(Array.isArray(dDkt) ? dDkt : []);
         setDataCutiSDM(Array.isArray(dCuti) ? dCuti : []);
 
@@ -178,6 +243,14 @@ export default function BuatJadwal() {
     areaJadwal.querySelectorAll(".no-print").forEach(el => el.remove());
 
     const tableHtml = areaJadwal.querySelector("table").outerHTML;
+    // Build legend HTML for simbol descriptions (only include non-empty descriptions)
+    const legendRows = dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map(d => `
+      <tr>
+        <td style="width:80px;padding:2px;vertical-align:top;font-weight:bold;">${d.simbol_praktik}</td>
+        <td style="padding:2px;">${d.keterangan_simbol}</td>
+      </tr>
+    `).join('');
+    const legendHtml = legendRows ? `<div style="margin-top:12px;font-weight:bold;">Keterangan Simbol:</div><table style="width:100%;border-collapse:collapse;margin-top:6px;">${legendRows}</table><br/>` : '';
     const wordHeader = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head><meta charset='utf-8'><style>
@@ -190,6 +263,7 @@ export default function BuatJadwal() {
       </style></head><body><div class="Section1">
         <div style="text-align:center;"><b>${header.institusi}</b><br/><b>${header.judul_bebas.toUpperCase()}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
         ${tableHtml}
+        ${legendHtml}
         <br/>
         <table style="width:100%; border:none;">
           <tr>
@@ -342,7 +416,36 @@ export default function BuatJadwal() {
                     <tr key={sdm.id} className="text-center">
                       <td className="border border-black p-1 text-[9px]">{idx+1}</td>
                       <td className="border border-black p-1 text-left whitespace-nowrap bg-slate-50 truncate">
-                        <div className="font-bold text-[10px] uppercase truncate">{sdm.nama}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-bold text-[10px] uppercase truncate">{sdm.nama}</div>
+                          {sdm.status_kerja !== 'AKTIF' && (
+                            <label className="ml-2 flex items-center gap-1 text-[9px]">
+                              <input type="checkbox" checked={sdm.tampil_di_jadwal !== 0} onChange={async (e) => {
+                                const show = e.target.checked ? 1 : 0;
+                                setToggling(true);
+                                try {
+                                  const res = await fetch('/api/sdm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_tampil', id: sdm.id, tampil: show }) });
+                                  const json = await res.json();
+                                  if (res.ok && json.success) {
+                                    if (show === 0) {
+                                      // remove row from daftarSDM
+                                      setDaftarSDM(prev => prev.filter(x => String(x.id) !== String(sdm.id)));
+                                    } else {
+                                      // refresh data to reflect change
+                                      const d = await fetch('/api/sdm');
+                                      const arr = await d.json();
+                                      setDaftarSDM(arr.filter(a => a.is_aktif === 1 || a.is_aktif === '1'));
+                                    }
+                                  } else {
+                                    alert('Gagal mengubah tampilan.');
+                                  }
+                                } catch (err) { console.error(err); alert('Kesalahan jaringan'); }
+                                setToggling(false);
+                              }} />
+                              <span className="text-slate-500">Tampil</span>
+                            </label>
+                          )}
+                        </div>
                         <div className="text-[8px] text-blue-600 italic font-semibold truncate">{sdm.jabatan}</div>
                       </td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
@@ -350,29 +453,50 @@ export default function BuatJadwal() {
                         const autoVal = getAutoCutiValue(sdm.nama, tgl);
                         const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
                         if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
-                        
+
+                        // Compute target date and last-active threshold
+                        const targetDateObj = new Date(tahun, bulan - 1, tgl);
+                        let sdmActiveUntil = null;
+                        if (sdm.tanggal_akhir_kerja) sdmActiveUntil = new Date(sdm.tanggal_akhir_kerja);
+                        else if (sdm.last_mutasi) sdmActiveUntil = new Date(sdm.last_mutasi);
+
+                        const isAfterActive = sdmActiveUntil ? (targetDateObj > sdmActiveUntil) : false;
+
+                        // If target date is after the person's last active date, render an empty non-interactive cell
+                        if (isAfterActive) {
+                          return (
+                            <td key={i} className={`border border-black p-1 cell-input bg-slate-100 text-[10px]`}>
+                              <div className="text-slate-400 italic text-[10px]">-</div>
+                              <span className="hidden print:block font-bold text-[9px] truncate"></span>
+                            </td>
+                          );
+                        }
+
                         return (
                           <td key={i} className={`border border-black p-0 cell-input`}>
                             <div className="no-print">
-                              <select 
-                                value={currentVal} 
-                                title={currentVal} 
-                                disabled={!!autoVal}
-                                onChange={e => updateIsiJadwal({...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase()})}
-                                className={`dropdown-select bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
-                              >
-                                <option value=""></option>
-                                <optgroup label="ABSENSI">
-                                  {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
-                                </optgroup>
-                                <optgroup label="DOKTER (CERDAS)">
-                                  {getSimbolHarian(tgl, currentVal).map(s => (
-                                    <option key={s} value={s}>{s}</option>
-                                  ))}
-                                  <option value="M">M</option>
-                                </optgroup>
-                              </select>
-                            </div>
+                              <div className="relative inline-block group">
+                                <select 
+                                  value={currentVal} 
+                                  title={currentVal}
+                                  disabled={!!autoVal}
+                                  onChange={e => updateIsiJadwal({...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase()})}
+                                  className={`dropdown-select bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
+                                >
+                                  <option value=""></option>
+                                  <optgroup label="ABSENSI">
+                                    {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
+                                  </optgroup>
+                                  <optgroup label="DOKTER (CERDAS)">
+                                    {getSimbolHarian(tgl, currentVal).map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                    <option value="M">M</option>
+                                  </optgroup>
+                                </select>
+
+                                </div>
+                              </div>
                             <span className="hidden print:block font-bold text-[9px] truncate">{currentVal}</span>
                           </td>
                         );
@@ -404,6 +528,21 @@ export default function BuatJadwal() {
                   <td className="border border-black"></td>
                 </tr>
               </tfoot>
+            </table>
+          </div>
+
+          {/* Legend for simbol descriptions (print-only) */}
+          <div className="mt-6 mb-4 hidden print:block text-[9px]">
+            <div className="font-bold mb-2">Keterangan Simbol:</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map((d, i) => (
+                  <tr key={i}>
+                    <td style={{ width: '60px', padding: '2px', verticalAlign: 'top' }} className="font-bold">{d.simbol_praktik}</td>
+                    <td style={{ padding: '2px' }}>{d.keterangan_simbol}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
 

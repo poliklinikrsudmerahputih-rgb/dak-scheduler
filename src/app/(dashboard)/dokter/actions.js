@@ -15,6 +15,7 @@ export async function simpanDokter(formData) {
   const hari = formData.get("hari");
   const jam = formData.get("jam");
   const simbol = formData.get("simbol");
+  const keterangan_simbol = formData.get("keterangan_simbol") || '';
   
   // --- PENANGKAPAN DATA BOBOT JASPEL DARI FORM ---
   // Jika karena alasan tertentu form kosong, nilai defaultnya diset 1.0 agar aman
@@ -36,17 +37,17 @@ export async function simpanDokter(formData) {
       // *MEMASUKKAN kolom bobot_jaspel ke dalam query UPDATE*
       await turso.execute({
         sql: `UPDATE master_dokter 
-              SET nama_dokter = ?, klinik = ?, jadwal_hari = ?, jam_praktik = ?, simbol_praktik = ?, ruangan = ?, bobot_jaspel = ?
-              WHERE id = ?`,
-        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser, bobot_jaspel, id]
+          SET nama_dokter = ?, klinik = ?, jadwal_hari = ?, jam_praktik = ?, simbol_praktik = ?, ruangan = ?, bobot_jaspel = ?, keterangan_simbol = ?
+          WHERE id = ?`,
+        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser, bobot_jaspel, keterangan_simbol, id]
       });
     } else {
       // 2. Logika Insert jika menambah data baru
       // Menambahkan kolom 'ruangan' dan 'bobot_jaspel' agar tersimpan di database
       await turso.execute({
-        sql: `INSERT INTO master_dokter (nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, ruangan, bobot_jaspel) 
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser, bobot_jaspel]
+        sql: `INSERT INTO master_dokter (nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, ruangan, bobot_jaspel, keterangan_simbol) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [nama_dokter, klinik, hari, jam, simbol, ruanganUser, bobot_jaspel, keterangan_simbol]
       });
     }
 

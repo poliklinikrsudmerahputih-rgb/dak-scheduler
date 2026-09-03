@@ -59,6 +59,7 @@ export async function GET(request) {
          FROM master_dokter sub 
          WHERE UPPER(TRIM(sub.nama_dokter)) = UPPER(TRIM(md.nama_dokter))
         ) as ai_daftar_simbol
+        , md.keterangan_simbol
 
       FROM master_dokter md
       WHERE 1=1

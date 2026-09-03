@@ -137,7 +137,7 @@ export async function GET(request) {
 
     // Ambil Master Dokter
     const resMasterDokterAll = await turso.execute({
-      sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter
+        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol FROM master_dokter
             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`,
       args: [kunciRuangan]
     });
@@ -147,7 +147,7 @@ export async function GET(request) {
       resMasterDokterHariIni = resMasterDokterAll;
     } else {
       resMasterDokterHariIni = await turso.execute({
-        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel FROM master_dokter
+          sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol FROM master_dokter
               WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
                 AND jadwal_hari = ?`,
         args: [kunciRuangan, namaHariIndo]

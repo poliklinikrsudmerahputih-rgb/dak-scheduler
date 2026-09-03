@@ -33,10 +33,16 @@ export async function GET(req) {
     const paramRuangan = searchParams.get("ruangan");
     const ruanganTarget = userRuangan || (paramRuangan ? paramRuangan.toUpperCase() : "POLIKLINIK");
 
+    // Join with `sdm` to include nama/jabatan/is_aktif so the frontend can
+    // render historical names even if the SDM is no longer active.
     const res = await turso.execute({
-      sql: "SELECT * FROM jadwal_dinas WHERE bulan = ? AND tahun = ? AND UPPER(TRIM(ruangan)) = ?",
+      sql: `SELECT j.*, s.nama AS sdm_nama, s.jabatan AS sdm_jabatan, s.is_aktif AS sdm_is_aktif, s.ruangan_aktif AS sdm_ruangan_aktif
+            FROM jadwal_dinas j
+            LEFT JOIN sdm s ON s.id = j.sdm_id
+            WHERE j.bulan = ? AND j.tahun = ? AND UPPER(TRIM(j.ruangan)) = ?`,
       args: [bulan, tahun, ruanganTarget]
     });
+
     return NextResponse.json(res.rows);
   } catch (error) {
     console.error("GET Error:", error);

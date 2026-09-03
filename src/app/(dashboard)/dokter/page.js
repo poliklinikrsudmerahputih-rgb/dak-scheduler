@@ -212,6 +212,15 @@ export default function MasterDokter() {
                 />
               </div>
             </div>
+            <div className="flex flex-col gap-2 mt-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Keterangan Simbol (Deskripsi)</label>
+              <input
+                name="keterangan_simbol"
+                defaultValue={editData?.keterangan_simbol || ""}
+                placeholder="Deskripsi simbol untuk cetak/tooltip"
+                className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 focus:bg-white p-4 rounded-2xl outline-none text-xs font-medium transition-all"
+              />
+            </div>
             {/* --- SELESAI PENAMBAHAN --- */}
 
           </div>
@@ -342,9 +351,9 @@ export default function MasterDokter() {
                            <span className={`${isLagiCuti ? 'text-slate-300' : isSesuaiFilter || isAktifHariIni ? 'text-blue-900 font-black' : 'text-slate-700'} tracking-tight`}>{d.klinik}</span>
                         </td>
                         <td className="p-6 text-center">
-                           <span className={`border-2 px-3 py-1.5 rounded-2xl font-black font-mono shadow-inner transition-all ${isLagiCuti ? 'bg-slate-100 border-slate-200 text-slate-300' : isSesuaiFilter || isAktifHariIni ? 'bg-blue-700 border-blue-800 text-white' : 'bg-white border-slate-100 text-blue-600'}`}>
-                              {d.simbol_praktik}
-                           </span>
+                          <span className={`border-2 px-3 py-1.5 rounded-2xl font-black font-mono shadow-inner transition-all ${isLagiCuti ? 'bg-slate-100 border-slate-200 text-slate-300' : isSesuaiFilter || isAktifHariIni ? 'bg-blue-700 border-blue-800 text-white' : 'bg-white border-slate-100 text-blue-600'}`}>
+                            {d.simbol_praktik}
+                          </span>
                         </td>
                         {/* --- KOLOM BOBOT JASPEL --- */}
                         <td className="p-6 text-center">

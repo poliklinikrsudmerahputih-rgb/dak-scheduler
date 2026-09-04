@@ -134,7 +134,7 @@ export default function SharedJadwal() {
                 <thead>
                   <tr className="bg-slate-800 text-white">
                     <th className="p-2 text-[10px] w-8 text-center" rowSpan="2">NO</th>
-                    <th className="p-2 text-[10px] min-w-[420px] text-left" rowSpan="2">NAMA & JABATAN</th>
+                    <th className="p-2 text-[10px] text-left" rowSpan="2" style={{ minWidth: '520px', width: '520px' }}>NAMA & JABATAN</th>
                     <th className="p-2 text-[9px] text-center" colSpan={jumlahHari}>TANGGAL</th>
                   </tr>
                   <tr className="bg-slate-800 text-white">
@@ -148,7 +148,7 @@ export default function SharedJadwal() {
                   {daftar.map((sdm, idx) => (
                     <tr key={sdm.id} className="border-b border-slate-200">
                       <td className="p-1 text-[10px] text-center font-black">{idx+1}</td>
-                      <td className="p-2 text-[10px] align-top">{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
+                      <td className="p-2 text-[10px] align-top" style={{ minWidth: '520px', width: '520px' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i+1;
                         const key = `${sdm.id}-${tgl}`;

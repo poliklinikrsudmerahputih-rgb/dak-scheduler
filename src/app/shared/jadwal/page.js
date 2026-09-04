@@ -69,22 +69,39 @@ export default function SharedJadwal() {
   });
 
   // build daftarSDM: include sdmList (active) and historical names found in jadwal
-  const sdmById = new Map();
-  sdmList.forEach(s => sdmById.set(String(s.id), s));
-  jadwalRows.forEach(r => {
-    const sid = String(r.sdm_id || '');
-    if (!sdmById.has(sid)) {
-      sdmById.set(sid, { id: sid, nama: r.sdm_nama || `ID:${sid}`, jabatan: r.sdm_jabatan || '' });
-    }
-  });
+  const viewingDate = new Date(tahun, bulan - 1);
+  const now = new Date();
+  const isViewingCurrentMonth = viewingDate.getMonth() === now.getMonth() && viewingDate.getFullYear() === now.getFullYear();
 
-  let daftar = Array.from(sdmById.values());
-  // Exclude SDM yang sudah di-hide atau non-aktif (rotasi/mutasi)
-  daftar = daftar.filter(s => {
-    if (s.tampil_di_jadwal === 0 || s.tampil_di_jadwal === '0') return false;
-    if (s.is_aktif === 0 || s.is_aktif === '0' || s.is_aktif === false) return false;
-    return true;
-  });
+  let daftar = [];
+  if (isViewingCurrentMonth) {
+    // Current month: show active SDM from `sdmList` (respect tampil_di_jadwal/is_aktif)
+    daftar = (sdmList || []).filter(s => {
+      if (s.tampil_di_jadwal === 0 || s.tampil_di_jadwal === '0') return false;
+      if (s.is_aktif === 0 || s.is_aktif === '0' || s.is_aktif === false) return false;
+      return true;
+    }).map(s => ({ ...s }));
+  } else {
+    // Historical month: derive daftar only from `jadwalRows` so that
+    // SDM who were present that month remain, and new SDM (added later)
+    // that don't appear in the jadwal are not shown.
+    const map = new Map();
+    (jadwalRows || []).forEach(r => {
+      const sid = String(r.sdm_id || '');
+      if (!sid) return;
+      if (!map.has(sid)) {
+        const fromSdm = (sdmList || []).find(x => String(x.id) === sid) || {};
+        map.set(sid, {
+          id: sid,
+          nama: r.sdm_nama || fromSdm.nama || `ID:${sid}`,
+          jabatan: r.sdm_jabatan || fromSdm.jabatan || '',
+          tampil_di_jadwal: fromSdm.tampil_di_jadwal ?? 1,
+          is_aktif: fromSdm.is_aktif ?? 1
+        });
+      }
+    });
+    daftar = Array.from(map.values());
+  }
   if (filterText) {
     const t = filterText.toLowerCase();
     daftar = daftar.filter(s => (s.jabatan || '').toLowerCase().includes(t) || (s.nama || '').toLowerCase().includes(t));
@@ -144,7 +161,7 @@ export default function SharedJadwal() {
                 <thead>
                   <tr className="bg-slate-800 text-white">
                     <th className="p-2 text-[10px] w-8 text-center" rowSpan="2">NO</th>
-                    <th className="p-2 text-[10px] text-left" rowSpan="2" style={{ minWidth: '420px' }}>NAMA & JABATAN</th>
+                    <th className="p-2 text-[10px] text-left" rowSpan="2" style={{ maxWidth: '420px' }}>NAMA & JABATAN</th>
                     <th className="p-2 text-[9px] text-center" colSpan={jumlahHari}>TANGGAL</th>
                   </tr>
                   <tr className="bg-slate-800 text-white">
@@ -158,7 +175,7 @@ export default function SharedJadwal() {
                   {daftar.map((sdm, idx) => (
                     <tr key={sdm.id} className="border-b border-slate-200">
                       <td className="p-1 text-[10px] text-center font-black">{idx+1}</td>
-                      <td className="p-2 text-[10px] align-top" style={{ minWidth: '420px' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
+                      <td className="p-2 text-[10px] align-top" style={{ maxWidth: '420px', wordBreak: 'break-word' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i+1;
                         const key = `${sdm.id}-${tgl}`;

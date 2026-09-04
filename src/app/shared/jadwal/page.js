@@ -105,6 +105,16 @@ export default function SharedJadwal() {
           </div>
           <div className="flex items-center gap-2">
             <input value={filterText} onChange={e => setFilterText(e.target.value)} placeholder="Filter nama atau jabatan" className="p-2 border rounded text-sm" />
+            <button onClick={() => {
+              // reset filterText and remove filter params from URL
+              setFilterText("");
+              setPersonLegendData([]);
+              const sp = new URLSearchParams(window.location.search);
+              sp.delete('filter'); sp.delete('role'); sp.delete('name'); sp.delete('q');
+              const base = `${window.location.pathname}`;
+              const newUrl = `${base}?${sp.toString()}`.replace(/\?$/, '');
+              window.history.replaceState({}, document.title, newUrl || window.location.pathname);
+            }} className="px-3 py-2 bg-slate-100 rounded text-sm">Reset</button>
             <select value={bulan} onChange={e => setBulan(Number(e.target.value))} className="p-2 border rounded text-sm">
               {Array.from({length:12}).map((_,i) => <option key={i} value={i+1}>{format(new Date(2020,i,1),'MMMM')}</option>)}
             </select>
@@ -129,12 +139,12 @@ export default function SharedJadwal() {
 
         {loading ? <div>Loading...</div> : (
           <div className="overflow-x-auto">
-            <div className="max-w-screen-2xl w-full mx-auto">
-              <table className="w-full table-fixed border-collapse">
+              <div className="max-w-screen-2xl w-full mx-auto">
+                <table className="w-full table-auto border-collapse">
                 <thead>
                   <tr className="bg-slate-800 text-white">
                     <th className="p-2 text-[10px] w-8 text-center" rowSpan="2">NO</th>
-                    <th className="p-2 text-[10px] text-left" rowSpan="2" style={{ minWidth: '520px', width: '520px' }}>NAMA & JABATAN</th>
+                    <th className="p-2 text-[10px] text-left" rowSpan="2" style={{ minWidth: '420px' }}>NAMA & JABATAN</th>
                     <th className="p-2 text-[9px] text-center" colSpan={jumlahHari}>TANGGAL</th>
                   </tr>
                   <tr className="bg-slate-800 text-white">
@@ -148,7 +158,7 @@ export default function SharedJadwal() {
                   {daftar.map((sdm, idx) => (
                     <tr key={sdm.id} className="border-b border-slate-200">
                       <td className="p-1 text-[10px] text-center font-black">{idx+1}</td>
-                      <td className="p-2 text-[10px] align-top" style={{ minWidth: '520px', width: '520px' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
+                      <td className="p-2 text-[10px] align-top" style={{ minWidth: '420px' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i+1;
                         const key = `${sdm.id}-${tgl}`;

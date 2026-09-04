@@ -390,14 +390,14 @@ export default function BuatJadwal() {
             <h3 className="font-black mb-3">Bagikan Jadwal</h3>
             <p className="text-sm text-slate-600 mb-4">Pilih filter yang ingin Anda sertakan di link. Link akan bersifat tampilan (view-only) dan responsif untuk HP.</p>
             <div className="mb-4">
-              <label className="block text-xs font-black uppercase">Filter Jabatan (contoh: Perawat)</label>
-              <input value={shareRole} onChange={e => setShareRole(e.target.value)} placeholder="Perawat" className="w-full p-3 border rounded mt-2" />
+              <label className="block text-xs font-black uppercase">Filter Nama atau Jabatan (akan disertakan di link)</label>
+              <input value={shareRole} onChange={e => setShareRole(e.target.value)} placeholder="Perawat atau Nama" className="w-full p-3 border rounded mt-2" />
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowShareModal(false)} className="px-4 py-2 rounded bg-slate-100">Batal</button>
               <button onClick={() => {
                 const base = window.location.origin;
-                const url = `${base}/shared/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}${shareRole ? `&role=${encodeURIComponent(shareRole)}` : ''}`;
+                const url = `${base}/shared/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}${shareRole ? `&filter=${encodeURIComponent(shareRole)}` : ''}`;
                 navigator.clipboard.writeText(url).then(() => { setShareLinkCopied(true); setTimeout(() => setShareLinkCopied(false), 2000); });
               }} className="px-4 py-2 rounded bg-blue-600 text-white">Salin Link</button>
             </div>

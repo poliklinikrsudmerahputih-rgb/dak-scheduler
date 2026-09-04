@@ -12,6 +12,8 @@ export default function MasterDokter() {
   const [hariIni, setHariIni] = useState("");
   const [tglSekarang, setTglSekarang] = useState(""); 
   const [filterHari, setFilterHari] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [formKey, setFormKey] = useState("new");
 
   const daftarKlinik = [
     "Poliklinik Dalam", "Gigi", "Mata", "THT", "Kulit dan Kelamin", 
@@ -26,7 +28,9 @@ export default function MasterDokter() {
 
   const refreshData = async () => {
     try {
-      const queryHari = filterHari ? `?hari=${filterHari}` : "";
+      // Jika sedang mengetik pencarian, ambil semua hari agar hasil menampilkan semua
+      // hari praktik dokter yang dicari. Hanya gunakan filterHari jika tidak sedang mencari.
+      const queryHari = (filterHari && !searchQuery) ? `?hari=${filterHari}` : "";
       
       const [resDkt, resCuti] = await Promise.all([
         fetch(`/api/dokter${queryHari}`),
@@ -70,10 +74,11 @@ export default function MasterDokter() {
   }, []);
 
   useEffect(() => {
-    if (filterHari !== "") {
+    // Refresh data saat filter hari berubah atau saat searchQuery berubah
+    if (filterHari !== "" || searchQuery !== "") {
       refreshData();
     }
-  }, [filterHari]);
+  }, [filterHari, searchQuery]);
 
   const cekSedangCuti = (nama, simbol) => {
     return dataCuti.find(c => 
@@ -89,12 +94,32 @@ export default function MasterDokter() {
     if (res.success) {
       alert(editData ? "✅ Perubahan Berhasil Disimpan!" : "✅ Data Dokter Berhasil Disimpan!");
       setEditData(null);
-      document.getElementById("form-dokter").reset();
+      setFormKey("new");
+      // safe-reset form after remount
+      setTimeout(() => document.getElementById("form-dokter")?.reset(), 50);
       refreshData();
     } else {
       alert("❌ Gagal: " + res.error);
     }
   };
+
+  // --- SEARCH / GROUPING LOGIC ---
+  const trimmedQuery = (searchQuery || "").trim().toLowerCase();
+  const filteredForSearch = trimmedQuery ? dataDokter.filter(d => (d.nama_dokter || "").toLowerCase().includes(trimmedQuery) || (d.klinik || "").toLowerCase().includes(trimmedQuery)) : [];
+  const groupedResults = {};
+  if (filteredForSearch.length) {
+    filteredForSearch.forEach(d => {
+      const key = (d.nama_dokter || "").trim().toLowerCase();
+      if (!groupedResults[key]) groupedResults[key] = { nama: d.nama_dokter, clinics: new Set(), sessions: [] };
+      if (d.klinik) groupedResults[key].clinics.add(d.klinik);
+      groupedResults[key].sessions.push(d);
+    });
+  }
+  const groupsArray = Object.values(groupedResults).map(g => ({
+    nama: g.nama,
+    clinics: Array.from(g.clinics),
+    sessions: g.sessions
+  }));
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-10 pb-20 font-sans">
@@ -114,13 +139,59 @@ export default function MasterDokter() {
             </p>
           </div>
         </div>
+
+        <div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari Nama Dokter atau Klinik..."
+              className="flex-1 bg-slate-50 border-2 border-transparent focus:border-blue-400 p-3 rounded-2xl outline-none text-sm font-semibold"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="px-4 py-2 bg-slate-200 rounded-2xl text-sm font-black">Clear</button>
+            )}
+          </div>
+
+          {searchQuery && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {groupsArray.length > 0 ? groupsArray.map((g, i) => (
+                <div key={i} className="p-3 rounded-xl border bg-white shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-black text-slate-800">{g.nama}</div>
+                      <div className="text-[11px] text-slate-500">{g.clinics && g.clinics.length ? g.clinics.join(', ') : ''}</div>
+                    </div>
+                    <div className="text-xs font-black text-slate-400">{g.sessions.length} sesi</div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[...new Set(g.sessions.map(s => s.jadwal_hari))].map((hari) => (
+                      <button key={hari} onClick={() => {
+                        // pilih sesi pertama yang cocok untuk membuka mode edit
+                        const sesi = g.sessions.find(s => s.jadwal_hari === hari);
+                        if (sesi) {
+                          setEditData(sesi);
+                          setFilterHari(sesi.jadwal_hari || hariIni);
+                          setFormKey(`edit-${sesi.id}`);
+                          window.scrollTo({top: 0, behavior: 'smooth'});
+                        }
+                      }} className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black">{hari}</button>
+                    ))}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-sm italic text-slate-400">Tidak ditemukan hasil untuk "{searchQuery}"</div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* --- FORM INPUT --- */}
       <div className={`p-6 md:p-10 rounded-[2.5rem] shadow-2xl border-2 transition-all duration-500 ${
         editData ? "bg-amber-50 border-amber-400" : "bg-white border-white"
       }`}>
-        <form id="form-dokter" action={handleAction}>
+        <form id="form-dokter" action={handleAction} key={formKey}>
           {editData && <input type="hidden" name="id" value={editData.id} />}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
@@ -153,7 +224,7 @@ export default function MasterDokter() {
                 </label>
                 <select 
                   name="hari" 
-                  value={editData?.jadwal_hari || filterHari || hariIni}
+                  value={filterHari}
                   onChange={(e) => setFilterHari(e.target.value)}
                   className="w-full bg-blue-50 border-2 border-blue-200 focus:border-blue-600 focus:bg-white p-4 rounded-2xl outline-none text-xs font-black uppercase cursor-pointer transition-all"
                 >
@@ -241,7 +312,8 @@ export default function MasterDokter() {
                 onClick={() => { 
                   setEditData(null); 
                   setFilterHari(""); 
-                  document.getElementById("form-dokter").reset(); 
+                  setFormKey("new");
+                  document.getElementById("form-dokter")?.reset(); 
                 }}
                 className="bg-slate-200 text-slate-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-300 transition-all"
               >
@@ -370,7 +442,7 @@ export default function MasterDokter() {
                         <td className="p-6">
                           <div className="flex justify-center gap-2">
                             <button 
-                              onClick={() => { setEditData(d); window.scrollTo({top: 0, behavior: 'smooth'}); }}
+                              onClick={() => { setEditData(d); setFilterHari(d.jadwal_hari || hariIni); setFormKey(`edit-${d.id}`); window.scrollTo({top: 0, behavior: 'smooth'}); }}
                               className="p-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
                             >
                               <Pencil size={18} />

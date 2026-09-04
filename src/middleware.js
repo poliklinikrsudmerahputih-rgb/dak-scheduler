@@ -16,7 +16,8 @@ export default function middleware(request) {
     pathname === "/login" || 
     pathname === "/signup" || 
     pathname === "/forgot-password" ||
-    pathname === "/view-jadwal";
+    pathname === "/view-jadwal" ||
+    pathname.startsWith("/shared");
 
   // 3. LOGIKA PROTEKSI:
   // Jika TIDAK ADA sesi dan mencoba buka halaman internal (seperti /sdm atau /buat-jadwal)

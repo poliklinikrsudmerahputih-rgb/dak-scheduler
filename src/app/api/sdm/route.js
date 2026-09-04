@@ -17,8 +17,9 @@ export async function GET(request) {
     const bulan = parseInt(searchParams.get("bulan")) || (new Date().getMonth() + 1);
     const tahun = parseInt(searchParams.get("tahun")) || new Date().getFullYear();
 
-    // Identifikasi Ruangan User
+    // Identifikasi Ruangan User; jika tidak ada sesi, boleh menggunakan param 'ruangan' (public view)
     let userRuangan = "POLIKLINIK"; 
+    const paramRuangan = searchParams.get("ruangan");
     if (session) {
       try {
         const userData = parseSessionValue(session);
@@ -26,6 +27,8 @@ export async function GET(request) {
       } catch (e) {
         console.warn("Format cookie lama atau tidak valid");
       }
+    } else if (paramRuangan) {
+      userRuangan = paramRuangan.toUpperCase();
     }
 
     // 1. Ambil data dasar SDM + LEFT JOIN ke saldo_mutu agar poin tampil

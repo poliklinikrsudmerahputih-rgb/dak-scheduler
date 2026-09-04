@@ -19,6 +19,10 @@ export default function BuatJadwal() {
 
   // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareRole, setShareRole] = useState("");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [showLegendModal, setShowLegendModal] = useState(false);
 
   // STATE UNTUK UNDO & REDO
   const [history, setHistory] = useState([{}]);
@@ -263,7 +267,6 @@ export default function BuatJadwal() {
       </style></head><body><div class="Section1">
         <div style="text-align:center;"><b>${header.institusi}</b><br/><b>${header.judul_bebas.toUpperCase()}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
         ${tableHtml}
-        ${legendHtml}
         <br/>
         <table style="width:100%; border:none;">
           <tr>
@@ -271,6 +274,7 @@ export default function BuatJadwal() {
             <td style="border:none; width:50%; text-align:center; font-size:9pt;">${header.tempat_cetak}, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${header.pembuat_jabatan}<br/><br/><br/><br/><span class="underline">${header.pembuat_nama}</span><br/>NIP. ${header.pembuat_nip}</td>
           </tr>
         </table>
+        ${legendHtml}
       </div></body></html>
     `;
     const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
@@ -361,6 +365,47 @@ export default function BuatJadwal() {
         </div>
       )}
 
+      {showLegendModal && (
+        <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-black">Keterangan Simbol</h3>
+              <button onClick={() => setShowLegendModal(false)} className="text-sm px-3 py-1 bg-slate-100 rounded">Tutup</button>
+            </div>
+            <div className="text-sm max-h-80 overflow-auto">
+              {dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map((d, i) => (
+                <div key={i} className="mb-3">
+                  <div className="font-bold">{d.simbol_praktik}</div>
+                  <div className="text-slate-600">{d.keterangan_simbol}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/40 z-[300] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <h3 className="font-black mb-3">Bagikan Jadwal</h3>
+            <p className="text-sm text-slate-600 mb-4">Pilih filter yang ingin Anda sertakan di link. Link akan bersifat tampilan (view-only) dan responsif untuk HP.</p>
+            <div className="mb-4">
+              <label className="block text-xs font-black uppercase">Filter Jabatan (contoh: Perawat)</label>
+              <input value={shareRole} onChange={e => setShareRole(e.target.value)} placeholder="Perawat" className="w-full p-3 border rounded mt-2" />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowShareModal(false)} className="px-4 py-2 rounded bg-slate-100">Batal</button>
+              <button onClick={() => {
+                const base = window.location.origin;
+                const url = `${base}/shared/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}${shareRole ? `&role=${encodeURIComponent(shareRole)}` : ''}`;
+                navigator.clipboard.writeText(url).then(() => { setShareLinkCopied(true); setTimeout(() => setShareLinkCopied(false), 2000); });
+              }} className="px-4 py-2 rounded bg-blue-600 text-white">Salin Link</button>
+            </div>
+            {shareLinkCopied && <div className="mt-3 text-sm text-green-600">Link tersalin ke clipboard.</div>}
+          </div>
+        </div>
+      )}
+
       <div className="p-2 lg:p-6">
         
         {/* ACTION BAR ATAS (PENGGANTI FORM HEADER) */}
@@ -381,6 +426,7 @@ export default function BuatJadwal() {
               {daftarBulan.map((b, i) => <option key={i} value={i+1}>{b}</option>)}
             </select>
             <input type="number" value={tahun} onChange={e => setTahun(parseInt(e.target.value))} className="p-3 border-2 border-blue-100 bg-blue-50 text-blue-900 rounded-xl font-black text-xs uppercase w-24 text-center" />
+            <button onClick={() => setShowShareModal(true)} className="ml-3 bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-xs uppercase">Bagikan Jadwal</button>
           </div>
         </div>
 
@@ -390,6 +436,13 @@ export default function BuatJadwal() {
             <h1 className="text-xl font-black">{header.institusi}</h1>
             <h2 className="text-lg text-blue-600">{header.judul_bebas}</h2>
             <p className="text-sm">PERIODE: {daftarBulan[bulan-1].toUpperCase()} {tahun}</p>
+          </div>
+
+          <div className="flex justify-between items-center mb-3 no-print">
+            <div />
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowLegendModal(true)} className="text-sm bg-slate-100 px-3 py-2 rounded-xl border">Keterangan Simbol</button>
+            </div>
           </div>
 
           <div className="overflow-x-auto border-t border-l border-black">

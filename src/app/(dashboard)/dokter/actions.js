@@ -81,3 +81,36 @@ export async function hapusDokter(id) {
     return { success: false, error: "Data gagal dihapus." };
   }
 }
+
+/**
+ * Menyamakan deskripsi untuk seluruh jadwal dokter dengan simbol yang sama
+ * pada ruangan pengguna yang sedang login.
+ */
+export async function simpanDeskripsiSimbol(simbol, keterangan) {
+  const simbolBersih = String(simbol || "").trim();
+  const deskripsi = String(keterangan || "").trim();
+  if (!simbolBersih) return { success: false, error: "Simbol tidak valid." };
+
+  try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+    if (!session) return { success: false, error: "Sesi habis, silakan login ulang." };
+
+    const userData = JSON.parse(session.value);
+    const ruanganUser = userData.ruangan || "POLIKLINIK";
+
+    await turso.execute({
+      sql: `UPDATE master_dokter
+        SET keterangan_simbol = ?
+        WHERE UPPER(TRIM(simbol_praktik)) = UPPER(TRIM(?))
+          AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))`,
+      args: [deskripsi, simbolBersih, ruanganUser]
+    });
+
+    revalidatePath("/dokter");
+    return { success: true };
+  } catch (e) {
+    console.error("Gagal menyimpan deskripsi simbol:", e);
+    return { success: false, error: "Deskripsi simbol gagal disimpan." };
+  }
+}

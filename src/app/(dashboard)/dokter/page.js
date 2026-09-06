@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { simpanDokter, hapusDokter } from "./actions";
+import { simpanDokter, hapusDokter, simpanDeskripsiSimbol } from "./actions";
 import { Pencil, Trash2, Stethoscope, Clock, Calendar, Tag, ShieldCheck, Activity, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -14,6 +14,8 @@ export default function MasterDokter() {
   const [filterHari, setFilterHari] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [formKey, setFormKey] = useState("new");
+  const [simbolDeskripsi, setSimbolDeskripsi] = useState(null);
+  const [isSavingSimbol, setIsSavingSimbol] = useState(false);
 
   const daftarKlinik = [
     "Poliklinik Dalam", "Gigi", "Mata", "THT", "Kulit dan Kelamin", 
@@ -105,21 +107,50 @@ export default function MasterDokter() {
 
   // --- SEARCH / GROUPING LOGIC ---
   const trimmedQuery = (searchQuery || "").trim().toLowerCase();
-  const filteredForSearch = trimmedQuery ? dataDokter.filter(d => (d.nama_dokter || "").toLowerCase().includes(trimmedQuery) || (d.klinik || "").toLowerCase().includes(trimmedQuery)) : [];
+  const filteredForSearch = trimmedQuery ? dataDokter.filter(d =>
+    (d.nama_dokter || "").toLowerCase().includes(trimmedQuery) ||
+    (d.klinik || "").toLowerCase().includes(trimmedQuery) ||
+    (d.simbol_praktik || "").toLowerCase().includes(trimmedQuery)
+  ) : [];
   const groupedResults = {};
   if (filteredForSearch.length) {
     filteredForSearch.forEach(d => {
       const key = (d.nama_dokter || "").trim().toLowerCase();
-      if (!groupedResults[key]) groupedResults[key] = { nama: d.nama_dokter, clinics: new Set(), sessions: [] };
+      if (!groupedResults[key]) groupedResults[key] = { nama: d.nama_dokter, clinics: new Set(), symbols: new Set(), sessions: [] };
       if (d.klinik) groupedResults[key].clinics.add(d.klinik);
+      if (d.simbol_praktik) groupedResults[key].symbols.add(d.simbol_praktik);
       groupedResults[key].sessions.push(d);
     });
   }
   const groupsArray = Object.values(groupedResults).map(g => ({
     nama: g.nama,
     clinics: Array.from(g.clinics),
+    symbols: Array.from(g.symbols),
     sessions: g.sessions
   }));
+
+  const openSymbolDescription = (simbol) => {
+    const existing = dataDokter.find(d =>
+      (d.simbol_praktik || "").trim().toLowerCase() === simbol.trim().toLowerCase() &&
+      (d.keterangan_simbol || "").trim()
+    );
+    setSimbolDeskripsi({ simbol, keterangan: existing?.keterangan_simbol || "" });
+  };
+
+  const saveSymbolDescription = async (event) => {
+    event.preventDefault();
+    if (!simbolDeskripsi) return;
+    setIsSavingSimbol(true);
+    const result = await simpanDeskripsiSimbol(simbolDeskripsi.simbol, simbolDeskripsi.keterangan);
+    setIsSavingSimbol(false);
+    if (!result.success) {
+      alert("❌ Gagal: " + result.error);
+      return;
+    }
+    alert(`✅ Deskripsi simbol ${simbolDeskripsi.simbol} disimpan untuk semua dokter dengan simbol yang sama.`);
+    setSimbolDeskripsi(null);
+    refreshData();
+  };
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-10 pb-20 font-sans">
@@ -145,7 +176,7 @@ export default function MasterDokter() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari Nama Dokter atau Klinik..."
+              placeholder="Cari Nama Dokter, Klinik, atau Simbol..."
               className="flex-1 bg-slate-50 border-2 border-transparent focus:border-blue-400 p-3 rounded-2xl outline-none text-sm font-semibold"
             />
             {searchQuery && (
@@ -165,6 +196,11 @@ export default function MasterDokter() {
                     <div className="text-xs font-black text-slate-400">{g.sessions.length} sesi</div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {g.symbols.map((simbol) => (
+                      <button key={simbol} type="button" onClick={() => openSymbolDescription(simbol)} className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black font-mono" title="Edit deskripsi simbol untuk semua dokter dengan simbol ini">
+                        Simbol: {simbol}
+                      </button>
+                    ))}
                     {[...new Set(g.sessions.map(s => s.jadwal_hari))].map((hari) => (
                       <button key={hari} onClick={() => {
                         // pilih sesi pertama yang cocok untuk membuka mode edit
@@ -180,12 +216,33 @@ export default function MasterDokter() {
                   </div>
                 </div>
               )) : (
-                <div className="text-sm italic text-slate-400">Tidak ditemukan hasil untuk "{searchQuery}"</div>
+                <div className="text-sm italic text-slate-400">Tidak ditemukan hasil untuk &quot;{searchQuery}&quot;</div>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {simbolDeskripsi && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/70 p-4">
+          <form onSubmit={saveSymbolDescription} className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-black text-slate-800">Deskripsi Simbol {simbolDeskripsi.simbol}</h2>
+            <p className="mt-2 text-xs text-slate-500">Deskripsi ini akan disimpan ke semua dokter di ruangan Anda yang menggunakan simbol tersebut.</p>
+            <textarea
+              value={simbolDeskripsi.keterangan}
+              onChange={(e) => setSimbolDeskripsi({ ...simbolDeskripsi, keterangan: e.target.value })}
+              rows={4}
+              autoFocus
+              className="mt-4 w-full rounded-2xl border-2 border-slate-200 p-4 text-sm outline-none focus:border-blue-500"
+              placeholder="Contoh: Praktik pagi dokter spesialis mata"
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button type="button" onClick={() => setSimbolDeskripsi(null)} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold">Batal</button>
+              <button type="submit" disabled={isSavingSimbol} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{isSavingSimbol ? "Menyimpan..." : "Simpan untuk Semua"}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* --- FORM INPUT --- */}
       <div className={`p-6 md:p-10 rounded-[2.5rem] shadow-2xl border-2 transition-all duration-500 ${

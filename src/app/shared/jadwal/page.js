@@ -112,16 +112,16 @@ export default function SharedJadwal() {
   daftar.sort((a,b) => (urutanProfesi[a.jabatan]||99) - (urutanProfesi[b.jabatan]||99) || (a.nama||'').localeCompare(b.nama||''));
 
   return (
-    <div className="min-h-screen bg-white p-0">
+    <div className="min-h-screen bg-white p-2 text-slate-900 md:p-4">
       <div className="w-full">
         {/* Use Tailwind classes; avoid styled-jsx to prevent hydration mismatch */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-3 text-slate-900 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="font-black text-lg">{`JADWAL - ${ruangan}`}</h1>
+            <h1 className="font-black text-lg text-slate-900">{`JADWAL - ${ruangan}`}</h1>
             <div className="text-sm text-slate-600">Periode: {format(new Date(tahun, bulan-1), 'MMMM yyyy', { locale: id })}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <input value={filterText} onChange={e => setFilterText(e.target.value)} placeholder="Filter nama atau jabatan" className="p-2 border rounded text-sm" />
+          <div className="flex flex-wrap items-center gap-2 text-slate-900">
+            <input value={filterText} onChange={e => setFilterText(e.target.value)} placeholder="Filter nama atau jabatan" className="min-w-0 flex-1 border border-slate-300 bg-white p-2 text-sm text-slate-900 placeholder:text-slate-500 rounded lg:flex-none" />
             <button onClick={() => {
               // reset filterText and remove filter params from URL
               setFilterText("");
@@ -131,11 +131,11 @@ export default function SharedJadwal() {
               const base = `${window.location.pathname}`;
               const newUrl = `${base}?${sp.toString()}`.replace(/\?$/, '');
               window.history.replaceState({}, document.title, newUrl || window.location.pathname);
-            }} className="px-3 py-2 bg-slate-100 rounded text-sm">Reset</button>
-            <select value={bulan} onChange={e => setBulan(Number(e.target.value))} className="p-2 border rounded text-sm">
+            }} className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900">Reset</button>
+            <select value={bulan} onChange={e => setBulan(Number(e.target.value))} className="border border-slate-300 bg-white p-2 text-sm text-slate-900 rounded">
               {Array.from({length:12}).map((_,i) => <option key={i} value={i+1}>{format(new Date(2020,i,1),'MMMM')}</option>)}
             </select>
-            <input type="number" value={tahun} onChange={e => setTahun(Number(e.target.value))} className="p-2 border rounded w-24 text-sm" />
+            <input type="number" value={tahun} onChange={e => setTahun(Number(e.target.value))} className="w-24 border border-slate-300 bg-white p-2 text-sm text-slate-900 rounded" />
             <button onClick={() => {
               if (filterText.trim()) {
                 // build person legend for filtered daftar
@@ -150,7 +150,7 @@ export default function SharedJadwal() {
               } else {
                 setShowLegend(true);
               }
-            }} className="px-3 py-2 bg-slate-100 rounded text-sm">Keterangan</button>
+            }} className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900">Keterangan</button>
           </div>
         </div>
 
@@ -170,17 +170,17 @@ export default function SharedJadwal() {
                     ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {daftar.length === 0 && <tr><td colSpan={jumlahHari+2} className="p-4 text-center">Tidak ada data</td></tr>}
+                <tbody className="text-slate-900">
+                  {daftar.length === 0 && <tr><td colSpan={jumlahHari+2} className="p-4 text-center text-slate-900">Tidak ada data</td></tr>}
                   {daftar.map((sdm, idx) => (
                     <tr key={sdm.id} className="border-b border-slate-200">
-                      <td className="p-1 text-[10px] text-center font-black">{idx+1}</td>
-                      <td className="p-2 text-[10px] align-top" style={{ maxWidth: '420px', wordBreak: 'break-word' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
+                      <td className="p-1 text-center text-[10px] font-black text-slate-900">{idx+1}</td>
+                      <td className="p-2 align-top text-[10px] text-slate-900" style={{ maxWidth: '420px', wordBreak: 'break-word' }}>{sdm.nama}<div className="text-xs text-slate-600">{sdm.jabatan}</div></td>
                       {Array.from({ length: jumlahHari }).map((_, i) => {
                         const tgl = i+1;
                         const key = `${sdm.id}-${tgl}`;
                         const val = jadwalMap.get(key) || '';
-                        return <td key={i} className="p-1 text-[10px] text-center align-top"><div className="whitespace-normal break-words text-[10px]">{val}</div></td>;
+                        return <td key={i} className="p-1 text-center align-top text-[10px] text-slate-900"><div className="whitespace-normal break-words text-[10px] text-slate-900">{val}</div></td>;
                       })}
 
                     </tr>

@@ -3,74 +3,251 @@ import { turso } from "@/lib/turso";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
-/**
- * Fungsi Utama: Menyimpan atau Memperbarui Data SDM
- * Ditambahkan kolom 'ruangan' secara otomatis berdasarkan Sesi Login
- */
-export async function simpanSDM(formData) {
-  // 1. Ambil data dari form
-  const id = formData.get("id"); 
-  const nama = formData.get("nama");
-  const nip = formData.get("nip");
-  const jabatan = formData.get("jabatan");
-  const status = formData.get("status");
-  const jenis_jabatan = formData.get("jenis_jabatan");
-  const no_wa = formData.get("no_wa");
+function cleanText(value) {
+  return String(value ?? "").trim();
+}
+
+function isValidWa(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 15;
+}
+
+async function getSessionUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session_dak_pro");
+
+  if (!session) {
+    return null;
+  }
 
   try {
-    // 2. Ambil Informasi Ruangan dari Cookies Sesi
-    const cookieStore = await cookies();
-    const session = cookieStore.get("session_dak_pro");
-    
-    if (!session) {
+    return JSON.parse(session.value);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Fungsi Utama: Menyimpan atau Memperbarui Data SDM
+ * Menambahkan validasi input dan log aktivasi serta status aktif/ruangan sekarang
+ */
+export async function simpanSDM(formData) {
+  const id = cleanText(formData.get("id"));
+  const nama = cleanText(formData.get("nama"));
+  const nip = cleanText(formData.get("nip"));
+  const jabatan = cleanText(formData.get("jabatan"));
+  const status = cleanText(formData.get("status"));
+  const jenis_jabatan = cleanText(formData.get("jenis_jabatan"));
+  const no_wa = cleanText(formData.get("no_wa"));
+
+  if (!nama) return { success: false, error: "Nama SDM wajib diisi." };
+  if (!nip) return { success: false, error: "NIP tidak boleh kosong." };
+  if (!jabatan) return { success: false, error: "Jabatan harus dipilih." };
+  if (!status) return { success: false, error: "Status pegawai harus dipilih." };
+  if (!jenis_jabatan) return { success: false, error: "Jenis jabatan harus dipilih." };
+  if (!isValidWa(no_wa)) return { success: false, error: "Format nomor WA tidak valid." };
+
+  try {
+    const userData = await getSessionUser();
+    if (!userData) {
       return { success: false, error: "Sesi login habis. Silakan login ulang." };
     }
 
-    const userData = JSON.parse(session.value);
-    const userRuangan = userData.ruangan || "POLIKLINIK";
+    const userRuangan = cleanText(userData.ruangan || "POLIKLINIK").toUpperCase();
+    const userId = userData.id;
+    const statusKerja = cleanText(formData.get("status_kerja")) || "AKTIF";
+    const ruanganAktif = cleanText(formData.get("ruangan_aktif") || userRuangan).toUpperCase();
+    const isAktif = formData.get("is_aktif") === "0" ? 0 : 1;
+
+    const duplicateCheck = await turso.execute({
+      sql: `SELECT id FROM sdm WHERE UPPER(TRIM(nip)) = UPPER(TRIM(?))${id ? " AND id != ?" : ""}`,
+      args: id ? [nip, id] : [nip],
+    });
+
+    if (duplicateCheck.rows.length > 0) {
+      return { success: false, error: "NIP sudah terdaftar. Gunakan NIP lain." };
+    }
+
+    const now = new Date().toISOString().slice(0, 10);
 
     if (id) {
-      // 3a. PROSES UPDATE
-      // Menyertakan ruangan agar data tetap terkunci di unit yang benar
+      const oldRow = await turso.execute({
+        sql: "SELECT * FROM sdm WHERE id = ?",
+        args: [id],
+      });
+
+      if (!oldRow.rows || oldRow.rows.length === 0) {
+        return { success: false, error: "Data SDM tidak ditemukan." };
+      }
+
+      const oldData = oldRow.rows[0];
       await turso.execute({
-        sql: `UPDATE sdm 
-              SET nama = ?, nip = ?, jabatan = ?, status = ?, jenis_jabatan = ?, no_wa = ?, ruangan = ? 
+        sql: `UPDATE sdm
+              SET nama = ?, nip = ?, jabatan = ?, status = ?, jenis_jabatan = ?, no_wa = ?,
+                  ruangan = ?, is_aktif = ?, status_kerja = ?, ruangan_aktif = ?,
+                  tanggal_mulai_kerja = COALESCE(tanggal_mulai_kerja, ?),
+                  tanggal_akhir_kerja = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
               WHERE id = ?`,
-        args: [nama, nip, jabatan, status, jenis_jabatan, no_wa, userRuangan, id],
+        args: [
+          nama,
+          nip,
+          jabatan,
+          status,
+          jenis_jabatan,
+          no_wa,
+          userRuangan,
+          isAktif,
+          statusKerja,
+          ruanganAktif,
+          now,
+          statusKerja === "RESIGN" || statusKerja === "NON_AKTIF" ? now : null,
+          userId,
+          id,
+        ],
+      });
+
+      await turso.execute({
+        sql: `INSERT INTO log_aktivitas (entity_type, entity_id, action, user_id, user_name, ruangan, old_value, new_value, keterangan)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          "sdm",
+          id,
+          "UPDATE",
+          userId,
+          userData.nama || "admin",
+          userRuangan,
+          JSON.stringify(oldData),
+          JSON.stringify({
+            nama,
+            nip,
+            jabatan,
+            status,
+            jenis_jabatan,
+            no_wa,
+            ruangan: userRuangan,
+            ruangan_aktif: ruanganAktif,
+            status_kerja: statusKerja,
+            is_aktif: isAktif,
+          }),
+          "Update data SDM",
+        ],
       });
     } else {
-      // 3b. PROSES INSERT
-      // Menambahkan kolom 'ruangan' saat simpan data baru
       await turso.execute({
-        sql: `INSERT INTO sdm (nama, nip, jabatan, status, jenis_jabatan, no_wa, ruangan) 
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [nama, nip, jabatan, status, jenis_jabatan, no_wa, userRuangan],
+        sql: `INSERT INTO sdm (nama, nip, jabatan, status, jenis_jabatan, no_wa, ruangan, is_aktif, status_kerja, ruangan_aktif, tanggal_mulai_kerja, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          nama,
+          nip,
+          jabatan,
+          status,
+          jenis_jabatan,
+          no_wa,
+          userRuangan,
+          isAktif,
+          statusKerja,
+          ruanganAktif,
+          now,
+          userId,
+        ],
+      });
+
+      const inserted = await turso.execute({
+        sql: "SELECT last_insert_rowid() AS id",
+      });
+      const newId = inserted.rows?.[0]?.id;
+
+      await turso.execute({
+        sql: `INSERT INTO log_aktivitas (entity_type, entity_id, action, user_id, user_name, ruangan, old_value, new_value, keterangan)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          "sdm",
+          newId,
+          "CREATE",
+          userId,
+          userData.nama || "admin",
+          userRuangan,
+          JSON.stringify({}),
+          JSON.stringify({
+            nama,
+            nip,
+            jabatan,
+            status,
+            jenis_jabatan,
+            no_wa,
+            ruangan: userRuangan,
+            ruangan_aktif: ruanganAktif,
+            status_kerja: statusKerja,
+            is_aktif: isAktif,
+          }),
+          "Tambah data SDM baru",
+        ],
       });
     }
 
-    // 4. Segarkan cache halaman agar tabel langsung terupdate
     revalidatePath("/sdm");
     return { success: true };
-
   } catch (error) {
     console.error("Gagal proses data SDM:", error);
-    // Return error message asli dari Turso agar mudah didebug
     return { success: false, error: error.message };
   }
 }
 
 /**
- * Fungsi: Menghapus Data SDM
+ * Fungsi: Menghapus Data SDM (soft delete agar data historis tetap aman)
  */
 export async function hapusSDM(id) {
   if (!id) return { success: false, error: "ID tidak valid." };
 
   try {
-    await turso.execute({
-      sql: "DELETE FROM sdm WHERE id = ?",
+    const userData = await getSessionUser();
+    if (!userData) {
+      return { success: false, error: "Sesi login habis. Silakan login ulang." };
+    }
+
+    const selected = await turso.execute({
+      sql: "SELECT * FROM sdm WHERE id = ?",
       args: [id],
     });
-    
+
+    if (!selected.rows || selected.rows.length === 0) {
+      return { success: false, error: "Data SDM tidak ditemukan." };
+    }
+
+    const current = selected.rows[0];
+    const now = new Date().toISOString().slice(0, 10);
+
+    await turso.execute({
+      sql: `UPDATE sdm
+            SET is_aktif = 0,
+                status_kerja = 'RESIGN',
+                tanggal_akhir_kerja = ?,
+                updated_at = CURRENT_TIMESTAMP,
+                updated_by = ?
+            WHERE id = ?`,
+      args: [now, userData.id, id],
+    });
+
+    await turso.execute({
+      sql: `INSERT INTO log_aktivitas (entity_type, entity_id, action, user_id, user_name, ruangan, old_value, new_value, keterangan)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "sdm",
+        id,
+        "DELETE",
+        userData.id,
+        userData.nama || "admin",
+        current.ruangan_aktif || current.ruangan || "POLIKLINIK",
+        JSON.stringify(current),
+        JSON.stringify({
+          is_aktif: 0,
+          status_kerja: "RESIGN",
+          tanggal_akhir_kerja: now,
+        }),
+        "SDM dihapus dari daftar aktif (soft delete)",
+      ],
+    });
+
     revalidatePath("/sdm");
     return { success: true };
   } catch (error) {

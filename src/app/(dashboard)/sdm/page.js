@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { simpanSDM, hapusSDM } from "./actions";
 import { 
   Pencil, Trash2, UserPlus, Users, BadgeCheck, 
@@ -9,12 +9,27 @@ import {
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 
+const urutanProfesi = {
+  "Bidan": 1,
+  "Psikologi Klinis": 2,
+  "Perawat": 3,
+  "Terapis Gigi": 4,
+  "Fisioterapis": 5,
+  "Terapi Wicara": 6,
+  "Terapi Okupasi": 7,
+  "Admin": 8
+};
+
 export default function MasterSDM() {
   const [dataSDM, setDataSDM] = useState([]);
   const [dataCutiSDM, setDataCutiSDM] = useState([]);
   const [editData, setEditData] = useState(null);
   const [tglSekarang, setTglSekarang] = useState("");
   const [filterJabatan, setFilterJabatan] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("SEMUA");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   
   // State Filter untuk Analytics Pasien & Rincian Klinik
   const [bulanFilter, setBulanFilter] = useState(new Date().getMonth() + 1);
@@ -26,19 +41,28 @@ export default function MasterSDM() {
   const [mutuForm, setMutuForm] = useState({ jenis: 'POTONG', kategori: 'DISIPLIN', nominal: '', catatan: '' });
   const [loadingMutu, setLoadingMutu] = useState(false);
 
-  // URUTAN PROFESI SESUAI PERMINTAAN
-  const urutanProfesi = {
-    "Bidan": 1,
-    "Psikologi Klinis": 2,
-    "Perawat": 3,
-    "Terapis Gigi": 4,
-    "Fisioterapis": 5,
-    "Terapi Wicara": 6,
-    "Terapi Okupasi": 7,
-    "Admin": 8
-  };
+  // --- STATE MODAL MUTASI / RIWAYAT ---
+  const [showMutasiModal, setShowMutasiModal] = useState(false);
+  const [selectedMutasiSDM, setSelectedMutasiSDM] = useState(null);
+  const [mutasiForm, setMutasiForm] = useState({ status_kerja: 'AKTIF', ruangan_aktif: '', keterangan: '' });
+  const [loadingMutasi, setLoadingMutasi] = useState(false);
+  const [logAktivitas, setLogAktivitas] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
-  const refreshData = async () => {
+  const fetchLogAktivitas = useCallback(async () => {
+    try {
+      setLoadingLogs(true);
+      const res = await fetch("/api/log-aktivitas");
+      const data = await res.json();
+      setLogAktivitas(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Gagal memuat log aktivitas:", error);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, []);
+
+  const refreshData = useCallback(async () => {
     try {
       // Mengambil data SDM (termasuk total_pasien) dan data Cuti
       const [resSDM, resCuti] = await Promise.all([
@@ -71,13 +95,52 @@ export default function MasterSDM() {
     } catch (error) {
       console.error("Gagal memuat data SDM:", error);
     }
-  };
+  }, [bulanFilter, filterJabatan, tahunFilter]);
 
   useEffect(() => {
     const skrg = new Date();
     setTglSekarang(format(skrg, "yyyy-MM-dd"));
     refreshData();
-  }, [filterJabatan, bulanFilter, tahunFilter]);
+    fetchLogAktivitas();
+  }, [refreshData, fetchLogAktivitas]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterJabatan, searchTerm, statusFilter]);
+
+  const filteredData = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    let hasil = [...dataSDM];
+
+    if (filterJabatan) {
+      hasil = hasil.filter((item) => item.jabatan === filterJabatan);
+    }
+
+    if (normalizedSearch) {
+      hasil = hasil.filter((item) => {
+        const text = `${item.nama || ""} ${item.nip || ""}`.toLowerCase();
+        return text.includes(normalizedSearch);
+      });
+    }
+
+    if (statusFilter !== "SEMUA") {
+      hasil = hasil.filter((item) => {
+        const statusAktif = item.status_kerja || "AKTIF";
+        return statusAktif.toUpperCase() === statusFilter;
+      });
+    }
+
+    return hasil;
+  }, [dataSDM, filterJabatan, searchTerm, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // FUNGSI CEK STATUS BERHALANGAN HARI INI
   const cekSedangCuti = (nama) => {
@@ -133,7 +196,6 @@ export default function MasterSDM() {
 
     setLoadingMutu(true);
     try {
-      // PERBAIKAN 1 & 2: Tembak ke API /api/sdm dan pastikan nominal dikirim sebagai Number
       const res = await fetch('/api/sdm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -153,6 +215,7 @@ export default function MasterSDM() {
         setShowMutuModal(false);
         setMutuForm({ jenis: 'POTONG', kategori: 'DISIPLIN', nominal: '', catatan: '' });
         refreshData();
+        fetchLogAktivitas();
       } else {
         alert("Gagal menyimpan evaluasi mutu. Pastikan backend sudah siap.");
       }
@@ -164,11 +227,116 @@ export default function MasterSDM() {
     }
   };
 
+  const handleSimpanMutasi = async (e) => {
+    e.preventDefault();
+    if (!selectedMutasiSDM) return;
+
+    setLoadingMutasi(true);
+    try {
+      const res = await fetch('/api/sdm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mutasi',
+          id: selectedMutasiSDM.id,
+          ruangan_aktif: mutasiForm.ruangan_aktif || selectedMutasiSDM.ruangan_aktif || selectedMutasiSDM.ruangan || 'POLIKLINIK',
+          status_kerja: mutasiForm.status_kerja,
+          keterangan: mutasiForm.keterangan || 'Perubahan status / ruangan SDM'
+        })
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.success) {
+        alert("✅ Perubahan status/ruangan SDM berhasil disimpan!");
+        setShowMutasiModal(false);
+        setSelectedMutasiSDM(null);
+        setMutasiForm({ status_kerja: 'AKTIF', ruangan_aktif: '', keterangan: '' });
+        refreshData();
+        fetchLogAktivitas();
+      } else {
+        alert(result.error || "Gagal menyimpan mutasi SDM.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan jaringan saat mutasi SDM.");
+    } finally {
+      setLoadingMutasi(false);
+    }
+  };
+
   const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-8 pb-20 font-sans">
       
+      {/* MODAL MUTASI SDM */}
+      {showMutasiModal && selectedMutasiSDM && (
+        <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] p-8 shadow-2xl border-4 border-slate-200 relative overflow-hidden">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black italic uppercase text-slate-800 flex items-center gap-2">
+                <MapPin size={24} className="text-blue-600" /> Mutasi SDM
+              </h3>
+              <button onClick={() => setShowMutasiModal(false)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200"><XCircle size={20}/></button>
+            </div>
+
+            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Target</p>
+              <p className="text-sm font-black uppercase text-slate-800 mt-1">{selectedMutasiSDM.nama}</p>
+              <p className="text-[10px] font-bold uppercase text-slate-500 mt-1">Ruangan saat ini: {selectedMutasiSDM.ruangan_aktif || selectedMutasiSDM.ruangan || 'POLIKLINIK'}</p>
+            </div>
+
+            <form onSubmit={handleSimpanMutasi} className="space-y-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Status Kerja</label>
+                <select
+                  value={mutasiForm.status_kerja}
+                  onChange={(e) => setMutasiForm({ ...mutasiForm, status_kerja: e.target.value })}
+                  className="w-full p-4 bg-white rounded-2xl font-black uppercase text-[10px] border-2 border-slate-200 outline-none focus:border-blue-500 text-slate-700"
+                >
+                  <option value="AKTIF">AKTIF</option>
+                  <option value="MUTASI">MUTASI</option>
+                  <option value="RESIGN">RESIGN</option>
+                  <option value="NON_AKTIF">NON_AKTIF</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Ruangan Baru</label>
+                <input
+                  type="text"
+                  value={mutasiForm.ruangan_aktif}
+                  onChange={(e) => setMutasiForm({ ...mutasiForm, ruangan_aktif: e.target.value })}
+                  placeholder="POLIKLINIK / IGD / ICU"
+                  className="w-full p-4 bg-white rounded-2xl font-black uppercase text-xs border-2 border-slate-200 outline-none focus:border-blue-500 text-slate-700"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 italic">Keterangan</label>
+                <input
+                  type="text"
+                  value={mutasiForm.keterangan}
+                  onChange={(e) => setMutasiForm({ ...mutasiForm, keterangan: e.target.value })}
+                  placeholder="Contoh: Mutasi ke ruangan IGD"
+                  className="w-full p-4 bg-white rounded-2xl font-black uppercase text-xs border-2 border-slate-200 outline-none focus:border-blue-500 text-slate-700"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loadingMutasi}
+                className="w-full py-4 rounded-2xl text-[11px] font-black uppercase shadow-xl flex justify-center items-center gap-2 transition-all bg-blue-600 text-white border-b-4 border-blue-800 hover:bg-blue-700"
+              >
+                {loadingMutasi ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />} 
+                Simpan Mutasi
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL KENDALI MUTU (OVERRIDE KOORDINATOR) */}
       {showMutuModal && selectedMutuSDM && (
         <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
@@ -333,8 +501,7 @@ export default function MasterSDM() {
             <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-4 italic leading-none mb-1">Jabatan (Urutan Profesi)</label>
             <select 
               name="jabatan" 
-              value={editData?.jabatan || filterJabatan || "Perawat"} 
-              onChange={(e) => setFilterJabatan(e.target.value)}
+              defaultValue={editData?.jabatan || "Perawat"}
               className="w-full bg-blue-50 border-none p-5 rounded-3xl outline-none text-xs font-black uppercase transition-all cursor-pointer shadow-sm"
             >
               {Object.keys(urutanProfesi).map(j => <option key={j} value={j}>{j}</option>)}
@@ -373,10 +540,10 @@ export default function MasterSDM() {
             >
               {editData ? "UPDATE DATA" : "SIMPAN SDM"}
             </button>
-            {(editData || filterJabatan) && (
+            {(editData || filterJabatan || searchTerm || statusFilter !== "SEMUA") && (
               <button 
                 type="button" 
-                onClick={() => { setEditData(null); setFilterJabatan(""); document.getElementById("form-sdm").reset(); refreshData(); }}
+                onClick={() => { setEditData(null); setFilterJabatan(""); setSearchTerm(""); setStatusFilter("SEMUA"); document.getElementById("form-sdm").reset(); refreshData(); }}
                 className="bg-slate-200 text-slate-600 px-8 py-5 rounded-3xl text-[10px] font-black uppercase hover:bg-slate-300 transition-all"
               >
                 RESET
@@ -385,6 +552,34 @@ export default function MasterSDM() {
           </div>
         </div>
       </form>
+
+      <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="flex-1 w-full md:max-w-md">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Cari Nama / NIP</label>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Masukkan nama atau NIP"
+            className="mt-2 w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-700 outline-none focus:border-blue-500"
+          />
+        </div>
+
+        <div className="w-full md:max-w-xs">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Filter Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="mt-2 w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-700 outline-none focus:border-blue-500"
+          >
+            <option value="SEMUA">Semua</option>
+            <option value="AKTIF">Aktif</option>
+            <option value="RESIGN">Resign</option>
+            <option value="MUTASI">Mutasi</option>
+            <option value="NON_AKTIF">Non Aktif</option>
+          </select>
+        </div>
+      </div>
 
       {/* --- TABLE: SDM DATABASE & PERFORMANCE --- */}
       <div className="bg-white rounded-[4rem] shadow-2xl overflow-hidden border border-slate-100 relative">
@@ -397,7 +592,7 @@ export default function MasterSDM() {
             </div>
           </div>
           <span className="text-[10px] font-black bg-blue-600 px-6 py-2.5 rounded-2xl text-white uppercase shadow-lg shadow-blue-900/40 tracking-tighter">
-             {dataSDM.length} Personil Aktif
+             {filteredData.length} Personil Aktif
           </span>
         </div>
 
@@ -414,12 +609,12 @@ export default function MasterSDM() {
               </tr>
             </thead>
             <tbody className="text-xs">
-              {dataSDM.length > 0 ? (
-                dataSDM.map((sdm, index) => {
+              {paginatedData.length > 0 ? (
+                paginatedData.map((sdm, index) => {
                   const dataCuti = cekSedangCuti(sdm.nama);
                   const isLagiCuti = !!dataCuti;
                   const isSesuaiFilter = filterJabatan && sdm.jabatan === filterJabatan;
-                  const isNewGroup = index === 0 || dataSDM[index-1].jabatan !== sdm.jabatan;
+                  const isNewGroup = index === 0 || paginatedData[index-1].jabatan !== sdm.jabatan;
 
                   // Kalkulasi Progress Bar Pasien
                   const totalPasien = sdm.total_pasien || 0;
@@ -567,7 +762,23 @@ export default function MasterSDM() {
                             >
                               <Scale size={16} className="text-amber-400" /> <span className="text-[9px] font-black tracking-widest uppercase">MUTU</span>
                             </button>
-                            
+
+                            <button
+                              onClick={() => {
+                                setSelectedMutasiSDM(sdm);
+                                setMutasiForm({
+                                  status_kerja: sdm.status_kerja || 'AKTIF',
+                                  ruangan_aktif: sdm.ruangan_aktif || sdm.ruangan || '',
+                                  keterangan: ''
+                                });
+                                setShowMutasiModal(true);
+                              }}
+                              className="px-4 py-3 flex items-center gap-2 bg-blue-600 border border-blue-700 text-white rounded-2xl hover:bg-blue-500 transition-all shadow-lg border-b-4 active:border-b-0 active:mt-1"
+                              title="Mutasi / pindah ruangan / ubah status kerja"
+                            >
+                              <MapPin size={16} className="text-white" /> <span className="text-[9px] font-black tracking-widest uppercase">MUTASI</span>
+                            </button>
+                             
                             {/* Tombol Edit & Hapus Lama (Hanya Ikon agar rapi) */}
                             {sdm.no_wa && (
                               <a href={`https://wa.me/${sdm.no_wa.replace(/^0/, '62')}`} target="_blank" className="p-3 bg-white border border-slate-100 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
@@ -577,7 +788,7 @@ export default function MasterSDM() {
                             <button onClick={() => { setEditData(sdm); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-3 bg-white border border-slate-100 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
                               <Pencil size={16} />
                             </button>
-                            <button onClick={async () => { if(confirm(`Hapus permanen ${sdm.nama}?`)) { await hapusSDM(sdm.id); refreshData(); } }} className="p-3 bg-white border border-slate-100 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm">
+                            <button onClick={async () => { if(confirm(`Hapus permanen ${sdm.nama}?`)) { await hapusSDM(sdm.id); refreshData(); fetchLogAktivitas(); } }} className="p-3 bg-white border border-slate-100 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm">
                               <Trash2 size={16} />
                             </button>
                           </div>
@@ -596,6 +807,63 @@ export default function MasterSDM() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {filteredData.length > 0 && (
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white rounded-[2rem] p-4 shadow-xl border border-slate-100">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Halaman {currentPage} / {totalPages} • {filteredData.length} data
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-black uppercase disabled:opacity-40"
+            >
+              Sebelumnya
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-black uppercase disabled:opacity-40"
+            >
+              Berikutnya
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden">
+        <div className="bg-slate-900 p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Activity size={20} className="text-emerald-400" />
+            <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Riwayat Aktivitas SDM</h2>
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-300">{loadingLogs ? 'Memuat...' : `${logAktivitas.length} catatan`}</span>
+        </div>
+
+        <div className="divide-y divide-slate-200">
+          {loadingLogs ? (
+            <div className="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-[0.2em]">Loading...</div>
+          ) : logAktivitas.length > 0 ? (
+            logAktivitas.slice(0, 8).map((log, idx) => (
+              <div key={log.id || idx} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.action} • {log.entity_type}</p>
+                  <p className="mt-1 text-sm font-black uppercase text-slate-800">{log.keterangan || 'Aktivitas SDM'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{log.user_name || 'System'}</p>
+                  <p className="mt-1 text-[10px] font-bold text-slate-400">{log.ruangan || '-'} • {log.created_at ? format(new Date(log.created_at), 'dd MMM yyyy HH:mm', { locale: id }) : '-'}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-[0.2em]">Belum ada aktivitas</div>
+          )}
         </div>
       </div>
 

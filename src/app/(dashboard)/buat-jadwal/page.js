@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
-import { Save, Printer, Loader2, FileText, AlertTriangle, Undo2, Redo2, Settings, X } from "lucide-react";
+import { Save, Loader2, FileText, AlertTriangle, Undo2, Redo2, Settings, X, Plus, Trash2, ArrowUp, ArrowDown, Users } from "lucide-react";
 import { id } from "date-fns/locale";
 
 export default function BuatJadwal() {
@@ -14,11 +14,14 @@ export default function BuatJadwal() {
   const [dataCutiSDM, setDataCutiSDM] = useState([]); 
   const [dataMasterDokter, setDataMasterDokter] = useState([]);
   const [isiJadwal, setIsiJadwal] = useState({});
+  const [kelompokJadwal, setKelompokJadwal] = useState([]);
+  const [anggotaKelompok, setAnggotaKelompok] = useState({});
   const [loading, setLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
 
   // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareRole, setShareRole] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
@@ -138,6 +141,58 @@ export default function BuatJadwal() {
 
         const merged = isViewingCurrentMonth ? sortedActive : [...sortedActive, ...historicalExtras];
         setDaftarSDM(merged);
+
+        const groupStorageKey = `jadwal-kelompok-v1:${String(header.ruangan || "POLIKLINIK").trim().toUpperCase()}`;
+        let savedGroupConfig = null;
+        try {
+          savedGroupConfig = JSON.parse(localStorage.getItem(groupStorageKey) || "null");
+        } catch {}
+
+        const roleNames = [...new Set(merged.map(person => String(person.jabatan || "Lainnya").trim() || "Lainnya"))];
+        const savedGroups = Array.isArray(savedGroupConfig?.groups)
+          ? savedGroupConfig.groups.filter(group => group?.id && group?.nama)
+          : [];
+        const nextGroups = savedGroups.length ? savedGroups : roleNames.map(role => ({
+          id: `jabatan:${role.toLocaleLowerCase()}`,
+          nama: role,
+          jabatanAsal: role,
+          keterangan: "",
+          penanggungJawab: "",
+          jabatanPenanggungJawab: "",
+          nipPenanggungJawab: "",
+        }));
+        const nextAssignments = { ...(savedGroupConfig?.assignments || {}) };
+
+        merged.forEach(person => {
+          const personId = String(person.id);
+          const assignedGroupExists = nextGroups.some(group => group.id === nextAssignments[personId]);
+          if (assignedGroupExists) return;
+
+          const role = String(person.jabatan || "Lainnya").trim() || "Lainnya";
+          let roleGroup = nextGroups.find(group =>
+            String(group.jabatanAsal || group.nama).trim().toLocaleLowerCase() === role.toLocaleLowerCase()
+          );
+          if (!roleGroup) {
+            roleGroup = {
+              id: `jabatan:${role.toLocaleLowerCase()}`,
+              nama: role,
+              jabatanAsal: role,
+              keterangan: "",
+              penanggungJawab: "",
+              jabatanPenanggungJawab: "",
+              nipPenanggungJawab: "",
+            };
+            nextGroups.push(roleGroup);
+          }
+          nextAssignments[personId] = roleGroup.id;
+        });
+
+        setKelompokJadwal(nextGroups);
+        setAnggotaKelompok(nextAssignments);
+        try {
+          localStorage.setItem(groupStorageKey, JSON.stringify({ groups: nextGroups, assignments: nextAssignments }));
+        } catch {}
+
         setDataMasterDokter(Array.isArray(dDkt) ? dDkt : []);
         setDataCutiSDM(Array.isArray(dCuti) ? dCuti : []);
 
@@ -153,7 +208,7 @@ export default function BuatJadwal() {
       finally { setLoading(false); }
     }
     fetchData();
-  }, [bulan, tahun, hasMounted]);
+  }, [bulan, tahun, hasMounted, header.ruangan]);
 
   // --- 4. LOGIKA HELPER & UNDO/REDO ---
   const updateIsiJadwal = (newIsiJadwal) => {
@@ -178,6 +233,59 @@ export default function BuatJadwal() {
     }
   };
 
+  const simpanKonfigurasiKelompok = (groups, assignments) => {
+    setKelompokJadwal(groups);
+    setAnggotaKelompok(assignments);
+    try {
+      const key = `jadwal-kelompok-v1:${String(header.ruangan || "POLIKLINIK").trim().toUpperCase()}`;
+      localStorage.setItem(key, JSON.stringify({ groups, assignments }));
+    } catch {}
+  };
+
+  const ubahKelompok = (groupId, updates) => {
+    simpanKonfigurasiKelompok(
+      kelompokJadwal.map(group => group.id === groupId ? { ...group, ...updates } : group),
+      anggotaKelompok
+    );
+  };
+
+  const tambahKelompok = () => {
+    const id = `kelompok:${Date.now()}`;
+    const groups = [...kelompokJadwal, {
+      id,
+      nama: `Kelompok ${kelompokJadwal.length + 1}`,
+      keterangan: "",
+      penanggungJawab: "",
+      jabatanPenanggungJawab: "",
+      nipPenanggungJawab: "",
+    }];
+    simpanKonfigurasiKelompok(groups, anggotaKelompok);
+  };
+
+  const hapusKelompok = (groupId) => {
+    if (kelompokJadwal.length <= 1) return;
+    const groups = kelompokJadwal.filter(group => group.id !== groupId);
+    const fallbackId = groups[0].id;
+    const assignments = Object.fromEntries(Object.entries(anggotaKelompok).map(([personId, assignedId]) => [
+      personId,
+      assignedId === groupId ? fallbackId : assignedId,
+    ]));
+    simpanKonfigurasiKelompok(groups, assignments);
+  };
+
+  const pindahKelompok = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= kelompokJadwal.length) return;
+    const groups = [...kelompokJadwal];
+    [groups[index], groups[targetIndex]] = [groups[targetIndex], groups[index]];
+    simpanKonfigurasiKelompok(groups, anggotaKelompok);
+  };
+
+  const kelompokDenganAnggota = kelompokJadwal.map(group => ({
+    ...group,
+    anggota: daftarSDM.filter(person => String(anggotaKelompok[String(person.id)]) === group.id),
+  })).filter(group => group.anggota.length > 0);
+
   const getAutoCutiValue = (namaSdm, tgl) => {
     const targetDate = format(new Date(tahun, bulan - 1, tgl), "yyyy-MM-dd");
     const foundCuti = dataCutiSDM.find(c => c.nama_sdm === namaSdm && c.status_acc === "Disetujui" && targetDate >= c.tgl_mulai && targetDate <= c.tgl_selesai);
@@ -192,14 +300,42 @@ export default function BuatJadwal() {
     return uniqueSimbols.filter(s => s && !statusAbsensi.includes(s));
   };
 
+  const getKeteranganSimbolTerkelompok = (anggota = null) => {
+    const simbolTerpakai = anggota ? new Set() : null;
+    if (anggota) {
+      anggota.forEach(person => {
+        for (let tgl = 1; tgl <= jumlahHari; tgl++) {
+          const simbol = getAutoCutiValue(person.nama, tgl) || isiJadwal[`${person.id}-${tgl}`];
+          if (simbol) simbolTerpakai.add(String(simbol).trim().toLocaleUpperCase());
+        }
+      });
+    }
+
+    const groups = new Map();
+    dataMasterDokter.forEach(dokter => {
+      const simbol = String(dokter.simbol_praktik || "").trim();
+      const keterangan = String(dokter.keterangan_simbol || "").trim();
+      if (!simbol || !keterangan) return;
+
+      const key = simbol.toLocaleUpperCase();
+      if (simbolTerpakai && !simbolTerpakai.has(key)) return;
+      if (!groups.has(key)) groups.set(key, { simbol, keterangan: [] });
+      const group = groups.get(key);
+      if (!group.keterangan.some(value => value.toLocaleLowerCase() === keterangan.toLocaleLowerCase())) {
+        group.keterangan.push(keterangan);
+      }
+    });
+    return [...groups.values()].sort((a, b) => a.simbol.localeCompare(b.simbol, "id"));
+  };
+
   const cekTanggalMerah = (tgl) => {
     const d = new Date(tahun, bulan - 1, tgl);
     return getDay(d) === 0 || hariLibur2026.includes(format(d, "yyyy-MM-dd"));
   };
 
-  const hitungTotalMasuk = (tgl, kategori) => {
+  const hitungTotalMasuk = (tgl, kategori, anggota = daftarSDM) => {
     let total = 0;
-    daftarSDM.forEach(sdm => {
+    anggota.forEach(sdm => {
       const val = getAutoCutiValue(sdm.nama, tgl) || isiJadwal[`${sdm.id}-${tgl}`];
       if (val && !statusAbsensi.includes(val)) {
         const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
@@ -240,21 +376,32 @@ export default function BuatJadwal() {
 
   const downloadWord = () => {
     const areaJadwal = document.querySelector("#area-jadwal").cloneNode(true);
-    areaJadwal.querySelectorAll("select").forEach(select => {
-      const textNode = document.createTextNode(select.value || ".");
-      select.parentNode.replaceChild(textNode, select);
-    });
-    areaJadwal.querySelectorAll(".no-print").forEach(el => el.remove());
-
-    const tableHtml = areaJadwal.querySelector("table").outerHTML;
-    // Build legend HTML for simbol descriptions (only include non-empty descriptions)
-    const legendRows = dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map(d => `
-      <tr>
-        <td style="width:80px;padding:2px;vertical-align:top;font-weight:bold;">${d.simbol_praktik}</td>
-        <td style="padding:2px;">${d.keterangan_simbol}</td>
-      </tr>
-    `).join('');
-    const legendHtml = legendRows ? `<div style="margin-top:12px;font-weight:bold;">Keterangan Simbol:</div><table style="width:100%;border-collapse:collapse;margin-top:6px;">${legendRows}</table><br/>` : '';
+    const groupedTablesHtml = Array.from(areaJadwal.querySelectorAll(".schedule-section")).map(section => {
+      const sectionCopy = section.cloneNode(true);
+      sectionCopy.querySelectorAll(".no-print").forEach(el => el.remove());
+      sectionCopy.querySelectorAll(".schedule-signatures").forEach(el => el.remove());
+      sectionCopy.querySelectorAll(".schedule-recap-column").forEach(el => el.remove());
+      sectionCopy.querySelectorAll("label").forEach(label => {
+        if (label.querySelector('input[type="checkbox"]')) label.remove();
+      });
+      sectionCopy.querySelectorAll("input, select, button").forEach(el => el.remove());
+      return sectionCopy.outerHTML;
+    }).join("");
+    const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[character]);
+    const signatureHtml = `
+      <table class="final-signatures" style="width:100%; border-collapse:collapse; table-layout:fixed; margin-top:24pt; page-break-inside:avoid;">
+        <tbody><tr>
+          <td style="width:50%; border:none; text-align:center; vertical-align:top; font-size:9pt;">
+            Mengetahui,<br/>${escapeHtml(header.atasan_jabatan)}<br/><br/><br/><br/><span class="underline">${escapeHtml(header.atasan_nama)}</span><br/>NIP. ${escapeHtml(header.atasan_nip)}
+          </td>
+          <td style="width:50%; border:none; text-align:center; vertical-align:top; font-size:9pt;">
+            ${escapeHtml(header.tempat_cetak)}, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${escapeHtml(header.pembuat_jabatan)}<br/><br/><br/><br/><span class="underline">${escapeHtml(header.pembuat_nama)}</span><br/>NIP. ${escapeHtml(header.pembuat_nip)}
+          </td>
+        </tr></tbody>
+      </table>
+    `;
     const wordHeader = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head><meta charset='utf-8'><style>
@@ -264,17 +411,16 @@ export default function BuatJadwal() {
         th, td { border: 0.5pt solid black; padding: 2px; font-size: 7.5pt; text-align: center; overflow: hidden; word-wrap: break-word; }
         .bg-red-word { background-color: #FFDADA !important; mso-shading: red; mso-pattern: gray-15 auto; }
         .underline { text-decoration: underline; font-weight: bold; }
+        .schedule-section + .schedule-section { page-break-before: always; }
+        .schedule-title { font-size: 12pt; font-weight: bold; text-transform: uppercase; border-bottom: 1pt solid #222; padding-bottom: 4pt; margin-bottom: 4pt; }
+        .schedule-description { font-size: 9pt; margin: 2pt 0 8pt; }
+        .compact-legend { font-size: 7pt; line-height: 1.2; margin-top: 10pt; }
+        .compact-legend > div { margin-top: 2pt; }
+        .final-signatures td { padding: 0 12pt; }
       </style></head><body><div class="Section1">
         <div style="text-align:center;"><b>${header.institusi}</b><br/><b>${header.judul_bebas.toUpperCase()}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
-        ${tableHtml}
-        <br/>
-        <table style="width:100%; border:none;">
-          <tr>
-            <td style="border:none; width:50%; text-align:center; font-size:9pt;">Mengetahui,<br/>${header.atasan_jabatan}<br/><br/><br/><br/><span class="underline">${header.atasan_nama}</span><br/>NIP. ${header.atasan_nip}</td>
-            <td style="border:none; width:50%; text-align:center; font-size:9pt;">${header.tempat_cetak}, ${format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>${header.pembuat_jabatan}<br/><br/><br/><br/><span class="underline">${header.pembuat_nama}</span><br/>NIP. ${header.pembuat_nip}</td>
-          </tr>
-        </table>
-        ${legendHtml}
+        ${groupedTablesHtml}
+        ${signatureHtml}
       </div></body></html>
     `;
     const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
@@ -292,9 +438,14 @@ export default function BuatJadwal() {
       <style jsx global>{`
         .cell-input { min-width: 32px; max-width: 45px; width: 100%; }
         .dropdown-select { width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+        .schedule-signature-name { display: inline-block; min-width: 200px; border-bottom: 1px solid #111; padding: 0 10px 2px; }
         @media print {
           @page { size: landscape; margin: 3mm; }
           .no-print { display: none !important; }
+          .schedule-section + .schedule-section { break-before: page; page-break-before: always; }
+          .schedule-signatures { width: 100%; margin: 24px auto 0; text-align: center; font-size: 10px; font-weight: 700; break-inside: avoid; page-break-inside: avoid; }
+          .compact-legend { margin-top: 16px; font-size: 8px; line-height: 1.2; }
+          .compact-legend > div { margin-top: 2px; }
           table { width: 100% !important; border: 1pt solid black !important; table-layout: fixed; }
           th, td { border: 0.5pt solid black !important; font-size: 6px !important; padding: 1px !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         }
@@ -365,6 +516,62 @@ export default function BuatJadwal() {
         </div>
       )}
 
+      {showGroupModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 no-print">
+          <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-slate-900 p-5 flex justify-between items-center text-white shrink-0">
+              <h2 className="font-black uppercase text-sm flex items-center gap-2"><Users size={18} /> Atur Kelompok Jadwal</h2>
+              <button onClick={() => setShowGroupModal(false)} aria-label="Tutup pengaturan kelompok" className="text-slate-300 hover:text-white"><X size={22} /></button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-sm text-slate-600">Atur judul, keterangan, urutan, penanggung jawab, dan penempatan SDM. Pengaturan tersimpan di browser untuk ruangan ini.</p>
+                <button onClick={tambahKelompok} className="shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2"><Plus size={16} /> Tambah kelompok</button>
+              </div>
+
+              <div className="space-y-3">
+                {kelompokJadwal.map((group, index) => (
+                  <div key={group.id} className="border border-slate-200 rounded-xl p-4 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex flex-col gap-1 pt-1">
+                        <button onClick={() => pindahKelompok(index, -1)} disabled={index === 0} aria-label="Naikkan urutan kelompok" className="p-1 text-slate-500 hover:text-blue-700 disabled:opacity-30"><ArrowUp size={16} /></button>
+                        <button onClick={() => pindahKelompok(index, 1)} disabled={index === kelompokJadwal.length - 1} aria-label="Turunkan urutan kelompok" className="p-1 text-slate-500 hover:text-blue-700 disabled:opacity-30"><ArrowDown size={16} /></button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+                        <label className="text-xs font-bold text-slate-600">Judul bagian
+                          <input value={group.nama} onChange={e => ubahKelompok(group.id, { nama: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+                        </label>
+                        <label className="text-xs font-bold text-slate-600">Keterangan bagian
+                          <input value={group.keterangan || ""} onChange={e => ubahKelompok(group.id, { keterangan: e.target.value })} placeholder="Opsional" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+                        </label>
+                      </div>
+                      <button onClick={() => hapusKelompok(group.id)} disabled={kelompokJadwal.length <= 1} aria-label={`Hapus kelompok ${group.nama}`} className="p-2 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30"><Trash2 size={17} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <h3 className="font-black text-sm text-slate-800 mb-2">Penempatan SDM</h3>
+                <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+                  {daftarSDM.map(person => (
+                    <label key={person.id} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-800">{person.nama}<span className="block text-xs font-normal text-slate-500">{person.jabatan}</span></span>
+                      <select value={anggotaKelompok[String(person.id)] || ""} onChange={e => simpanKonfigurasiKelompok(kelompokJadwal, { ...anggotaKelompok, [String(person.id)]: e.target.value })} className="w-full sm:w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
+                        {kelompokJadwal.map(group => <option key={group.id} value={group.id}>{group.nama}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-200 flex justify-end shrink-0">
+              <button onClick={() => setShowGroupModal(false)} className="px-6 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-bold">Selesai</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLegendModal && (
         <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl p-6">
@@ -373,10 +580,9 @@ export default function BuatJadwal() {
               <button onClick={() => setShowLegendModal(false)} className="text-sm px-3 py-1 bg-slate-100 rounded">Tutup</button>
             </div>
             <div className="text-sm max-h-80 overflow-auto">
-              {dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map((d, i) => (
-                <div key={i} className="mb-3">
-                  <div className="font-bold">{d.simbol_praktik}</div>
-                  <div className="text-slate-600">{d.keterangan_simbol}</div>
+              {getKeteranganSimbolTerkelompok().map(item => (
+                <div key={item.simbol} className="mb-2">
+                  <span className="font-bold">{item.simbol}:</span> <span className="text-slate-600">{item.keterangan.join("; ")}</span>
                 </div>
               ))}
             </div>
@@ -411,6 +617,13 @@ export default function BuatJadwal() {
         {/* ACTION BAR ATAS (PENGGANTI FORM HEADER) */}
         <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
           <div className="flex items-center gap-4 w-full md:w-auto">
+            <button
+              onClick={() => setShowGroupModal(true)}
+              className="bg-emerald-700 text-white px-5 py-3 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-emerald-800 w-full md:w-auto justify-center transition-all"
+            >
+              <Users size={16} />
+              Atur Kelompok
+            </button>
             <button 
               onClick={() => setShowSettingsModal(true)} 
               className="bg-slate-800 text-white px-5 py-3 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-slate-700 w-full md:w-auto justify-center transition-all"
@@ -445,165 +658,170 @@ export default function BuatJadwal() {
             </div>
           </div>
 
-          <div className="overflow-x-auto border-t border-l border-black">
-            <table className="w-full border-collapse table-fixed">
-              <thead>
-                <tr className="bg-slate-800 text-white">
-                  <th className="border border-black p-1 text-[10px] w-8" rowSpan="2">NO</th>
-                  <th className="border border-black p-1 text-[10px] w-48" rowSpan="2">NAMA & JABATAN</th>
-                  <th className="border border-black p-1 text-[10px]" colSpan={jumlahHari}>TANGGAL</th>
-                  <th className="border border-black p-1 text-[10px] w-32" rowSpan="2">REKAP</th>
-                </tr>
-                <tr className="bg-slate-700 text-white">
-                  {Array.from({ length: jumlahHari }).map((_, i) => (
-                    <th key={i} className={`border border-black p-1 text-[9px] cell-input ${cekTanggalMerah(i+1) ? 'text-red-300 bg-red-word' : ''}`}>
-                      {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {daftarSDM.map((sdm, idx) => {
-                  const rekap = {};
-                  return (
-                    <tr key={sdm.id} className="text-center">
-                      <td className="border border-black p-1 text-[9px]">{idx+1}</td>
-                      <td className="border border-black p-1 text-left whitespace-nowrap bg-slate-50 truncate">
-                        <div className="flex items-center gap-2">
-                          <div className="font-bold text-[10px] uppercase truncate">{sdm.nama}</div>
-                          {sdm.status_kerja !== 'AKTIF' && (
-                            <label className="ml-2 flex items-center gap-1 text-[9px]">
-                              <input type="checkbox" checked={sdm.tampil_di_jadwal !== 0} onChange={async (e) => {
-                                const show = e.target.checked ? 1 : 0;
-                                setToggling(true);
-                                try {
-                                  const res = await fetch('/api/sdm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_tampil', id: sdm.id, tampil: show }) });
-                                  const json = await res.json();
-                                  if (res.ok && json.success) {
-                                    if (show === 0) {
-                                      // remove row from daftarSDM
-                                      setDaftarSDM(prev => prev.filter(x => String(x.id) !== String(sdm.id)));
-                                    } else {
-                                      // refresh data to reflect change
-                                      const d = await fetch('/api/sdm');
-                                      const arr = await d.json();
-                                      setDaftarSDM(arr.filter(a => a.is_aktif === 1 || a.is_aktif === '1'));
-                                    }
-                                  } else {
-                                    alert('Gagal mengubah tampilan.');
-                                  }
-                                } catch (err) { console.error(err); alert('Kesalahan jaringan'); }
-                                setToggling(false);
-                              }} />
-                              <span className="text-slate-500">Tampil</span>
-                            </label>
-                          )}
-                        </div>
-                        <div className="text-[8px] text-blue-600 italic font-semibold truncate">{sdm.jabatan}</div>
-                      </td>
-                      {Array.from({ length: jumlahHari }).map((_, i) => {
-                        const tgl = i + 1;
-                        const autoVal = getAutoCutiValue(sdm.nama, tgl);
-                        const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
-                        if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
-
-                        // Compute target date and last-active threshold
-                        const targetDateObj = new Date(tahun, bulan - 1, tgl);
-                        let sdmActiveUntil = null;
-                        if (sdm.tanggal_akhir_kerja) sdmActiveUntil = new Date(sdm.tanggal_akhir_kerja);
-                        else if (sdm.last_mutasi) sdmActiveUntil = new Date(sdm.last_mutasi);
-
-                        const isAfterActive = sdmActiveUntil ? (targetDateObj > sdmActiveUntil) : false;
-
-                        // If target date is after the person's last active date, render an empty non-interactive cell
-                        if (isAfterActive) {
-                          return (
-                            <td key={i} className={`border border-black p-1 cell-input bg-slate-100 text-[10px]`}>
-                              <div className="text-slate-400 italic text-[10px]">-</div>
-                              <span className="hidden print:block font-bold text-[9px] truncate"></span>
-                            </td>
-                          );
-                        }
-
+          <div id="grouped-schedule-tables" className="space-y-5">
+            {kelompokDenganAnggota.map((group, groupIndex) => {
+              const groupLegend = getKeteranganSimbolTerkelompok(group.anggota);
+              return (
+              <section key={group.id} className="schedule-section" style={groupIndex > 0 ? { breakBefore: "page" } : undefined}>
+                <div className="mb-2 border-b-2 border-slate-800 pb-2">
+                  <h2 className="schedule-title text-sm font-black uppercase text-slate-900">{group.nama || "Kelompok tanpa nama"}</h2>
+                  {group.keterangan?.trim() && <p className="schedule-description mt-1 text-xs text-slate-600">{group.keterangan}</p>}
+                </div>
+                <div className="overflow-x-auto border-t border-l border-black">
+                  <table className="schedule-table w-full border-collapse table-fixed">
+                    <thead>
+                      <tr className="bg-slate-800 text-white">
+                        <th className="border border-black p-1 text-[10px] w-8" rowSpan="2">NO</th>
+                        <th className="border border-black p-1 text-[10px] w-48" rowSpan="2">NAMA & JABATAN</th>
+                        <th className="border border-black p-1 text-[10px]" colSpan={jumlahHari}>TANGGAL</th>
+                        <th className="schedule-recap-column border border-black p-1 text-[10px] w-32" rowSpan="2">REKAP</th>
+                      </tr>
+                      <tr className="bg-slate-700 text-white">
+                        {Array.from({ length: jumlahHari }).map((_, i) => (
+                          <th key={i} className={`border border-black p-1 text-[9px] cell-input ${cekTanggalMerah(i+1) ? 'text-red-300 bg-red-word' : ''}`}>
+                            {i+1}<br/>{namaHariSingkat[(hariPertama + i) % 7]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.anggota.map((sdm, idx) => {
+                        const rekap = {};
                         return (
-                          <td key={i} className={`border border-black p-0 cell-input`}>
-                            <div className="no-print">
-                              <div className="relative inline-block group">
-                                <select 
-                                  value={currentVal} 
-                                  title={currentVal}
-                                  disabled={!!autoVal}
-                                  onChange={e => updateIsiJadwal({...isiJadwal, [`${sdm.id}-${tgl}`]: e.target.value.toUpperCase()})}
-                                  className={`dropdown-select bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
-                                >
-                                  <option value=""></option>
-                                  <optgroup label="ABSENSI">
-                                    {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
-                                  </optgroup>
-                                  <optgroup label="DOKTER (CERDAS)">
-                                    {getSimbolHarian(tgl, currentVal).map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                    <option value="M">M</option>
-                                    <option value="T">T</option>
-                                  </optgroup>
-                                </select>
-
-                                </div>
+                          <tr key={sdm.id} className="text-center">
+                            <td className="border border-black p-1 text-[9px]">{idx+1}</td>
+                            <td className="border border-black p-1 text-left whitespace-nowrap bg-slate-50 truncate">
+                              <div className="flex items-center gap-2">
+                                <div className="font-bold text-[10px] uppercase truncate">{sdm.nama}</div>
+                                {sdm.status_kerja !== 'AKTIF' && (
+                                  <label className="ml-2 flex items-center gap-1 text-[9px]">
+                                    <input type="checkbox" checked={sdm.tampil_di_jadwal !== 0} onChange={async (e) => {
+                                      const show = e.target.checked ? 1 : 0;
+                                      setToggling(true);
+                                      try {
+                                        const res = await fetch('/api/sdm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_tampil', id: sdm.id, tampil: show }) });
+                                        const json = await res.json();
+                                        if (res.ok && json.success) {
+                                          if (show === 0) {
+                                            setDaftarSDM(prev => prev.filter(x => String(x.id) !== String(sdm.id)));
+                                          } else {
+                                            const d = await fetch('/api/sdm');
+                                            const arr = await d.json();
+                                            setDaftarSDM(arr.filter(a => a.is_aktif === 1 || a.is_aktif === '1'));
+                                          }
+                                        } else {
+                                          alert('Gagal mengubah tampilan.');
+                                        }
+                                      } catch (err) { console.error(err); alert('Kesalahan jaringan'); }
+                                      setToggling(false);
+                                    }} />
+                                    <span className="text-slate-500">Tampil</span>
+                                  </label>
+                                )}
                               </div>
-                            <span className="hidden print:block font-bold text-[9px] truncate">{currentVal}</span>
-                          </td>
+                              <div className="text-[8px] text-blue-600 italic font-semibold truncate">{sdm.jabatan}</div>
+                            </td>
+                            {Array.from({ length: jumlahHari }).map((_, i) => {
+                              const tgl = i + 1;
+                              const autoVal = getAutoCutiValue(sdm.nama, tgl);
+                              const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
+                              if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
+
+                              const targetDateObj = new Date(tahun, bulan - 1, tgl);
+                              let sdmActiveUntil = null;
+                              if (sdm.tanggal_akhir_kerja) sdmActiveUntil = new Date(sdm.tanggal_akhir_kerja);
+                              else if (sdm.last_mutasi) sdmActiveUntil = new Date(sdm.last_mutasi);
+                              const isAfterActive = sdmActiveUntil ? (targetDateObj > sdmActiveUntil) : false;
+
+                              if (isAfterActive) {
+                                return (
+                                  <td key={i} className="border border-black p-1 cell-input bg-slate-100 text-[10px]">
+                                    <div className="text-slate-400 italic text-[10px]">-</div>
+                                    <span className="hidden print:block font-bold text-[9px] truncate"></span>
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td key={i} className="border border-black p-0 cell-input">
+                                  <div className="no-print">
+                                    <div className="relative inline-block group">
+                                      <select
+                                        value={currentVal}
+                                        title={currentVal}
+                                        disabled={!!autoVal}
+                                        onChange={e => {
+                                          const key = `${sdm.id}-${tgl}`;
+                                          if (e.target.value === "__HAPUS__") {
+                                            const nextIsiJadwal = { ...isiJadwal };
+                                            delete nextIsiJadwal[key];
+                                            updateIsiJadwal(nextIsiJadwal);
+                                            return;
+                                          }
+                                          updateIsiJadwal({ ...isiJadwal, [key]: e.target.value.toUpperCase() });
+                                        }}
+                                        className={`dropdown-select bg-transparent text-center font-bold text-[10px] h-8 outline-none appearance-none cursor-pointer ${autoVal ? 'text-red-600 font-black' : 'text-slate-900'}`}
+                                      >
+                                        <option value="">-</option>
+                                        <option value="__HAPUS__">Hapus simbol</option>
+                                        <optgroup label="ABSENSI">
+                                          {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
+                                        </optgroup>
+                                        <optgroup label="DOKTER (CERDAS)">
+                                          {getSimbolHarian(tgl, currentVal).map(s => <option key={s} value={s}>{s}</option>)}
+                                          <option value="M">M</option>
+                                          <option value="T">T</option>
+                                        </optgroup>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <span className="hidden print:block font-bold text-[9px] truncate">{currentVal}</span>
+                                </td>
+                              );
+                            })}
+                            <td className="schedule-recap-column border border-black p-1 text-[8px] text-left font-bold italic truncate">
+                              {Object.entries(rekap).map(([k, v]) => `${k}:${v} `)}
+                            </td>
+                          </tr>
                         );
                       })}
-                      <td className="border border-black p-1 text-[8px] text-left font-bold italic truncate">
-                        {Object.entries(rekap).map(([k,v]) => `${k}:${v} `)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-slate-50 font-bold text-[9px]">
-                <tr>
-                  <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Perawat Masuk</td>
-                  {Array.from({ length: jumlahHari }).map((_, i) => (
-                    <td key={i} className="border border-black text-center text-blue-600 font-black cell-input">
-                      {hitungTotalMasuk(i+1, "perawat") || ""}
-                    </td>
-                  ))}
-                  <td className="border border-black"></td>
-                </tr>
-                <tr>
-                  <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Tenaga Lain Masuk</td>
-                  {Array.from({ length: jumlahHari }).map((_, i) => (
-                    <td key={i} className="border border-black text-center text-emerald-600 font-black cell-input">
-                      {hitungTotalMasuk(i+1, "lain") || ""}
-                    </td>
-                  ))}
-                  <td className="border border-black"></td>
-                </tr>
-              </tfoot>
-            </table>
+                    </tbody>
+                    <tfoot className="bg-slate-50 font-bold text-[9px]">
+                      <tr>
+                        <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Perawat Masuk</td>
+                        {Array.from({ length: jumlahHari }).map((_, i) => (
+                          <td key={i} className="border border-black text-center text-blue-600 font-black cell-input">{hitungTotalMasuk(i+1, "perawat", group.anggota) || ""}</td>
+                        ))}
+                        <td className="schedule-recap-column border border-black"></td>
+                      </tr>
+                      <tr>
+                        <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Tenaga Lain Masuk</td>
+                        {Array.from({ length: jumlahHari }).map((_, i) => (
+                          <td key={i} className="border border-black text-center text-emerald-600 font-black cell-input">{hitungTotalMasuk(i+1, "lain", group.anggota) || ""}</td>
+                        ))}
+                        <td className="schedule-recap-column border border-black"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                {groupLegend.length > 0 && (
+                  <div className="compact-legend mt-2 mb-1">
+                    <strong>Keterangan Simbol:</strong>
+                    {groupLegend.map(item => (
+                      <div key={item.simbol}><strong>{item.simbol}:</strong> {item.keterangan.join("; ")}</div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              );
+            })}
           </div>
 
-          {/* Legend for simbol descriptions (print-only) */}
-          <div className="mt-6 mb-4 hidden print:block text-[9px]">
-            <div className="font-bold mb-2">Keterangan Simbol:</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {dataMasterDokter.filter(d => d.keterangan_simbol && d.keterangan_simbol.trim() !== '').map((d, i) => (
-                  <tr key={i}>
-                    <td style={{ width: '60px', padding: '2px', verticalAlign: 'top' }} className="font-bold">{d.simbol_praktik}</td>
-                    <td style={{ padding: '2px' }}>{d.keterangan_simbol}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="schedule-signatures hidden print:grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+            <div className="schedule-signature-cell">Mengetahui,<br/>{header.atasan_jabatan}<br/><br/><br/><br/><span className="schedule-signature-name">{header.atasan_nama}</span><br/>NIP. {header.atasan_nip}</div>
+            <div className="schedule-signature-cell">{header.tempat_cetak}, {format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>{header.pembuat_jabatan}<br/><br/><br/><br/><span className="schedule-signature-name">{header.pembuat_nama}</span><br/>NIP. {header.pembuat_nip}</div>
           </div>
 
-          <div className="mt-8 flex justify-between text-center font-bold text-[11px] px-10 hidden print:flex">
-            <div className="w-1/3">Mengetahui,<br/>{header.atasan_jabatan}<br/><br/><br/><br/><u>{header.atasan_nama}</u><br/>NIP. {header.atasan_nip}</div>
-            <div className="w-1/3">{header.tempat_cetak}, {format(new Date(header.tgl_cetak), 'dd MMMM yyyy', { locale: id })}<br/>{header.pembuat_jabatan}<br/><br/><br/><br/><u>{header.pembuat_nama}</u><br/>NIP. {header.pembuat_nip}</div>
-          </div>
         </div>
 
         {/* BOTTOM ACTION BUTTONS */}
@@ -619,9 +837,6 @@ export default function BuatJadwal() {
 
           <button onClick={downloadWord} className="bg-emerald-600 text-white px-4 md:px-6 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
             <FileText size={18} /> <span className="hidden md:inline">Word Pro</span>
-          </button>
-          <button onClick={() => window.print()} className="bg-slate-900 text-white px-4 md:px-6 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-slate-800 transition-all">
-            <Printer size={18} /> <span className="hidden md:inline">Print PDF</span>
           </button>
           <button onClick={handleSimpan} className="bg-blue-600 text-white px-6 md:px-10 py-4 rounded-2xl font-black text-[10px] md:text-xs uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all">
             {loading ? <Loader2 className="animate-spin" /> : <Save size={18} />} <span className="hidden md:inline">Simpan Jadwal</span>

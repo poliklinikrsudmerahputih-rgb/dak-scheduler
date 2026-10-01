@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation"; 
 import { 
   Users, Stethoscope, Calendar, PlaneTakeoff, 
-  LayoutDashboard, Menu, X, Code, Cpu, LogOut 
+  LayoutDashboard, Menu, X, Code, Cpu, LogOut, TrendingUp
 } from "lucide-react";
 
 const siteConfig = {
@@ -32,6 +32,7 @@ export default function DashboardLayout({ children }) {
 
   const menu = [
     { name: "Dashboard", icon: <LayoutDashboard size={20}/>, href: "/" },
+    { name: "Analitik", icon: <TrendingUp size={20}/>, href: "/dashboard" },
     { name: "Master SDM", icon: <Users size={20}/>, href: "/sdm" },
     { name: "Master Dokter", icon: <Stethoscope size={20}/>, href: "/dokter" },
     { name: "Buat Jadwal", icon: <Calendar size={20}/>, href: "/buat-jadwal" },

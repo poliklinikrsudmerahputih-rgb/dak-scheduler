@@ -1,15 +1,36 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import useSWR from "swr";
 import Image from "next/image";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { 
-  Search, Camera, Clock, Cpu, 
+  Search, Camera, Clock,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
   ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
+
+const fetchJSONWithTimeout = async (url) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Server merespons dengan status ${response.status}.`);
+    const result = await response.json();
+    if (result?.error) throw new Error(result.error);
+    return result;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("Permintaan data melewati batas waktu 20 detik.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
 
 const normalisasiSimbolTampilan = (value) => String(value || "")
   .trim()
@@ -29,6 +50,36 @@ const ambilGrupSimbolDokter = (value) => {
   if (poliMatch) return poliMatch[0].replace(/\s+/g, " ").trim().toUpperCase();
 
   return normalized;
+};
+const getTanggalJakarta = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+const getStatusMutuPraktik = (jamPraktik, jamMulaiAktual) => {
+  const jadwal = String(jamPraktik || "").match(/(?:^|\D)(\d{1,2})[:.](\d{2})/);
+  const waktuAktual = new Date(jamMulaiAktual || "");
+  if (!jadwal || Number.isNaN(waktuAktual.getTime())) return null;
+
+  const jadwalMenit = Number(jadwal[1]) * 60 + Number(jadwal[2]);
+  const waktuParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(waktuAktual);
+  const waktuValues = Object.fromEntries(waktuParts.map(({ type, value }) => [type, value]));
+  const aktualMenit = Number(waktuValues.hour) * 60 + Number(waktuValues.minute);
+
+  return {
+    terlambatMenit: Math.max(0, aktualMenit - jadwalMenit),
+    jamAktual: `${waktuValues.hour}:${waktuValues.minute}`
+  };
 };
 
 // ======================================================
@@ -50,18 +101,22 @@ const hitungPoinJaspel = (pasien, bobot, timAsisten) => {
 // KOMPONEN BARU: JAM BERJALAN (LIVE CLOCK) TERPISAH
 // ======================================================
 const LiveClock = () => {
-  const [liveTime, setLiveTime] = useState(new Date());
+  const [liveTime, setLiveTime] = useState(null);
 
   useEffect(() => {
+    const initialTimer = setTimeout(() => setLiveTime(new Date()), 0);
     const timer = setInterval(() => {
       setLiveTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(timer);
+    };
   }, []);
 
   return (
     <p className="text-emerald-400 font-mono font-black text-xl tracking-widest leading-none">
-       {format(liveTime, 'HH:mm:ss')} <span className="text-[10px] text-emerald-200/70">WIB</span>
+       {liveTime ? format(liveTime, 'HH:mm:ss') : '--:--:--'} <span className="text-[10px] text-emerald-200/70">WIB</span>
     </p>
   );
 };
@@ -515,18 +570,31 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
 // 3. KOMPONEN UTAMA
 // ======================================================
 export default function ViewJadwalPublic() {
-  const [data, setData] = useState(null);
-  const [daftarSDM, setDaftarSDM] = useState([]); 
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [inputPasien, setInputPasien] = useState({});
   const [editMode, setEditMode] = useState({});
   
-  const [selectedDateFull, setSelectedDateFull] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDateFull, setSelectedDateFull] = useState(getTanggalJakarta());
+  const [startingDoctorId, setStartingDoctorId] = useState(null);
+  const [manualDoctorId, setManualDoctorId] = useState(null);
+  const [manualStartTime, setManualStartTime] = useState("");
   
   const tanggal = parseInt(selectedDateFull.split('-')[2], 10);
   const bulan = parseInt(selectedDateFull.split('-')[1], 10);
   const tahun = parseInt(selectedDateFull.split('-')[0], 10);
+  const ruanganShare = typeof window === "undefined"
+    ? null
+    : new URLSearchParams(window.location.search).get("ruangan");
+  const shareQuery = ruanganShare ? `&ruangan=${encodeURIComponent(ruanganShare)}` : "";
+  const dashboardUrl = `/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`;
+  const swrOptions = { revalidateOnFocus: false, dedupingInterval: 60000 };
+  const { data, error: dashboardError, isLoading: loading, mutate: mutateDashboard } = useSWR(
+    dashboardUrl,
+    fetchJSONWithTimeout,
+    swrOptions
+  );
+  const { data: sdmData } = useSWR("/api/sdm", fetchJSONWithTimeout, swrOptions);
+  const daftarSDM = Array.isArray(sdmData) ? sdmData : [];
   
   const [searchTerm, setSearchTerm] = useState("");
   const [searchCutiTerm, setSearchCutiTerm] = useState("");
@@ -567,56 +635,65 @@ export default function ViewJadwalPublic() {
     };
   }, []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const ruanganShare = urlParams.get('ruangan');
-      const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
-      
-      if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
-
-      const [resDash, resSDM] = await Promise.all([
-        fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`),
-        fetch("/api/sdm")
-      ]);
-
-      const dDash = await resDash.json();
-      const dSDM = await resSDM.json();
-      
-      setDaftarSDM(Array.isArray(dSDM) ? dSDM : []);
-
-      if (dDash) {
-        setData(dDash);
-        if (dDash.summary?.ruangan) {
-          setRuanganAktifGlobal(dDash.summary.ruangan);
-        }
-          const savedValues = {};
-          const editStatus = {};
-        
-          dDash.dokterPraktik?.forEach((dok) => {
-            const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-            savedValues[key] = dok.jumlah_pasien_poli || "";
-            editStatus[key] = !(dok.jumlah_pasien_poli > 0);
-          });
-          setInputPasien(savedValues);
-          setEditMode(editStatus);
-      }
-    } catch (e) { 
-      console.error("Gagal sinkronisasi data:", e); 
-    } finally { 
-      setLoading(false); 
-    }
-  }, [tanggal, bulan, tahun]);
-
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
+    if (!data) return;
+    if (data.summary?.ruangan) setRuanganAktifGlobal(data.summary.ruangan);
+
+    const savedValues = {};
+    const editStatus = {};
+    data.dokterPraktik?.forEach((dok) => {
+      const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+      savedValues[key] = dok.jumlah_pasien_poli || "";
+      editStatus[key] = !(dok.jumlah_pasien_poli > 0);
+    });
+    setInputPasien(savedValues);
+    setEditMode(editStatus);
+  }, [data, ruanganShare]);
+  const handleMulaiPraktik = async (dok, jamMulaiManual = "") => {
+    const dokterId = Number(dok.id);
+    if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
+      alert("ID dokter tidak valid.");
+      return;
+    }
+
+    setStartingDoctorId(dokterId);
+    try {
+      const res = await fetch("/api/mulai-praktik", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dokter_id: dokterId,
+          tanggal: selectedDateFull,
+          ...(jamMulaiManual ? { jam_mulai_manual: jamMulaiManual } : {})
+        })
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || "Gagal mencatat waktu mulai praktik.");
+      }
+
+      await mutateDashboard((current) => current ? {
+        ...current,
+        dokterPraktik: current.dokterPraktik.map((item) =>
+          Number(item.id) === dokterId
+            ? { ...item, jam_mulai_aktual: result.jam_mulai_aktual }
+            : item
+        )
+      } : current, { revalidate: false });
+      setManualDoctorId(null);
+      setManualStartTime("");
+    } catch (error) {
+      alert(error.message || "Gagal mencatat waktu mulai praktik.");
+    } finally {
+      setStartingDoctorId(null);
+    }
+  };
 
   const handleUpdatePasienSpesifik = async (dok) => {
     const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-    const jmlTotal = inputPasien[key];
-    if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
+    const jmlTotal = Number(inputPasien[key]);
+    if (!Number.isInteger(jmlTotal) || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
 
     setSubmitting(true);
     try {
@@ -630,15 +707,16 @@ export default function ViewJadwalPublic() {
           nama_dokter: dok.nama_dokter,
           klinik: dok.klinik,
           tanggal, bulan, tahun,
-          jumlah: parseInt(jmlTotal)
+          jumlah: jmlTotal
         })
       });
 
       const result = await res.json();
       if (res.ok && result.success) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
-        setEditMode({...editMode, [key]: false});
-        await fetchData(); 
+        await mutateDashboard();
+        setInputPasien((previous) => ({ ...previous, [key]: jmlTotal }));
+        setEditMode((previous) => ({ ...previous, [key]: false }));
       } else {
         alert("❌ Gagal menyimpan total pasien. " + (result.error || result.message || "Periksa koneksi dan akses publik."));
       }
@@ -694,7 +772,7 @@ export default function ViewJadwalPublic() {
         alert("🔄 Penugasan & Beban Berhasil Ditukar!");
         setShowSwap(false);
         setSwapData({ sdmA: "", sdmB: "" });
-        fetchData();
+        mutateDashboard();
       }
     } catch (e) { 
       alert("❌ Gagal tukar asisten."); 
@@ -712,7 +790,7 @@ export default function ViewJadwalPublic() {
       alert("✅ Pengajuan Berhasil!");
       e.target.reset();
       setShowCutiModal(false);
-      fetchData();
+      mutateDashboard();
     } else {
       alert("❌ Gagal: " + res.error);
     }
@@ -830,6 +908,7 @@ export default function ViewJadwalPublic() {
   };
 
   const labelHariIni = format(parseISO(selectedDateFull), "eeee, dd MMMM yyyy", { locale: id });
+  const isTanggalPraktikAktif = selectedDateFull === getTanggalJakarta();
 
   const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
     const simbol = ambilGrupSimbolDokter(dok.simbol_praktik || dok.simbol || dok.klinik);
@@ -837,15 +916,6 @@ export default function ViewJadwalPublic() {
     acc[simbol].push(dok);
     return acc;
   }, {});
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 font-black text-emerald-400 uppercase tracking-[0.5em] text-[10px]">
-      <div className="flex flex-col items-center gap-6 animate-pulse text-center">
-        <Cpu size={50} className="animate-spin duration-1000" />
-        <p>Syncing DAK-Intelligence System...</p>
-      </div>
-    </div>
-  );
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
@@ -964,7 +1034,30 @@ export default function ViewJadwalPublic() {
 
         {/* GRID UNIT CONTAINER (GROUPED CARD) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {Object.entries(groupedDokter || {}).map(([simbol, listDokter]) => {
+          {loading ? Array.from({ length: 4 }).map((_, cardIndex) => (
+            <section key={`dokter-skeleton-${cardIndex}`} aria-label="Memuat jadwal dokter" className="bg-white p-8 md:p-10 rounded-[4rem] border-2 border-white shadow-xl space-y-6">
+              <div className="animate-pulse rounded-[2.5rem] bg-slate-200 h-24" />
+              {Array.from({ length: 3 }).map((__, rowIndex) => (
+                <div key={`dokter-skeleton-${cardIndex}-${rowIndex}`} className="animate-pulse rounded-[2.5rem] border-2 border-slate-100 bg-slate-50 p-6 space-y-4">
+                  <div className="h-4 w-2/5 rounded bg-slate-200" />
+                  <div className="h-3 w-1/3 rounded bg-slate-200" />
+                  <div className="h-10 w-full rounded-2xl bg-slate-200" />
+                </div>
+              ))}
+            </section>
+          )) : dashboardError ? (
+            <div role="alert" className="col-span-full flex flex-col items-center gap-4 rounded-3xl border border-red-200 bg-red-50 px-6 py-10 text-center text-red-800 shadow-sm">
+              <AlertCircle size={28} className="text-red-600" />
+              <p className="max-w-xl text-sm font-bold">Gagal memuat data dari server. Periksa koneksi internet Anda atau klik tombol Muat Ulang.</p>
+              <button
+                type="button"
+                onClick={() => mutateDashboard()}
+                className="rounded-xl bg-red-600 px-5 py-3 text-[10px] font-black uppercase text-white transition hover:bg-red-700"
+              >
+                Muat Ulang
+              </button>
+            </div>
+          ) : Object.entries(groupedDokter || {}).map(([simbol, listDokter]) => {
             const filteredDokter = listDokter.filter(d => 
               d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase()) ||
               d.klinik.toLowerCase().includes(searchTerm.toLowerCase())
@@ -993,6 +1086,7 @@ export default function ViewJadwalPublic() {
                 <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {filteredDokter.map((dok, idx) => {
                     const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+                    const mutuPraktik = getStatusMutuPraktik(dok.jam_praktik, dok.jam_mulai_aktual);
 
                     return (
                       <div key={key} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
@@ -1000,6 +1094,87 @@ export default function ViewJadwalPublic() {
                           <div>
                             <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
                             <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 tracking-wider">{dok.klinik} • {dok.jam_praktik || "Jam Pelayanan"}</p>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              {mutuPraktik && (
+                                <span className={`text-[8px] font-black uppercase px-2.5 py-1 rounded-full border ${mutuPraktik.terlambatMenit <= 15 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                                  {mutuPraktik.terlambatMenit <= 15 ? `Tepat Waktu · ${mutuPraktik.jamAktual}` : `Terlambat ${mutuPraktik.terlambatMenit} menit`}
+                                </span>
+                              )}
+                              {dok.jam_mulai_aktual && !mutuPraktik && (
+                                <span className="text-[8px] font-bold uppercase px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-500">
+                                  Waktu tercatat · jadwal tidak valid
+                                </span>
+                              )}
+                              {!dok.jam_mulai_aktual && isTanggalPraktikAktif && !dok.isCuti && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMulaiPraktik(dok)}
+                                    disabled={startingDoctorId === Number(dok.id)}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                                  >
+                                    {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
+                                    Mulai Praktik
+                                  </button>
+                                  {manualDoctorId === Number(dok.id) ? (
+                                    <form
+                                      onSubmit={(event) => {
+                                        event.preventDefault();
+                                        handleMulaiPraktik(dok, manualStartTime);
+                                      }}
+                                      className="inline-flex items-center gap-2"
+                                    >
+                                      <input
+                                        aria-label={`Jam mulai aktual ${dok.nama_dokter}`}
+                                        type="time"
+                                        required
+                                        value={manualStartTime}
+                                        onChange={(event) => setManualStartTime(event.target.value)}
+                                        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-bold text-slate-700"
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={startingDoctorId === Number(dok.id)}
+                                        className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase text-white hover:bg-blue-700 disabled:opacity-60"
+                                      >
+                                        {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                                        Simpan
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setManualDoctorId(null);
+                                          setManualStartTime("");
+                                        }}
+                                        disabled={startingDoctorId === Number(dok.id)}
+                                        className="text-[8px] font-black uppercase text-slate-500 hover:text-slate-800"
+                                      >
+                                        Batal
+                                      </button>
+                                    </form>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const parts = new Intl.DateTimeFormat("en-GB", {
+                                          timeZone: "Asia/Jakarta",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          hourCycle: "h23"
+                                        }).formatToParts(new Date());
+                                        const timeParts = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+                                        setManualStartTime(`${timeParts.hour}:${timeParts.minute}`);
+                                        setManualDoctorId(Number(dok.id));
+                                      }}
+                                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[8px] font-black uppercase text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                                    >
+                                      <Edit3 size={12} /> Input Manual
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                             
                             {!dok.isCuti && (
                               <p className="text-[8px] font-black text-blue-600 uppercase mt-2 bg-blue-50 w-fit px-2 py-0.5 rounded border border-blue-100 italic">
@@ -1085,53 +1260,53 @@ export default function ViewJadwalPublic() {
                               }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            <form 
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                if(editMode[key]) handleUpdatePasienSpesifik(dok);
-                              }} 
-                              className="flex gap-3 items-end pt-2"
-                            >
-                              <div className="flex-1">
-                                <div className="flex justify-between items-center mb-1.5 ml-1">
-                                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest italic">Input Kunjungan</span>
-                                  {!editMode[key] ? <span className="text-[8px] text-red-500 flex items-center gap-0.5 font-bold"><Lock size={8}/> Kunci</span> : <span className="text-[8px] text-emerald-500 flex items-center gap-0.5 font-bold"><Unlock size={8}/> Buka</span>}
-                                </div>
-                                <input 
-                                  type="number" 
-                                  inputMode="numeric"
-                                  disabled={!editMode[key]} 
-                                  className={`w-full border-2 rounded-xl px-4 py-2.5 text-xs font-black outline-none transition-colors ${!editMode[key] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900'}`}
-                                  value={inputPasien[key] || ""}
-                                  onChange={(e) => setInputPasien({...inputPasien, [key]: e.target.value})}
-                                  placeholder="Total..."
-                                />
-                              </div>
-                              
-                              {!editMode[key] ? (
-                                <button 
+                            {Number(dok.jumlah_pasien_poli) > 0 && !editMode[key] ? (
+                              <div className="flex items-center justify-between gap-3 pt-2">
+                                <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[10px] font-black uppercase text-emerald-700">
+                                  <CheckCircle2 size={14} /> {Number(dok.jumlah_pasien_poli)} Pasien Tercatat
+                                </span>
+                                <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setEditMode({...editMode, [key]: true});
-                                  }}
-                                  className="p-3 bg-amber-500 text-white rounded-xl shadow-md hover:bg-amber-600 transition-all text-xs border-b-4 border-amber-700"
-                                  title="Edit Data"
+                                  onClick={() => setEditMode((previous) => ({ ...previous, [key]: true }))}
+                                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-[9px] font-black uppercase text-white shadow-sm transition hover:bg-amber-600"
+                                  title="Edit jumlah pasien"
                                 >
-                                  <Edit3 size={16} />
+                                  <Edit3 size={14} /> Edit
                                 </button>
-                              ) : (
-                                <button 
+                              </div>
+                            ) : (
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  handleUpdatePasienSpesifik(dok);
+                                }}
+                                className="flex gap-3 items-end pt-2"
+                              >
+                                <label className="flex-1">
+                                  <span className="mb-1.5 ml-1 block text-[7px] font-black uppercase tracking-widest text-slate-400 italic">Input Kunjungan</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    inputMode="numeric"
+                                    className="w-full rounded-xl border-2 border-blue-200 bg-white px-4 py-2.5 text-xs font-black text-blue-900 outline-none transition-colors"
+                                    value={inputPasien[key] ?? ""}
+                                    onChange={(event) => setInputPasien((previous) => ({ ...previous, [key]: event.target.value }))}
+                                    placeholder="Total pasien"
+                                  />
+                                </label>
+                                <button
                                   type="submit"
-                                  onMouseDown={(e) => e.preventDefault()} 
-                                  onTouchStart={(e) => e.preventDefault()} 
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onTouchStart={(event) => event.preventDefault()}
                                   disabled={submitting}
-                                  className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all text-xs border-b-4 border-blue-800"
+                                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[9px] font-black uppercase text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
                                 >
-                                  {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                  Simpan
                                 </button>
-                              )}
-                            </form>
+                              </form>
+                            )}
                           </div>
                         ) : (
                           <div className="mt-4 p-4 bg-red-50 rounded-2xl text-center border border-dashed border-red-200 flex items-center justify-center gap-2">

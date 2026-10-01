@@ -75,7 +75,7 @@ export async function GET(request) {
     } else {
         sqlJadwal = `SELECT j.*, s.nama FROM jadwal_dinas j JOIN sdm s ON j.sdm_id = s.id 
                      WHERE ${ruanganMatchClause} 
-                     AND CAST(j.tahun AS INTEGER) = ? AND CAST(j.bulan AS INTEGER) = ?`;
+                     AND j.tahun = ? AND j.bulan = ?`;
         argsJadwal = [kunciRuangan, pTahun, pBulan];
     }
 
@@ -88,12 +88,16 @@ export async function GET(request) {
         argsPasien = [queryTglAwalInt, queryTglAkhirInt];
     } else {
         sqlPasien = `SELECT * FROM jumlah_pasien_poli 
-                     WHERE CAST(tahun AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ?`;
+                     WHERE tahun = ? AND bulan = ?`;
         argsPasien = [pTahun, pBulan];
     }
 
-    // Execute independent queries in parallel to reduce total latency
-    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resAbsensiHariIni] = await Promise.all([
+    const sqlMasterDokter = `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol, ruangan
+                             FROM master_dokter
+                             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`;
+
+    // Launch every independent dashboard read in the same round trip window.
+    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll] = await Promise.all([
       turso.execute({ sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: "SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: sqlJadwal, args: argsJadwal }),
@@ -103,8 +107,34 @@ export async function GET(request) {
               WHERE tanggal = ? 
                 AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))`,
         args: [formatTglTarget, kunciRuangan]
-      })
+      }),
+      turso.execute({
+        sql: `SELECT dokter_id, tanggal, jam_mulai_aktual FROM indikator_mutu_praktik
+              WHERE ruangan = ? AND tanggal BETWEEN ? AND ?`,
+        args: [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan]
+      }).catch(() => ({ rows: [] })),
+      turso.execute({
+        sql: `SELECT * FROM cuti_sdm
+              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
+                AND NOT (tgl_selesai < ? OR tgl_mulai > ?)
+              ORDER BY id DESC LIMIT 50`,
+        args: [kunciRuangan, cutiRangeStart, cutiRangeEnd]
+      }),
+      turso.execute({
+        sql: `SELECT * FROM cuti_dokter
+              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
+                AND NOT (tgl_selesai < ? OR tgl_mulai > ?)`,
+        args: [kunciRuangan, cutiRangeStart, cutiRangeEnd]
+      }),
+      turso.execute({ sql: sqlMasterDokter, args: [kunciRuangan] })
     ]);
+
+    const dokterHariRows = isModeLaporan ? [] : resMasterDokterAll.rows.filter(dok =>
+      String(dok.jadwal_hari || "").trim().toUpperCase() === namaHariIndo.trim().toUpperCase()
+    );
+    const resMasterDokterHariIni = {
+      rows: isModeLaporan || dokterHariRows.length === 0 ? resMasterDokterAll.rows : dokterHariRows
+    };
 
     const semuaJadwalBulanIni = resJadwal.rows;
     const dataPasienBulanIni = resPasienPoli.rows;
@@ -113,50 +143,13 @@ export async function GET(request) {
       acc[row.sdm_id] = row;
       return acc;
     }, {});
+    const waktuPraktikMap = new Map(resWaktuPraktik.rows
+      .filter(row => row.tanggal === formatTglTarget)
+      .map(row => [Number(row.dokter_id), row.jam_mulai_aktual]));
 
     // Backwards-compat: expose variables expected by later code
     const sdmCount = sdmCountRes;
     const dokterCount = dokterCountRes;
-
-    // Ambil Data Cuti
-    const [resSdmCuti, resDokterCuti] = await Promise.all([
-      turso.execute({
-        sql: `SELECT * FROM cuti_sdm 
-              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))) 
-                AND NOT (tgl_selesai < ? OR tgl_mulai > ?) 
-              ORDER BY id DESC LIMIT 50`,
-        args: [kunciRuangan, cutiRangeStart, cutiRangeEnd]
-      }),
-      turso.execute({
-        sql: `SELECT * FROM cuti_dokter 
-              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))) 
-                AND NOT (tgl_selesai < ? OR tgl_mulai > ?)`,
-        args: [kunciRuangan, cutiRangeStart, cutiRangeEnd]
-      })
-    ]);
-
-    // Ambil Master Dokter
-    const resMasterDokterAll = await turso.execute({
-        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol FROM master_dokter
-            WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`,
-      args: [kunciRuangan]
-    });
-
-    let resMasterDokterHariIni;
-    if (isModeLaporan) {
-      resMasterDokterHariIni = resMasterDokterAll;
-    } else {
-      resMasterDokterHariIni = await turso.execute({
-          sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol FROM master_dokter
-              WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
-                AND jadwal_hari = ?`,
-        args: [kunciRuangan, namaHariIndo]
-      });
-      if (!resMasterDokterHariIni.rows || resMasterDokterHariIni.rows.length === 0) {
-        // Fallback: jika tidak ada match hari, tampilkan semua dokter di ruangan
-        resMasterDokterHariIni = resMasterDokterAll;
-      }
-    }
 
     const amanStr = (str) => String(str || "").trim().toUpperCase();
     const normalizeSimbol = (str) => String(str || "")
@@ -265,11 +258,14 @@ export async function GET(request) {
 
       return false;
     };
+
     const numberEquals = (a, b) => String(a || "").trim() === String(b || "").trim();
 
+    const simbolGrupCache = new Map();
     const getSimbolGrup = (jadwalSimbol) => {
       const jKey = getSimbolKey(jadwalSimbol);
       if (!jKey) return "LAINNYA";
+      if (simbolGrupCache.has(jKey)) return simbolGrupCache.get(jKey);
 
       const docMatch = resMasterDokterAll.rows.find(md => {
         const namaDokterKey = getSimbolKey(md.nama_dokter);
@@ -286,7 +282,9 @@ export async function GET(request) {
         );
       });
 
-      return docMatch ? getSimbolKey(docMatch.simbol_praktik) : jKey;
+      const group = docMatch ? getSimbolKey(docMatch.simbol_praktik) : jKey;
+      simbolGrupCache.set(jKey, group);
+      return group;
     };
 
     const isAsistenUntukDokter = (jadwal, dok) => {
@@ -299,21 +297,17 @@ export async function GET(request) {
       return simbolMatches(jadwalKey, dokterKey);
     };
 
+    const jadwalHariIni = isModeLaporan ? [] : semuaJadwalBulanIni.filter(j => Number(j.tanggal) === pTanggal);
+
     // Mapping Dokter Praktik (Card UI)
     const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
-      const recordPasienHarian = !isModeLaporan ? dataPasienBulanIni.find(p => {
-        return normalizeKey(p.nama_dokter) === normalizeKey(dok.nama_dokter) && normalizeKey(p.klinik) === normalizeKey(dok.klinik) && Number(p.tanggal) === pTanggal;
-      }) : null;
-
-      const listPasienRentang = dataPasienBulanIni.filter(p => {
-        return normalizeKey(p.nama_dokter) === normalizeKey(dok.nama_dokter) && normalizeKey(p.klinik) === normalizeKey(dok.klinik);
-      });
+      const listPasienRentang = pasienByDokterId.get(dok.id) || [];
+      const recordPasienHarian = !isModeLaporan
+        ? listPasienRentang.find(p => Number(p.tanggal) === pTanggal)
+        : null;
       const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
 
-      const timHarian = !isModeLaporan ? semuaJadwalBulanIni.filter(j => {
-        if (Number(j.tanggal) !== pTanggal) return false;
-        return isAsistenUntukDokter(j, dok);
-      }) : [];
+      const timHarian = jadwalHariIni.filter(j => isAsistenUntukDokter(j, dok));
 
       const isCutiDokter = !isModeLaporan ? resDokterCuti.rows.some(c => 
         amanStr(c.nama_dokter) === amanStr(dok.nama_dokter) && 
@@ -343,6 +337,7 @@ export async function GET(request) {
 
       return {
         ...dok,
+        jam_mulai_aktual: waktuPraktikMap.get(Number(dok.id)) || null,
         bobot_jaspel: dok.bobot_jaspel || 1.0, 
         isCuti: isCutiDokter,
         jumlah_pasien_poli: recordPasienHarian ? Number(recordPasienHarian.jumlah) : 0, 
@@ -515,14 +510,25 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
     }
 
     const totalPasienGroupPerHari = {};
+    const totalPasienPerTanggal = new Map();
+    const patientGroupPresence = new Set();
+    const patientDoctorDatePresence = new Set();
     dataPasienBulanIni.forEach(p => {
-      const pasienDokter = resMasterDokterAll.rows.find(md => 
-        amanStr(md.nama_dokter) === amanStr(p.nama_dokter) && 
-        amanStr(md.klinik) === amanStr(p.klinik)
-      );
+      const pasienDokter = findMasterDokter(p.nama_dokter, p.klinik);
       const groupSimbol = normalizeSimbol(getSimbolGrup(pasienDokter?.simbol_praktik || p.klinik || p.nama_dokter));
-      const kunci = `${String(p.tahun).padStart(4,'0')}-${String(p.bulan).padStart(2,'0')}-${String(p.tanggal).padStart(2,'0')}_${groupSimbol}`;
-      totalPasienGroupPerHari[kunci] = (totalPasienGroupPerHari[kunci] || 0) + Number(p.jumlah || 0);
+      const dateKey = `${String(p.tahun).padStart(4,'0')}-${String(p.bulan).padStart(2,'0')}-${String(p.tanggal).padStart(2,'0')}`;
+      const groupKey = `${dateKey}_${groupSimbol}`;
+      totalPasienGroupPerHari[groupKey] = (totalPasienGroupPerHari[groupKey] || 0) + Number(p.jumlah || 0);
+      const day = Number(p.tanggal);
+      totalPasienPerTanggal.set(day, (totalPasienPerTanggal.get(day) || 0) + (Number(p.jumlah) || 0));
+      patientGroupPresence.add(groupKey);
+      patientDoctorDatePresence.add(`${amanStr(p.nama_dokter)}|${amanStr(p.klinik)}|${Number(p.tanggal)}`);
+    });
+
+    const doctorBySymbolGroup = new Map();
+    resMasterDokterAll.rows.forEach(dok => {
+      const groupKey = getSimbolGrup(dok.simbol_praktik);
+      if (!doctorBySymbolGroup.has(groupKey)) doctorBySymbolGroup.set(groupKey, dok);
     });
 
     const missingPasienEntries = [];
@@ -541,14 +547,10 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
       const isSimbolAbsen = ['CT', 'CM', 'CS', 'S', 'I', 'L', 'OFF'].includes(amanStr(j.simbol));
 
       // Periksa ulang dengan nyaris nama dokter + klinik agar tidak memunculkan false positive
-      const hasPatientAlternative = dataPasienBulanIni.some(p => {
-        const pasienDokter = findMasterDokter(p.nama_dokter, p.klinik);
-        const patientGroup = getSimbolGrup(pasienDokter?.simbol_praktik || p.klinik || p.nama_dokter);
-        return numberEquals(p.tanggal, j.tanggal) && numberEquals(p.bulan, j.bulan) && numberEquals(p.tahun, j.tahun) && patientGroup === targetGroupSimbol;
-      });
+      const hasPatientAlternative = patientGroupPresence.has(kunci);
 
       if (!hasPatient && !hasPatientAlternative && !isCutiAcc && !isSimbolAbsen) {
-        const dokterTerkait = resMasterDokterAll.rows.find(md => getSimbolGrup(md.simbol_praktik) === targetGroupSimbol);
+        const dokterTerkait = doctorBySymbolGroup.get(targetGroupSimbol);
         missingPasienEntries.push({
           nama: j.nama,
           role: 'SDM',
@@ -565,11 +567,7 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
       datesInMonth.forEach(day => {
         if (amanStr(dok.jadwal_hari) !== amanStr(day.namaHari)) return;
 
-        const hasPatient = dataPasienBulanIni.some(p =>
-          amanStr(p.nama_dokter) === amanStr(dok.nama_dokter) &&
-          amanStr(p.klinik) === amanStr(dok.klinik) &&
-          Number(p.tanggal) === Number(day.tanggal)
-        );
+        const hasPatient = patientDoctorDatePresence.has(`${amanStr(dok.nama_dokter)}|${amanStr(dok.klinik)}|${Number(day.tanggal)}`);
 
         const isCutiDokter = resDokterCuti.rows.some(c =>
           amanStr(c.nama_dokter) === amanStr(dok.nama_dokter) &&
@@ -598,6 +596,36 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
       return acc;
     }, { map: {}, items: [] }).items;
 
+    const trenPasienHarian = datesInMonth.map(day => ({
+      tanggal: day.tanggal,
+      pasien: totalPasienPerTanggal.get(day.tanggal) || 0
+    }));
+    const masterDokterById = new Map(resMasterDokterAll.rows.map(dok => [Number(dok.id), dok]));
+    const mutuPraktik = resWaktuPraktik.rows.reduce((summary, row) => {
+      const doctor = masterDokterById.get(Number(row.dokter_id));
+      const scheduledTime = String(doctor?.jam_praktik || "").match(/(\d{1,2})[:.](\d{2})/);
+      const actualTime = new Date(row.jam_mulai_aktual || "");
+      if (!scheduledTime || Number.isNaN(actualTime.getTime())) return summary;
+
+      const actualParts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Jakarta",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23"
+      }).formatToParts(actualTime);
+      const actualValues = Object.fromEntries(actualParts.map(part => [part.type, part.value]));
+      const scheduledMinutes = Number(scheduledTime[1]) * 60 + Number(scheduledTime[2]);
+      const actualMinutes = Number(actualValues.hour) * 60 + Number(actualValues.minute);
+
+      if (actualMinutes - scheduledMinutes <= 15) summary.tepatWaktu += 1;
+      else summary.terlambat += 1;
+      return summary;
+    }, { tepatWaktu: 0, terlambat: 0 });
+    const totalPraktikTercatat = mutuPraktik.tepatWaktu + mutuPraktik.terlambat;
+    mutuPraktik.kepatuhanPersen = totalPraktikTercatat
+      ? Math.round((mutuPraktik.tepatWaktu / totalPraktikTercatat) * 100)
+      : 0;
+
     return NextResponse.json({
       summary: {
         totalSDM: sdmCount.rows[0]?.total || 0,
@@ -613,7 +641,10 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
       cutiSdmRaw: resSdmCuti.rows,
       dokterPraktik: dokterPraktik,
       leaderboard: leaderboardBeban,
-      missingPasien: uniqueMissing
+      missingPasien: uniqueMissing,
+      totalPasienBulanIni: dataPasienBulanIni.reduce((total, row) => total + (Number(row.jumlah) || 0), 0),
+      trenPasienHarian,
+      mutuPraktik
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -644,38 +675,26 @@ export async function PATCH(request) {
 
     console.log('[PATCH /api/dashboard] incoming:', { nama_dokter, klinik, tanggal, bulan, tahun, jumlah });
 
-    // Try to resolve incoming nama/klinik to a canonical master_dokter entry
     let matchedNama = nama_dokter;
     let matchedKlinik = klinik;
-    try {
-      const resExact = await turso.execute({
-        sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
+    const [resExact, resName, resKlinik] = await Promise.all([
+      turso.execute({
+        sql: `SELECT nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) AND TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
         args: [nama_dokter, klinik]
-      });
-      if (resExact.rows && resExact.rows.length > 0) {
-        matchedNama = resExact.rows[0].nama_dokter;
-        matchedKlinik = resExact.rows[0].klinik;
-      } else {
-        const resName = await turso.execute({
-          sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) LIMIT 1`,
-          args: [nama_dokter]
-        });
-        if (resName.rows && resName.rows.length > 0) {
-          matchedNama = resName.rows[0].nama_dokter;
-          matchedKlinik = resName.rows[0].klinik;
-        } else {
-          const resKlinik = await turso.execute({
-            sql: `SELECT id, nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
-            args: [klinik]
-          });
-          if (resKlinik.rows && resKlinik.rows.length > 0) {
-            matchedNama = resKlinik.rows[0].nama_dokter;
-            matchedKlinik = resKlinik.rows[0].klinik;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[PATCH /api/dashboard] master lookup error', err?.message || err);
+      }),
+      turso.execute({
+        sql: `SELECT nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(nama_dokter)) = TRIM(LOWER(?)) LIMIT 1`,
+        args: [nama_dokter]
+      }),
+      turso.execute({
+        sql: `SELECT nama_dokter, klinik FROM master_dokter WHERE TRIM(LOWER(klinik)) = TRIM(LOWER(?)) LIMIT 1`,
+        args: [klinik]
+      })
+    ]);
+    const canonicalDoctor = resExact.rows[0] || resName.rows[0] || resKlinik.rows[0];
+    if (canonicalDoctor) {
+      matchedNama = canonicalDoctor.nama_dokter;
+      matchedKlinik = canonicalDoctor.klinik;
     }
 
     if (!nama_dokter || !klinik || !tanggal || !bulan || !tahun) {

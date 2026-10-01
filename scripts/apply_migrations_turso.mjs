@@ -1,23 +1,23 @@
 import fs from 'fs';
 
-// Load .env
-try {
-  const envPath = new URL('../.env', import.meta.url);
-  const envContent = fs.readFileSync(envPath, 'utf8');
-  envContent.split(/\r?\n/).forEach(line => {
-    if (!line || line.trim().startsWith('#')) return;
-    const i = line.indexOf('=');
-    if (i <= 0) return;
-    const key = line.slice(0, i).trim();
-    const val = line.slice(i + 1).trim();
-    if (!(key in process.env)) process.env[key] = val;
-  });
-  console.log('.env loaded');
-} catch (e) {
-  console.warn('.env not found or could not be read', e.message);
+// Match Next.js environment loading while retaining support for `.env`.
+for (const envFile of ['../.env.local', '../.env']) {
+  try {
+    const envContent = fs.readFileSync(new URL(envFile, import.meta.url), 'utf8');
+    envContent.split(/\r?\n/).forEach(line => {
+      if (!line || line.trim().startsWith('#')) return;
+      const i = line.indexOf('=');
+      if (i <= 0) return;
+      const key = line.slice(0, i).trim();
+      const val = line.slice(i + 1).trim();
+      if (!(key in process.env)) process.env[key] = val;
+    });
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.warn(`Could not read ${envFile}:`, error.message);
+  }
 }
 
-const path = './scripts/migrations/add_sdm_migrations.sql';
+const path = process.argv[2] || './scripts/migrations/add_sdm_migrations.sql';
 if (!fs.existsSync(path)) {
   console.error('Migration file not found:', path);
   process.exit(1);

@@ -83,11 +83,11 @@ export async function GET(request) {
     let sqlPasien = "";
     let argsPasien = [];
     if (isModeLaporan) {
-        sqlPasien = `SELECT * FROM jumlah_pasien_poli 
+        sqlPasien = `SELECT nama_dokter, klinik, tanggal, bulan, tahun, jumlah FROM jumlah_pasien_poli
                      WHERE (CAST(tahun AS INTEGER) * 10000 + CAST(bulan AS INTEGER) * 100 + CAST(tanggal AS INTEGER)) BETWEEN ? AND ?`;
         argsPasien = [queryTglAwalInt, queryTglAkhirInt];
     } else {
-        sqlPasien = `SELECT * FROM jumlah_pasien_poli 
+        sqlPasien = `SELECT nama_dokter, klinik, tanggal, bulan, tahun, jumlah FROM jumlah_pasien_poli
                      WHERE tahun = ? AND bulan = ?`;
         argsPasien = [pTahun, pBulan];
     }
@@ -225,14 +225,22 @@ export async function GET(request) {
       );
     };
 
-    const pasienByDokterId = new Map();
+    const pasienByDokterKey = new Map();
     dataPasienBulanIni.forEach(p => {
-      const dokMatch = findMasterDokter(p.nama_dokter, p.klinik);
-      if (!dokMatch) return;
+      const doctorKey = buildMapKey(p.nama_dokter, p.klinik);
+      if (!doctorKey || doctorKey === "|") return;
 
-      const list = pasienByDokterId.get(dokMatch.id) || [];
-      list.push(p);
-      pasienByDokterId.set(dokMatch.id, list);
+      let patientStats = pasienByDokterKey.get(doctorKey);
+      if (!patientStats) {
+        patientStats = { byDate: new Map(), total: 0 };
+        pasienByDokterKey.set(doctorKey, patientStats);
+      }
+
+      const dateKey = `${Number(p.tahun)}-${Number(p.bulan)}-${Number(p.tanggal)}`;
+      if (!patientStats.byDate.has(dateKey)) {
+        patientStats.byDate.set(dateKey, Number(p.jumlah) || 0);
+      }
+      patientStats.total += Number(p.jumlah) || 0;
     });
 
     const simbolMatches = (a, b) => {
@@ -301,11 +309,11 @@ export async function GET(request) {
 
     // Mapping Dokter Praktik (Card UI)
     const dokterPraktik = resMasterDokterHariIni.rows.map(dok => {
-      const listPasienRentang = pasienByDokterId.get(dok.id) || [];
-      const recordPasienHarian = !isModeLaporan
-        ? listPasienRentang.find(p => Number(p.tanggal) === pTanggal)
-        : null;
-      const totalPasienRentang = listPasienRentang.reduce((sum, item) => sum + (Number(item.jumlah) || 0), 0);
+      const doctorKey = buildMapKey(dok.nama_dokter, dok.klinik);
+      const patientStats = pasienByDokterKey.get(doctorKey);
+      const targetDateKey = `${pTahun}-${pBulan}-${pTanggal}`;
+      const totalPasienHarian = patientStats?.byDate.get(targetDateKey) || 0;
+      const totalPasienRentang = patientStats?.total || 0;
 
       const timHarian = jadwalHariIni.filter(j => isAsistenUntukDokter(j, dok));
 
@@ -340,7 +348,7 @@ export async function GET(request) {
         jam_mulai_aktual: waktuPraktikMap.get(Number(dok.id)) || null,
         bobot_jaspel: dok.bobot_jaspel || 1.0, 
         isCuti: isCutiDokter,
-        jumlah_pasien_poli: recordPasienHarian ? Number(recordPasienHarian.jumlah) : 0, 
+        jumlah_pasien_poli: !isModeLaporan ? totalPasienHarian : 0,
         total_pasien_bulanan: totalPasienRentang, 
         timAsisten: asistenMapped
       };

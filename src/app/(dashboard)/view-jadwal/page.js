@@ -32,6 +32,21 @@ const fetchJSONWithTimeout = async (url) => {
   }
 };
 
+const getPatientCount = (doctor) => {
+  const value = doctor?.jumlah_pasien_poli
+    || doctor?.jumlah_pasien
+    || doctor?.total_pasien_hari_ini
+    || doctor?.total_pasien
+    || 0;
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+};
+
+const getMonthlyPatientCount = (doctor) => {
+  const count = Number(doctor?.total_pasien_bulanan || doctor?.total_pasien || 0);
+  return Number.isFinite(count) ? count : 0;
+};
+
 const normalisasiSimbolTampilan = (value) => String(value || "")
   .trim()
   .replace(/[^A-Za-z0-9]+/g, " ")
@@ -571,8 +586,8 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
 // ======================================================
 export default function ViewJadwalPublic() {
   const [submitting, setSubmitting] = useState(false);
-  const [inputPasien, setInputPasien] = useState({});
-  const [editMode, setEditMode] = useState({});
+  const [pasienInputValues, setPasienInputValues] = useState({});
+  const [editingStatus, setEditingStatus] = useState({});
   
   const [selectedDateFull, setSelectedDateFull] = useState(getTanggalJakarta());
   const [startingDoctorId, setStartingDoctorId] = useState(null);
@@ -640,16 +655,18 @@ export default function ViewJadwalPublic() {
     if (!data) return;
     if (data.summary?.ruangan) setRuanganAktifGlobal(data.summary.ruangan);
 
-    const savedValues = {};
-    const editStatus = {};
-    data.dokterPraktik?.forEach((dok) => {
-      const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-      savedValues[key] = dok.jumlah_pasien_poli || "";
-      editStatus[key] = !(dok.jumlah_pasien_poli > 0);
+    setPasienInputValues((previous) => {
+      const next = { ...previous };
+      data.dokterPraktik?.forEach((dok) => {
+        const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+        const cardKey = `${doctorKey}_${selectedDateFull}`;
+        if (next[cardKey] === undefined) {
+          next[cardKey] = getPatientCount(dok);
+        }
+      });
+      return next;
     });
-    setInputPasien(savedValues);
-    setEditMode(editStatus);
-  }, [data, ruanganShare]);
+  }, [data, ruanganShare, selectedDateFull]);
   const handleMulaiPraktik = async (dok, jamMulaiManual = "") => {
     const dokterId = Number(dok.id);
     if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
@@ -691,9 +708,12 @@ export default function ViewJadwalPublic() {
   };
 
   const handleUpdatePasienSpesifik = async (dok) => {
-    const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-    const jmlTotal = Number(inputPasien[key]);
-    if (!Number.isInteger(jmlTotal) || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
+    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+    const cardKey = `${doctorKey}_${selectedDateFull}`;
+    const inputValue = pasienInputValues[cardKey];
+    if (inputValue === "" || inputValue == null) return alert("Isi jumlah pasien dengan benar!");
+    const jmlTotal = Number(inputValue);
+    if (!Number.isSafeInteger(jmlTotal) || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
 
     setSubmitting(true);
     try {
@@ -714,9 +734,21 @@ export default function ViewJadwalPublic() {
       const result = await res.json();
       if (res.ok && result.success) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
-        await mutateDashboard();
-        setInputPasien((previous) => ({ ...previous, [key]: jmlTotal }));
-        setEditMode((previous) => ({ ...previous, [key]: false }));
+        setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
+        setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
+        await mutateDashboard((current) => {
+          if (!current || !Array.isArray(current.dokterPraktik)) return current;
+          return {
+            ...current,
+            dokterPraktik: current.dokterPraktik.map((item) => {
+              const itemKey = item.id || `${item.nama_dokter}-${item.klinik}`;
+              return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
+            })
+          };
+        }, { revalidate: false });
+        void mutateDashboard().catch((error) => {
+          console.error("Gagal memperbarui data dashboard:", error);
+        });
       } else {
         alert("❌ Gagal menyimpan total pasien. " + (result.error || result.message || "Periksa koneksi dan akses publik."));
       }
@@ -1085,11 +1117,15 @@ export default function ViewJadwalPublic() {
 
                 <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {filteredDokter.map((dok, idx) => {
-                    const key = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+                    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+                    const cardKey = `${doctorKey}_${selectedDateFull}`;
+                    const patientCount = getPatientCount(dok);
+                    const monthlyPatientCount = getMonthlyPatientCount(dok);
+                    const isEditing = Boolean(editingStatus[cardKey]);
                     const mutuPraktik = getStatusMutuPraktik(dok.jam_praktik, dok.jam_mulai_aktual);
 
                     return (
-                      <div key={key} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
+                      <div key={cardKey} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div>
                             <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
@@ -1178,14 +1214,11 @@ export default function ViewJadwalPublic() {
                             
                             {!dok.isCuti && (
                               <p className="text-[8px] font-black text-blue-600 uppercase mt-2 bg-blue-50 w-fit px-2 py-0.5 rounded border border-blue-100 italic">
-                                Kunjungan Bulan Ini: {dok.total_pasien_bulanan || 0} Pasien
+                                Kunjungan Bulan Ini: {monthlyPatientCount} Pasien
                               </p>
                             )}
                           </div>
 
-                          {dok.jumlah_pasien_poli > 0 && !dok.isCuti && (
-                            <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-3 py-1.5 rounded-full uppercase border border-emerald-200 shadow-sm whitespace-nowrap">Verified: {dok.jumlah_pasien_poli} Pasien</span>
-                          )}
                         </div>
 
                         {!dok.isCuti ? (
@@ -1260,18 +1293,22 @@ export default function ViewJadwalPublic() {
                               }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            {Number(dok.jumlah_pasien_poli) > 0 && !editMode[key] ? (
+                            {patientCount > 0 && !isEditing ? (
                               <div className="flex items-center justify-between gap-3 pt-2">
-                                <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[10px] font-black uppercase text-emerald-700">
-                                  <CheckCircle2 size={14} /> {Number(dok.jumlah_pasien_poli)} Pasien Tercatat
+                                <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
+                                  <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => setEditMode((previous) => ({ ...previous, [key]: true }))}
-                                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-[9px] font-black uppercase text-white shadow-sm transition hover:bg-amber-600"
+                                  onClick={() => {
+                                    setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
+                                    setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
+                                  }}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
                                   title="Edit jumlah pasien"
+                                  aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
                                 >
-                                  <Edit3 size={14} /> Edit
+                                  <Edit3 size={15} />
                                 </button>
                               </div>
                             ) : (
@@ -1290,8 +1327,11 @@ export default function ViewJadwalPublic() {
                                     step="1"
                                     inputMode="numeric"
                                     className="w-full rounded-xl border-2 border-blue-200 bg-white px-4 py-2.5 text-xs font-black text-blue-900 outline-none transition-colors"
-                                    value={inputPasien[key] ?? ""}
-                                    onChange={(event) => setInputPasien((previous) => ({ ...previous, [key]: event.target.value }))}
+                                    value={pasienInputValues[cardKey] !== undefined ? pasienInputValues[cardKey] : patientCount}
+                                    onChange={(event) => {
+                                      setPasienInputValues((previous) => ({ ...previous, [cardKey]: event.target.value }));
+                                      setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
+                                    }}
                                     placeholder="Total pasien"
                                   />
                                 </label>
@@ -1304,6 +1344,17 @@ export default function ViewJadwalPublic() {
                                 >
                                   {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                                   Simpan
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
+                                    setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
+                                  }}
+                                  disabled={submitting}
+                                  className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                                >
+                                  Batal
                                 </button>
                               </form>
                             )}

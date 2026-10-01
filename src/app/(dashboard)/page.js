@@ -3,26 +3,77 @@ import React, { useState, useEffect } from "react";
 import { format, getDaysInMonth } from "date-fns";
 import { id } from "date-fns/locale";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { 
   Users, Stethoscope, Share2, ChevronDown, ShieldCheck, 
   Activity, UserCheck, Clock, AlertCircle, Cpu, Calendar, 
   HeartPulse, Save, RefreshCw, ArrowLeftRight, TrendingUp,
-  CheckCircle2, Loader2, Search, Medal, Lock, Unlock, 
+  CheckCircle2, Loader2, Search, Medal,
   FileText, CalendarRange, Download, ClipboardList, Edit3
 } from "lucide-react";
 
+const getDashboardCacheScope = () => {
+  if (typeof document === "undefined") return "server";
+  const cookieValue = document.cookie
+    .split("; ")
+    .find((cookie) => cookie.startsWith("session_dak_pro="))
+    ?.slice("session_dak_pro=".length);
+  if (!cookieValue) return "unauthenticated";
+
+  try {
+    const session = JSON.parse(decodeURIComponent(cookieValue));
+    return String(session?.ruangan || "POLIKLINIK").trim().toUpperCase();
+  } catch {
+    return "invalid-session";
+  }
+};
+
+const getPatientCount = (doctor) => {
+  const value = doctor?.jumlah_pasien_poli
+    || doctor?.jumlah_pasien
+    || doctor?.total_pasien_hari_ini
+    || doctor?.total_pasien
+    || 0;
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+};
+
+const getMonthlyPatientCount = (doctor) => {
+  const count = Number(doctor?.total_pasien_bulanan || doctor?.total_pasien || 0);
+  return Number.isFinite(count) ? count : 0;
+};
+
 export default function DashboardUtama() {
   const router = useRouter();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [inputPasien, setInputPasien] = useState({});
-  const [editMode, setEditMode] = useState({}); // STATE BARU: AUTO-LOCK
+  const [pasienInputValues, setPasienInputValues] = useState({});
+  const [editingStatus, setEditingStatus] = useState({});
   
   // State Filter Waktu (Dropdown Tanggal di Dashboard)
   const [tanggal, setTanggal] = useState(new Date().getDate());
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
   const [tahun, setTahun] = useState(new Date().getFullYear());
+  const tanggalPasienKey = `${tahun}-${String(bulan).padStart(2, "0")}-${String(tanggal).padStart(2, "0")}`;
+  const dashboardUrl = `/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}`;
+  const dashboardCacheScope = getDashboardCacheScope();
+  const {
+    data,
+    error: dashboardError,
+    isLoading: loading,
+    mutate: mutateDashboard
+  } = useSWR([dashboardUrl, dashboardCacheScope], async ([url]) => {
+    const response = await fetch(url);
+    if (response.status === 401) {
+      router.push("/login");
+      return null;
+    }
+    if (!response.ok) throw new Error(`Server merespons dengan status ${response.status}.`);
+    return response.json();
+  }, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60000,
+    refreshInterval: 300000
+  });
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
@@ -36,51 +87,36 @@ export default function DashboardUtama() {
     akhir: format(new Date(), "yyyy-MM-dd") // Default hari ini
   });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const resDash = await fetch(`/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}`);
-      
-      if (resDash.status === 401) {
-        router.push("/login");
-        return;
-      }
-
-      const dDash = await resDash.json();
-      if (dDash) {
-        setData(dDash);
-        const savedValues = {};
-        const editStatus = {};
-
-        // Sinkronisasi input dengan data tabel jumlah_pasien_poli & set status Kunci
-        dDash.dokterPraktik?.forEach((dok, idx) => {
-          savedValues[idx] = dok.jumlah_pasien_poli || "";
-          editStatus[idx] = !(dok.jumlah_pasien_poli > 0); // Kunci jika sudah ada nilai > 0
-        });
-        setInputPasien(savedValues);
-        setEditMode(editStatus);
-      }
-    } catch (e) { 
-      console.error("Gagal sinkronisasi dashboard:", e); 
-    } finally { 
-      setLoading(false); 
-    }
-  };
+  useEffect(() => {
+    if (!data?.dokterPraktik) return;
+    setPasienInputValues((previous) => {
+      const next = { ...previous };
+      data.dokterPraktik.forEach((dok) => {
+        const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+        const cardKey = `${doctorKey}_${tanggalPasienKey}`;
+        if (next[cardKey] === undefined) {
+          next[cardKey] = getPatientCount(dok);
+        }
+      });
+      return next;
+    });
+  }, [data, tanggalPasienKey]);
 
   useEffect(() => {
-    fetchData();
-    // Refresh otomatis setiap 5 menit
-    const interval = setInterval(fetchData, 300000);
-    return () => clearInterval(interval);
-  }, [tanggal, bulan, tahun]);
+    if (dashboardError) console.error("Gagal sinkronisasi dashboard:", dashboardError);
+  }, [dashboardError]);
 
-  const handleUpdatePasienSpesifik = async (idx) => {
-    const jmlTotal = inputPasien[idx];
-    if (jmlTotal === "" || jmlTotal < 0) return alert("Isi jumlah pasien!");
+  const handleUpdatePasienSpesifik = async (dok) => {
+    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+    const cardKey = `${doctorKey}_${tanggalPasienKey}`;
+    const inputValue = pasienInputValues[cardKey];
+    const jmlTotal = Number(inputValue);
+    if (inputValue === "" || inputValue == null || !Number.isSafeInteger(jmlTotal) || jmlTotal < 0) {
+      return alert("Isi jumlah pasien!");
+    }
     
     setSubmitting(true);
     try {
-      const dok = data.dokterPraktik[idx];
       const res = await fetch("/api/jadwal", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -88,14 +124,27 @@ export default function DashboardUtama() {
           nama_dokter: dok.nama_dokter,
           klinik: dok.klinik,
           tanggal, bulan, tahun,
-          jumlah: parseInt(jmlTotal)
+          jumlah: jmlTotal
         })
       });
 
       if (res.ok) {
         alert(`✅ TERSIMPAN: ${dok.nama_dokter} - ${jmlTotal} Pasien`);
-        setEditMode({...editMode, [idx]: false}); // Kunci kembali setelah sukses
-        fetchData(); 
+        setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
+        setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
+        await mutateDashboard((current) => {
+          if (!current || !Array.isArray(current.dokterPraktik)) return current;
+          return {
+            ...current,
+            dokterPraktik: current.dokterPraktik.map((item) => {
+              const itemKey = item.id || `${item.nama_dokter}-${item.klinik}`;
+              return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
+            })
+          };
+        }, { revalidate: false });
+        void mutateDashboard().catch((error) => {
+          console.error("Gagal memperbarui data dashboard:", error);
+        });
       }
     } catch (e) { alert("Gagal simpan."); } 
     finally { setSubmitting(false); }
@@ -114,7 +163,9 @@ export default function DashboardUtama() {
         alert("🔄 Penugasan Berhasil Ditukar!");
         setShowSwap(false);
         setSwapData({ sdmA: "", sdmB: "" });
-        fetchData();
+        void mutateDashboard().catch((error) => {
+          console.error("Gagal memperbarui data dashboard:", error);
+        });
       }
     } catch (e) { alert("Gagal swap."); }
     finally { setSubmitting(false); }
@@ -326,15 +377,18 @@ export default function DashboardUtama() {
         {/* --- KOLOM KIRI: TIM PELAYANAN & INPUT --- */}
         <div className="lg:col-span-2 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {data?.dokterPraktik?.filter(d => d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase())).map((dok, idx) => (
-              <div key={idx} className={`bg-white p-8 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl relative overflow-hidden group ${dok.isCuti ? 'border-red-100 opacity-60 bg-red-50/20' : 'border-white hover:border-blue-500'}`}>
+            {data?.dokterPraktik?.filter(d => d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase())).map((dok) => {
+              const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+              const cardKey = `${doctorKey}_${tanggalPasienKey}`;
+              const patientCount = getPatientCount(dok);
+              const monthlyPatientCount = getMonthlyPatientCount(dok);
+              const isEditing = Boolean(editingStatus[cardKey]);
+              return (
+              <div key={cardKey} className={`bg-white p-8 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl relative overflow-hidden group ${dok.isCuti ? 'border-red-100 opacity-60 bg-red-50/20' : 'border-white hover:border-blue-500'}`}>
                 <div className="flex justify-between items-start mb-6">
                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xs italic shadow-lg ${dok.isCuti ? 'bg-red-400 text-white' : 'bg-slate-900 text-white'}`}>
                     {dok.simbol_praktik}
                    </div>
-                   {dok.jumlah_pasien_poli > 0 && !dok.isCuti && (
-                    <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-4 py-2 rounded-full uppercase italic animate-pulse">Syncing Pasien</span>
-                   )}
                 </div>
 
                 <h4 className="text-lg font-black text-slate-800 uppercase italic tracking-tighter leading-tight">{dok.nama_dokter}</h4>
@@ -344,7 +398,7 @@ export default function DashboardUtama() {
                 {!dok.isCuti && (
                   <div className="mt-3 inline-block bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg">
                     <p className="text-[9px] font-black text-blue-700 uppercase italic tracking-widest">
-                      Kunjungan Bulan Ini: {dok.total_pasien_bulanan || 0} Pasien
+                      Kunjungan Bulan Ini: {monthlyPatientCount} Pasien
                     </p>
                   </div>
                 )}
@@ -363,42 +417,70 @@ export default function DashboardUtama() {
                         ))}
                       </div>
 
-                      <div className="flex gap-2 items-end pt-4 border-t border-slate-200/50">
-                        <div className="flex-1">
-                            <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block italic flex justify-between">
-                              <span>Input Total Pasien</span>
-                              {!editMode[idx] ? <span className="text-red-500 flex items-center gap-1"><Lock size={8}/> Terkunci</span> : <span className="text-emerald-500 flex items-center gap-1"><Unlock size={8}/> Terbuka</span>}
-                            </label>
-                           <input 
-                              type="number" 
-                              disabled={!editMode[idx]}
-                              className={`w-full border-2 rounded-2xl px-5 py-4 text-xs font-black outline-none transition-colors shadow-inner ${!editMode[idx] ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-blue-200 text-blue-900 focus:border-blue-500'}`}
-                              value={inputPasien[idx] || ""}
-                              onChange={(e) => setInputPasien({...inputPasien, [idx]: e.target.value})}
-                              placeholder="Jml Pasien"
-                           />
+                      {patientCount > 0 && !isEditing ? (
+                        <div className="flex items-center justify-between gap-2 border-t border-slate-200/50 pt-4">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
+                            <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
+                              setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
+                            }}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
+                            title="Edit jumlah pasien"
+                            aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
+                          >
+                            <Edit3 size={15} />
+                          </button>
                         </div>
-                        
-                        {/* TOMBOL EDIT / SIMPAN AUTO-LOCK */}
-                        {!editMode[idx] ? (
-                          <button 
-                            onClick={() => setEditMode({...editMode, [idx]: true})}
-                            className="p-5 bg-amber-500 text-white rounded-2xl shadow-xl hover:bg-amber-600 transition-all active:scale-95"
-                            title="Edit Jumlah Pasien"
-                          >
-                            <Edit3 size={20} />
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => handleUpdatePasienSpesifik(idx)}
+                      ) : (
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            handleUpdatePasienSpesifik(dok);
+                          }}
+                          className="flex items-end gap-2 border-t border-slate-200/50 pt-4"
+                        >
+                          <label className="flex-1">
+                            <span className="mb-2 ml-1 block text-[8px] font-black uppercase tracking-widest text-slate-400">Jumlah Pasien</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              inputMode="numeric"
+                              className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
+                              value={pasienInputValues[cardKey] !== undefined ? pasienInputValues[cardKey] : patientCount}
+                              onChange={(event) => {
+                                setPasienInputValues((previous) => ({ ...previous, [cardKey]: event.target.value }));
+                                setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
+                              }}
+                              placeholder="Total pasien"
+                            />
+                          </label>
+                          <button
+                            type="submit"
                             disabled={submitting}
-                            className="p-5 bg-slate-900 text-white rounded-2xl shadow-xl hover:bg-emerald-600 transition-all active:scale-90 disabled:opacity-50"
-                            title="Simpan Data Pasien"
+                            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-[9px] font-black uppercase text-white hover:bg-blue-800 disabled:opacity-60"
+                            title="Simpan jumlah pasien"
                           >
-                            {submitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+                            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            Simpan
                           </button>
-                        )}
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
+                              setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
+                            }}
+                            disabled={submitting}
+                            className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            Batal
+                          </button>
+                        </form>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -408,7 +490,8 @@ export default function DashboardUtama() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* FITUR BARU: PUSAT UNDUHAN LAPORAN */}

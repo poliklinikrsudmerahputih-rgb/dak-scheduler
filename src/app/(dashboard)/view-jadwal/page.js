@@ -76,6 +76,18 @@ const getTanggalJakarta = (date = new Date()) => {
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${values.year}-${values.month}-${values.day}`;
 };
+const getJamJakarta = (value) => {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value: partValue }) => [type, partValue]));
+  return `${values.hour}:${values.minute}`;
+};
 const getStatusMutuPraktik = (jamPraktik, jamMulaiAktual) => {
   const jadwal = String(jamPraktik || "").match(/(?:^|\D)(\d{1,2})[:.](\d{2})/);
   const waktuAktual = new Date(jamMulaiAktual || "");
@@ -133,6 +145,27 @@ const LiveClock = () => {
     <p className="text-emerald-400 font-mono font-black text-xl tracking-widest leading-none">
        {liveTime ? format(liveTime, 'HH:mm:ss') : '--:--:--'} <span className="text-[10px] text-emerald-200/70">WIB</span>
     </p>
+  );
+};
+
+const DoctorPracticeReminder = ({ doctors }) => {
+  const belumDiisi = doctors.filter((doctor) =>
+    !doctor.jam_mulai_aktual
+    && !doctor.isCuti
+    && String(doctor.ruangan || "POLIKLINIK").trim().toUpperCase() === "POLIKLINIK"
+  );
+
+  if (belumDiisi.length === 0) return null;
+
+  return (
+    <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-wide">
+        ⚠️ Terdapat {belumDiisi.length} dokter yang belum diisi jam praktiknya:
+      </p>
+      <p className="mt-1 text-xs font-semibold">
+        {belumDiisi.map((doctor) => `${doctor.nama_dokter} (Poli ${doctor.klinik})`).join(", ")}
+      </p>
+    </div>
   );
 };
 
@@ -593,6 +626,9 @@ export default function ViewJadwalPublic() {
   const [startingDoctorId, setStartingDoctorId] = useState(null);
   const [manualDoctorId, setManualDoctorId] = useState(null);
   const [manualStartTime, setManualStartTime] = useState("");
+  const [jamPraktikInputValues, setJamPraktikInputValues] = useState({});
+  const [editingJamPraktik, setEditingJamPraktik] = useState({});
+  const [savingJamPraktikId, setSavingJamPraktikId] = useState(null);
   
   const tanggal = parseInt(selectedDateFull.split('-')[2], 10);
   const bulan = parseInt(selectedDateFull.split('-')[1], 10);
@@ -704,6 +740,65 @@ export default function ViewJadwalPublic() {
       alert(error.message || "Gagal mencatat waktu mulai praktik.");
     } finally {
       setStartingDoctorId(null);
+    }
+  };
+
+  const handleUpdateJamPraktik = async (dok) => {
+    const dokterId = Number(dok.id);
+    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+    const cardKey = `${doctorKey}_${selectedDateFull}`;
+    const jamPraktik = editingJamPraktik[cardKey]
+      ? manualStartTime
+      : jamPraktikInputValues[cardKey] || "";
+
+    if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
+      alert("ID dokter tidak valid.");
+      return;
+    }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(jamPraktik)) {
+      alert("Pilih jam praktik yang valid.");
+      return;
+    }
+
+    setSavingJamPraktikId(dokterId);
+    try {
+      const res = await fetch("/api/mulai-praktik", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dokter_id: dokterId,
+          tanggal: selectedDateFull,
+          jam_mulai_manual: jamPraktik
+        })
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || "Gagal menyimpan jam praktik.");
+      }
+
+      await mutateDashboard((current) => current && Array.isArray(current.dokterPraktik) ? {
+        ...current,
+        dokterPraktik: current.dokterPraktik.map((item) =>
+          Number(item.id) === dokterId
+            ? { ...item, jam_mulai_aktual: result.jam_mulai_aktual }
+            : item
+        )
+      } : current, { revalidate: false });
+      setEditingJamPraktik((previous) => ({ ...previous, [cardKey]: false }));
+      setManualDoctorId(null);
+      setManualStartTime("");
+      setJamPraktikInputValues((previous) => {
+        const next = { ...previous };
+        delete next[cardKey];
+        return next;
+      });
+      void mutateDashboard().catch((error) => {
+        console.error("Gagal memperbarui data dashboard:", error);
+      });
+    } catch (error) {
+      alert(error.message || "Gagal menyimpan jam praktik.");
+    } finally {
+      setSavingJamPraktikId(null);
     }
   };
 
@@ -948,6 +1043,12 @@ export default function ViewJadwalPublic() {
     acc[simbol].push(dok);
     return acc;
   }, {});
+  const hariPraktikTerpilih = format(parseISO(selectedDateFull), "eeee", { locale: id }).toUpperCase();
+  const dokterPraktikTanggalIni = Array.isArray(data?.dokterPraktik)
+    ? data.dokterPraktik.filter((dokter) =>
+      String(dokter.jadwal_hari || "").trim().toUpperCase() === hariPraktikTerpilih
+    )
+    : [];
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
@@ -1064,6 +1165,10 @@ export default function ViewJadwalPublic() {
           </div>
         </div>
 
+        {!loading && !dashboardError && (
+          <DoctorPracticeReminder doctors={dokterPraktikTanggalIni} />
+        )}
+
         {/* GRID UNIT CONTAINER (GROUPED CARD) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {loading ? Array.from({ length: 4 }).map((_, cardIndex) => (
@@ -1143,72 +1248,96 @@ export default function ViewJadwalPublic() {
                                 </span>
                               )}
                               {!dok.jam_mulai_aktual && isTanggalPraktikAktif && !dok.isCuti && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleMulaiPraktik(dok)}
-                                    disabled={startingDoctorId === Number(dok.id)}
-                                    className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                                  >
-                                    {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
-                                    Mulai Praktik
-                                  </button>
-                                  {manualDoctorId === Number(dok.id) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMulaiPraktik(dok)}
+                                  disabled={startingDoctorId === Number(dok.id)}
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
+                                  Mulai Praktik
+                                </button>
+                              )}
+                              {!dok.isCuti && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {dok.jam_mulai_aktual && !editingJamPraktik[cardKey] ? (
+                                    <>
+                                      <span className="text-[9px] font-black uppercase text-slate-600">
+                                        Mulai: {getJamJakarta(dok.jam_mulai_aktual) || "--:--"}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setManualDoctorId(Number(dok.id));
+                                          setManualStartTime(getJamJakarta(dok.jam_mulai_aktual));
+                                          setEditingJamPraktik((previous) => ({ ...previous, [cardKey]: true }));
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[8px] font-black uppercase text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                                      >
+                                        <Edit3 size={11} /> Edit Jam
+                                      </button>
+                                    </>
+                                  ) : (
                                     <form
                                       onSubmit={(event) => {
                                         event.preventDefault();
-                                        handleMulaiPraktik(dok, manualStartTime);
+                                        handleUpdateJamPraktik(dok);
                                       }}
-                                      className="inline-flex items-center gap-2"
+                                      className="inline-flex flex-wrap items-center gap-2"
                                     >
                                       <input
-                                        aria-label={`Jam mulai aktual ${dok.nama_dokter}`}
+                                        aria-label={`Jam mulai praktik ${dok.nama_dokter}`}
                                         type="time"
                                         required
-                                        value={manualStartTime}
-                                        onChange={(event) => setManualStartTime(event.target.value)}
+                                        value={editingJamPraktik[cardKey]
+                                          ? manualStartTime
+                                          : jamPraktikInputValues[cardKey] || ""}
+                                        onChange={(event) => {
+                                          if (editingJamPraktik[cardKey]) {
+                                            setManualStartTime(event.target.value);
+                                          } else {
+                                            setJamPraktikInputValues((previous) => ({
+                                              ...previous,
+                                              [cardKey]: event.target.value
+                                            }));
+                                          }
+                                        }}
                                         className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-bold text-slate-700"
                                       />
                                       <button
                                         type="submit"
-                                        disabled={startingDoctorId === Number(dok.id)}
-                                        className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase text-white hover:bg-blue-700 disabled:opacity-60"
+                                        disabled={savingJamPraktikId === Number(dok.id)}
+                                        className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
                                       >
-                                        {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                                        Simpan
+                                        {savingJamPraktikId === Number(dok.id)
+                                          ? <Loader2 size={12} className="animate-spin" />
+                                          : <Save size={12} />}
+                                        Simpan Jam
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setManualDoctorId(null);
-                                          setManualStartTime("");
-                                        }}
-                                        disabled={startingDoctorId === Number(dok.id)}
-                                        className="text-[8px] font-black uppercase text-slate-500 hover:text-slate-800"
-                                      >
-                                        Batal
-                                      </button>
+                                      {editingJamPraktik[cardKey] && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingJamPraktik((previous) => ({ ...previous, [cardKey]: false }));
+                                            if (manualDoctorId === Number(dok.id)) {
+                                              setManualDoctorId(null);
+                                              setManualStartTime("");
+                                            }
+                                            setJamPraktikInputValues((previous) => {
+                                              const next = { ...previous };
+                                              delete next[cardKey];
+                                              return next;
+                                            });
+                                          }}
+                                          disabled={savingJamPraktikId === Number(dok.id)}
+                                          className="text-[8px] font-black uppercase text-slate-500 hover:text-slate-800"
+                                        >
+                                          Batal
+                                        </button>
+                                      )}
                                     </form>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const parts = new Intl.DateTimeFormat("en-GB", {
-                                          timeZone: "Asia/Jakarta",
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                          hourCycle: "h23"
-                                        }).formatToParts(new Date());
-                                        const timeParts = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-                                        setManualStartTime(`${timeParts.hour}:${timeParts.minute}`);
-                                        setManualDoctorId(Number(dok.id));
-                                      }}
-                                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[8px] font-black uppercase text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                                    >
-                                      <Edit3 size={12} /> Input Manual
-                                    </button>
                                   )}
-                                </>
+                                </div>
                               )}
                             </div>
                             

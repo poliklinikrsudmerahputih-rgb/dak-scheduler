@@ -92,3 +92,72 @@ export async function POST(request) {
     return NextResponse.json({ error: "Gagal menyimpan waktu mulai praktik." }, { status: 500 });
   }
 }
+
+export async function PATCH(request) {
+  try {
+    const body = await request.json();
+    const dokterId = Number(body?.dokter_id);
+    const tanggal = String(body?.tanggal || "").trim();
+    const jamMulaiManual = String(body?.jam_mulai_manual || "").trim();
+
+    if (!Number.isSafeInteger(dokterId) || dokterId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
+      return NextResponse.json({ error: "Data dokter atau tanggal tidak valid." }, { status: 400 });
+    }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(jamMulaiManual)) {
+      return NextResponse.json({ error: "Format jam manual harus HH:mm." }, { status: 400 });
+    }
+
+    const waktuMulai = new Date(`${tanggal}T${jamMulaiManual}:00+07:00`);
+    if (Number.isNaN(waktuMulai.getTime()) || getTanggalJakarta(waktuMulai) !== tanggal) {
+      return NextResponse.json({ error: "Tanggal atau jam praktik tidak valid." }, { status: 400 });
+    }
+    if (waktuMulai.getTime() > Date.now()) {
+      return NextResponse.json({ error: "Jam praktik tidak boleh berada di masa depan." }, { status: 400 });
+    }
+
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+    let sessionRuangan = null;
+    if (session) {
+      try {
+        const sessionData = JSON.parse(session.value);
+        sessionRuangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+      } catch {
+        return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+      }
+    }
+
+    const dokterResult = await turso.execute({
+      sql: "SELECT id, ruangan FROM master_dokter WHERE id = ? LIMIT 1",
+      args: [dokterId]
+    });
+    const dokter = dokterResult.rows[0];
+    if (!dokter) {
+      return NextResponse.json({ error: "Dokter tidak ditemukan." }, { status: 404 });
+    }
+
+    const ruanganDokter = String(dokter.ruangan || sessionRuangan || "POLIKLINIK").trim().toUpperCase();
+    if (ruanganDokter !== "POLIKLINIK") {
+      return NextResponse.json({ error: "Jam praktik manual hanya tersedia untuk Poliklinik." }, { status: 403 });
+    }
+    if (sessionRuangan && dokter.ruangan && ruanganDokter !== sessionRuangan) {
+      return NextResponse.json({ error: "Dokter berada di ruangan yang berbeda." }, { status: 403 });
+    }
+
+    const jamMulaiAktual = waktuMulai.toISOString();
+    await turso.execute({
+      sql: `INSERT INTO indikator_mutu_praktik
+            (dokter_id, tanggal, ruangan, jam_mulai_aktual)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(dokter_id, tanggal) DO UPDATE SET
+              ruangan = excluded.ruangan,
+              jam_mulai_aktual = excluded.jam_mulai_aktual`,
+      args: [dokterId, tanggal, ruanganDokter, jamMulaiAktual]
+    });
+
+    return NextResponse.json({ success: true, jam_mulai_aktual: jamMulaiAktual });
+  } catch (error) {
+    console.error("Gagal memperbarui jam praktik:", error);
+    return NextResponse.json({ error: "Gagal menyimpan jam praktik." }, { status: 500 });
+  }
+}

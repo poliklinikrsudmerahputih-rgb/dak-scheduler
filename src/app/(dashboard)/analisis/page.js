@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
-  Activity, AlertCircle, CalendarDays, Download, FileText, RefreshCw,
-  Stethoscope, Users, UserRoundCheck, Clock3, Sparkles
+  Activity, AlertCircle, BrainCircuit, CalendarDays, ClipboardCheck, Copy,
+  Download, FileText, RefreshCw, Stethoscope, Users, UserRoundCheck, Clock3,
+  Sparkles, X
 } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
@@ -14,6 +15,18 @@ import {
 
 const palette = ["#0f766e", "#2563eb", "#65a30d", "#0891b2", "#d97706", "#db2777", "#4f46e5"];
 const numberFormat = new Intl.NumberFormat("id-ID");
+const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+function getJakartaDateKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
 
 async function fetchAnalytics(url) {
   const response = await fetch(url);
@@ -76,8 +89,69 @@ function ChartPanel({ title, subtitle, children, className = "" }) {
   );
 }
 
+function ModalMonitoringImut({ data, isLoading, error, onClose }) {
+  const statusHariIni = data?.statusHariIni || [];
+  const belumInput = statusHariIni.filter((status) => status.imut1 === 0 || status.imut23 === 0);
+
+  const copyReminder = async () => {
+    const namaPoli = belumInput.map((status) => status.klinik).join(", ");
+    const message = `Mohon izin mengingatkan, Poli ${namaPoli} belum mengisi sampel IMUT hari ini di DAK-SYSTEMS. Mohon kerjasamanya, terima kasih!`;
+    try {
+      await navigator.clipboard.writeText(message);
+      alert("Pesan tagihan berhasil disalin.");
+    } catch {
+      alert("Clipboard tidak tersedia. Periksa izin browser.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="monitoring-imut-title" className="w-full max-w-xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+          <div>
+            <h2 id="monitoring-imut-title" className="text-lg font-black text-slate-950">Monitoring Kepatuhan Input</h2>
+            <p className="mt-1 text-xs text-slate-500">Status input IMUT 1 dan sampel IMUT 2/3 hari ini.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Tutup monitoring" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:bg-slate-50"><X size={17} /></button>
+        </header>
+
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5">
+          {isLoading && !data && <p className="text-sm text-slate-500">Memuat status input…</p>}
+          {error && <p role="alert" className="border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error.message}</p>}
+          {data && statusHariIni.length === 0 && <p className="border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Belum ada daftar poli pada ruangan ini.</p>}
+          {data && statusHariIni.length > 0 && belumInput.length === 0 && (
+            <div className="border border-emerald-200 bg-emerald-50 p-5 text-sm font-bold text-emerald-800">✅ Keren! Semua poli sudah mengisi IMUT hari ini.</div>
+          )}
+          {belumInput.length > 0 && (
+            <>
+              <ul className="divide-y divide-slate-100 border border-slate-200">
+                {belumInput.map((status) => (
+                  <li key={status.klinik} className="flex flex-wrap items-center justify-between gap-3 p-3">
+                    <span className="text-sm font-bold text-slate-800">{status.klinik}</span>
+                    <span className="inline-flex items-center gap-1.5 bg-red-50 px-2.5 py-1 text-[10px] font-black uppercase text-red-700">
+                      <AlertCircle size={13} /> Belum Mengisi
+                    </span>
+                    <span className="w-full text-[11px] text-slate-500">
+                      {[status.imut1 === 0 && "IMUT 1", status.imut23 === 0 && "IMUT 2/3"].filter(Boolean).join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" onClick={copyReminder} className="inline-flex h-10 items-center gap-2 bg-red-700 px-4 text-xs font-black uppercase text-white hover:bg-red-800">
+                <Copy size={15} /> Salin Pesan Tagihan
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function AnalisisPage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState("overview");
+  const [showMonitoringImut, setShowMonitoringImut] = useState(false);
   const [preset, setPreset] = useState("month");
   const [clinic, setClinic] = useState("all");
   const [start, setStart] = useState("");
@@ -89,9 +163,21 @@ export default function AnalisisPage() {
   }
   const apiUrl = preset === "custom" && (!start || !end) ? null : `/api/analytics?${params}`;
   const { data, error, isLoading, mutate } = useSWR(apiUrl, fetchAnalytics, { revalidateOnFocus: false, dedupingInterval: 30000 });
+  const [initialJakartaDate] = useState(getJakartaDateKey);
+  const [imutBulan, setImutBulan] = useState(() => Number(initialJakartaDate.slice(5, 7)));
+  const [imutTahun, setImutTahun] = useState(() => Number(initialJakartaDate.slice(0, 4)));
+  const imutUrl = `/api/analisis-imut?bulan=${imutBulan}&tahun=${imutTahun}&tanggal_hari_ini=${initialJakartaDate}`;
+  const { data: imutData, error: imutError, isLoading: imutLoading, mutate: mutateImut } = useSWR(
+    imutUrl,
+    fetchAnalytics,
+    { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 30000 }
+  );
   useEffect(() => {
     if (error?.status === 401) router.push("/login");
   }, [error, router]);
+  useEffect(() => {
+    if (imutError?.status === 401) router.push("/login");
+  }, [imutError, router]);
   const summary = data?.summary;
   const maxHeat = Math.max(1, ...(data?.heatmap || []).flatMap((day) => day.slots.map((slot) => slot.value)));
 
@@ -104,12 +190,19 @@ export default function AnalisisPage() {
           <p className="mt-2 text-sm text-slate-600">Gambaran operasional rumah sakit dari kunjungan, praktik dokter, jadwal SDM, dan cuti.</p>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
+          <button onClick={() => { setShowMonitoringImut(true); void mutateImut(); }} className="inline-flex h-10 items-center gap-2 bg-red-700 px-3 text-sm font-bold text-white hover:bg-red-800"><AlertCircle size={16} /> Cek Status Input Hari Ini</button>
           <button onClick={() => mutate()} aria-label="Muat ulang analisis" title="Muat ulang" className="inline-flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:text-teal-700"><RefreshCw size={16} /></button>
           <button disabled={!data} onClick={() => data && downloadCsv(data)} className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700 disabled:opacity-40"><Download size={16} /> CSV</button>
           <button onClick={() => window.print()} className="inline-flex h-10 items-center gap-2 bg-teal-800 px-3 text-sm font-bold text-white hover:bg-teal-900"><FileText size={16} /> Cetak</button>
         </div>
       </header>
 
+      <nav className="flex gap-2 border-b border-slate-200 print:hidden" role="tablist" aria-label="Bagian analisis">
+        <button type="button" role="tab" aria-selected={activeTab === "overview"} onClick={() => setActiveTab("overview")} className={`border-b-2 px-4 py-3 text-sm font-bold ${activeTab === "overview" ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500 hover:text-slate-800"}`}>Analisis Operasional</button>
+        <button type="button" role="tab" aria-selected={activeTab === "imut"} onClick={() => { setActiveTab("imut"); void mutateImut(); }} className={`inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === "imut" ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500 hover:text-slate-800"}`}><ClipboardCheck size={16} /> Laporan Mutu (IMUT)</button>
+      </nav>
+
+      {activeTab === "overview" && <>
       <section className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:flex-wrap sm:items-end print:hidden">
         <label className="grid gap-1 text-xs font-bold text-slate-600">Periode
           <select value={preset} onChange={(event) => setPreset(event.target.value)} className="h-10 min-w-40 border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
@@ -193,6 +286,78 @@ export default function AnalisisPage() {
           </section>
         </section>
       </>}
+      </>}
+
+      {activeTab === "imut" && <section role="tabpanel" className="space-y-5">
+        <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between print:hidden">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Rekapitulasi Indikator Mutu</h2>
+            <p className="mt-1 text-xs text-slate-500">Rekap berdasarkan data log per poli pada bulan terpilih.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="grid gap-1 text-xs font-bold text-slate-600">Bulan
+              <select value={imutBulan} onChange={(event) => setImutBulan(Number(event.target.value))} className="h-10 min-w-36 border border-slate-300 bg-white px-3 text-sm text-slate-800">
+                {monthNames.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-bold text-slate-600">Tahun
+              <input type="number" min="2000" max="9999" value={imutTahun} onChange={(event) => setImutTahun(Number(event.target.value))} className="h-10 w-28 border border-slate-300 bg-white px-3 text-sm text-slate-800" />
+            </label>
+            <button type="button" onClick={() => void mutateImut()} className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700"><RefreshCw size={15} /> Muat Ulang</button>
+          </div>
+        </div>
+
+        {imutError && <div role="alert" className="border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{imutError.message}</div>}
+        {imutLoading && !imutData && <div className="grid min-h-40 place-items-center text-sm font-semibold text-slate-500">Memuat rekap mutu…</div>}
+
+        {imutData && <>
+          <section className="border border-teal-200 bg-gradient-to-r from-teal-50 via-white to-blue-50 p-5 shadow-sm sm:p-6">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center bg-teal-100 text-teal-800"><BrainCircuit size={21} /></span>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">AI Insight · Ringkasan Mutu</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-700">{imutData.aiInsight}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="overflow-hidden border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
+              <h3 className="text-sm font-extrabold text-slate-900">Tabel Rekapitulasi Standar Akreditasi</h3>
+              <p className="mt-1 text-xs text-slate-500">IMUT 3 menampilkan kategori &lt;60, tepat 60, dan &gt;60 menit agar seluruh sampel terhitung.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-left text-xs">
+                <thead className="bg-slate-100 text-[10px] uppercase text-slate-600">
+                  <tr>
+                    <th scope="col" className="border-b border-slate-200 px-4 py-3">Nama Poli</th>
+                    <th scope="col" className="border-b border-slate-200 px-4 py-3">IMUT 1 · Tepat Waktu / Terlambat</th>
+                    <th scope="col" className="border-b border-slate-200 px-4 py-3">IMUT 2 · Ya / Tidak</th>
+                    <th scope="col" className="border-b border-slate-200 px-4 py-3">IMUT 3 · &lt;60 / 60 / &gt;60 Menit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {imutData.rekap.map((row) => (
+                    <tr key={row.klinik} className="odd:bg-white even:bg-slate-50/70">
+                      <th scope="row" className="border-b border-slate-100 px-4 py-3 font-bold text-slate-800">{row.klinik}</th>
+                      <td className="border-b border-slate-100 px-4 py-3 text-slate-700">
+                        {numberFormat.format(row.tepatWaktu)} / <span className={row.terlambat > 0 ? "font-bold text-red-600" : ""}>{numberFormat.format(row.terlambat)}</span>
+                      </td>
+                      <td className="border-b border-slate-100 px-4 py-3 text-slate-700">{numberFormat.format(row.identifikasiYa)} / {numberFormat.format(row.identifikasiTidak)}</td>
+                      <td className="border-b border-slate-100 px-4 py-3 text-slate-700">
+                        {numberFormat.format(row.waktuKurang60)} / {numberFormat.format(row.waktuTepat60)} / <span className={row.waktuLebih60 > 0 ? "font-bold text-red-600" : ""}>{numberFormat.format(row.waktuLebih60)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {imutData.rekap.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">Belum ada klinik atau data rekap untuk periode ini.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>}
+      </section>}
+
+      {showMonitoringImut && <ModalMonitoringImut data={imutData} isLoading={imutLoading} error={imutError} onClose={() => setShowMonitoringImut(false)} />}
     </main>
   );
 }

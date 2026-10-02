@@ -43,6 +43,15 @@ const getMonthlyPatientCount = (doctor) => {
   return Number.isFinite(count) ? count : 0;
 };
 
+const getPatientDoctorKey = (doctor) => {
+  const id = String(doctor?.id ?? "").trim();
+  if (id) return `id:${id}`;
+
+  const namaDokter = String(doctor?.nama_dokter ?? "").trim().toUpperCase();
+  const klinik = String(doctor?.klinik ?? "").trim().toUpperCase();
+  return `doctor:${namaDokter}|clinic:${klinik}`;
+};
+
 export default function DashboardUtama() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -92,7 +101,7 @@ export default function DashboardUtama() {
     setPasienInputValues((previous) => {
       const next = { ...previous };
       data.dokterPraktik.forEach((dok) => {
-        const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+        const doctorKey = getPatientDoctorKey(dok);
         const cardKey = `${doctorKey}_${tanggalPasienKey}`;
         if (next[cardKey] === undefined) {
           next[cardKey] = getPatientCount(dok);
@@ -107,10 +116,22 @@ export default function DashboardUtama() {
   }, [dashboardError]);
 
   const handleUpdatePasienSpesifik = async (dok) => {
-    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+    const doctorKey = getPatientDoctorKey(dok);
     const cardKey = `${doctorKey}_${tanggalPasienKey}`;
     const inputValue = pasienInputValues[cardKey];
     const jmlTotal = Number(inputValue);
+    const namaDokter = String(dok?.nama_dokter || "").trim();
+    const klinik = String(dok?.klinik || "").trim();
+    const payload = { nama_dokter: namaDokter, klinik, tanggal, bulan, tahun, jumlah: jmlTotal };
+
+    console.log("PAYLOAD SIMPAN:", payload);
+
+    const tanggalValid = Number.isInteger(tanggal) && Number.isInteger(bulan) && Number.isInteger(tahun)
+      && bulan >= 1 && bulan <= 12 && tanggal >= 1
+      && tanggal <= getDaysInMonth(new Date(tahun, bulan - 1)) && tahun > 0;
+    if (!namaDokter || !klinik || !tanggalValid) {
+      return alert("Data dokter atau tanggal tidak valid. Muat ulang halaman lalu coba lagi.");
+    }
     if (inputValue === "" || inputValue == null || !Number.isSafeInteger(jmlTotal) || jmlTotal < 0) {
       return alert("Isi jumlah pasien!");
     }
@@ -120,33 +141,38 @@ export default function DashboardUtama() {
       const res = await fetch("/api/jadwal", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nama_dokter: dok.nama_dokter,
-          klinik: dok.klinik,
-          tanggal, bulan, tahun,
-          jumlah: jmlTotal
-        })
+        body: JSON.stringify(payload)
       });
 
-      if (res.ok) {
-        alert(`✅ TERSIMPAN: ${dok.nama_dokter} - ${jmlTotal} Pasien`);
-        setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
-        setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
-        await mutateDashboard((current) => {
-          if (!current || !Array.isArray(current.dokterPraktik)) return current;
-          return {
-            ...current,
-            dokterPraktik: current.dokterPraktik.map((item) => {
-              const itemKey = item.id || `${item.nama_dokter}-${item.klinik}`;
-              return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
-            })
-          };
-        }, { revalidate: false });
-        void mutateDashboard().catch((error) => {
-          console.error("Gagal memperbarui data dashboard:", error);
-        });
+      const result = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        router.push("/login");
+        throw new Error("Sesi berakhir. Silakan login kembali.");
       }
-    } catch (e) { alert("Gagal simpan."); } 
+      if (!res.ok || result.success !== true) {
+        throw new Error(result.error || result.message || `Server merespons dengan status ${res.status}.`);
+      }
+
+      setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
+      setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
+      await mutateDashboard((current) => {
+        if (!current || !Array.isArray(current.dokterPraktik)) return current;
+        return {
+          ...current,
+          dokterPraktik: current.dokterPraktik.map((item) => {
+            const itemKey = getPatientDoctorKey(item);
+            return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
+          })
+        };
+      }, { revalidate: false });
+      void mutateDashboard().catch((error) => {
+        console.error("Gagal memperbarui data dashboard:", error);
+      });
+      alert(`✅ TERSIMPAN: ${namaDokter} - ${jmlTotal} Pasien`);
+    } catch (error) {
+      console.error("Error Simpan Pasien:", error);
+      alert("Gagal menyimpan!");
+    }
     finally { setSubmitting(false); }
   };
 
@@ -341,7 +367,7 @@ export default function DashboardUtama() {
                 ))}
              </select>
           </div>
-          <button onClick={shareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 flex items-center gap-2">
+          <button onClick={shareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 flex items-center gap-2" suppressHydrationWarning={true}>
             <Share2 size={16} /> Share
           </button>
         </div>
@@ -365,9 +391,10 @@ export default function DashboardUtama() {
             className="bg-transparent border-none outline-none text-xs font-black w-full uppercase"
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)}
+            suppressHydrationWarning={true}
           />
         </div>
-        <button onClick={() => setShowSwap(true)} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200">
+        <button onClick={() => setShowSwap(true)} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center gap-3 hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200" suppressHydrationWarning={true}>
            <RefreshCw size={18} /> Tukar Asisten
         </button>
       </div>
@@ -378,7 +405,7 @@ export default function DashboardUtama() {
         <div className="lg:col-span-2 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {data?.dokterPraktik?.filter(d => d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase())).map((dok) => {
-              const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
+              const doctorKey = getPatientDoctorKey(dok);
               const cardKey = `${doctorKey}_${tanggalPasienKey}`;
               const patientCount = getPatientCount(dok);
               const monthlyPatientCount = getMonthlyPatientCount(dok);
@@ -431,6 +458,7 @@ export default function DashboardUtama() {
                             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
                             title="Edit jumlah pasien"
                             aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
+                            suppressHydrationWarning={true}
                           >
                             <Edit3 size={15} />
                           </button>
@@ -457,13 +485,16 @@ export default function DashboardUtama() {
                                 setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
                               }}
                               placeholder="Total pasien"
+                              suppressHydrationWarning={true}
                             />
                           </label>
                           <button
-                            type="submit"
+                            type="button"
+                            onClick={() => handleUpdatePasienSpesifik(dok)}
                             disabled={submitting}
                             className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-[9px] font-black uppercase text-white hover:bg-blue-800 disabled:opacity-60"
                             title="Simpan jumlah pasien"
+                            suppressHydrationWarning={true}
                           >
                             {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                             Simpan
@@ -476,6 +507,7 @@ export default function DashboardUtama() {
                             }}
                             disabled={submitting}
                             className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                            suppressHydrationWarning={true}
                           >
                             Batal
                           </button>
@@ -508,6 +540,7 @@ export default function DashboardUtama() {
             <button 
               onClick={() => setShowDownloadModal(true)}
               className="relative z-10 whitespace-nowrap bg-white text-blue-900 px-8 py-5 rounded-[2rem] font-black uppercase text-[10px] shadow-xl hover:scale-105 transition-transform flex items-center gap-2 border-b-4 border-blue-200"
+              suppressHydrationWarning={true}
             >
                <FileText size={16} className="text-blue-600"/> Generate Rekap
             </button>
@@ -627,8 +660,8 @@ export default function DashboardUtama() {
                 </select>
               </div>
               <div className="flex gap-4 mt-8">
-                <button onClick={() => setShowSwap(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button onClick={handleSwapDB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-700">EKSEKUSI TUKAR</button>
+                <button onClick={() => setShowSwap(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
+                <button onClick={handleSwapDB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-700" suppressHydrationWarning={true}>EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>
@@ -651,6 +684,7 @@ export default function DashboardUtama() {
                   value={rentangDownload.awal}
                   onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})}
                   className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                  suppressHydrationWarning={true}
                 />
               </div>
 
@@ -661,6 +695,7 @@ export default function DashboardUtama() {
                   value={rentangDownload.akhir}
                   onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})}
                   className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none focus:border-blue-500 transition-all shadow-inner text-slate-700"
+                  suppressHydrationWarning={true}
                 />
               </div>
 
@@ -668,6 +703,7 @@ export default function DashboardUtama() {
                 <button 
                   onClick={() => setShowDownloadModal(false)} 
                   className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                  suppressHydrationWarning={true}
                 >
                   Batal
                 </button>
@@ -675,6 +711,7 @@ export default function DashboardUtama() {
                   onClick={executeDownloadLaporan} 
                   disabled={isDownloading} 
                   className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 flex items-center justify-center gap-2"
+                  suppressHydrationWarning={true}
                 >
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}

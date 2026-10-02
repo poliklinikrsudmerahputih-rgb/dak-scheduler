@@ -133,7 +133,7 @@ export async function GET(request) {
       String(dok.jadwal_hari || "").trim().toUpperCase() === namaHariIndo.trim().toUpperCase()
     );
     const resMasterDokterHariIni = {
-      rows: isModeLaporan || dokterHariRows.length === 0 ? resMasterDokterAll.rows : dokterHariRows
+      rows: isModeLaporan ? resMasterDokterAll.rows : dokterHariRows
     };
 
     const semuaJadwalBulanIni = resJadwal.rows;

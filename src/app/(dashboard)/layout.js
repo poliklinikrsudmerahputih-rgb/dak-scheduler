@@ -49,7 +49,7 @@ export default function DashboardLayout({ children }) {
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="fixed top-6 left-6 z-[100] p-3 md:p-4 bg-slate-900 text-white rounded-2xl shadow-2xl hover:bg-slate-800 hover:scale-105 transition-all print:hidden"
-      >
+       suppressHydrationWarning={true}>
         {isOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
@@ -89,7 +89,7 @@ export default function DashboardLayout({ children }) {
           <button 
             onClick={handleLogout}
             className="flex items-center gap-4 w-full p-4 mt-10 text-red-400 hover:bg-red-600/10 rounded-2xl transition-all group border border-transparent hover:border-red-500/20"
-          >
+           suppressHydrationWarning={true}>
             <LogOut size={20} className="group-hover:translate-x-1 transition-transform" />
             <span className="text-sm font-bold tracking-wide uppercase">Logout System</span>
           </button>

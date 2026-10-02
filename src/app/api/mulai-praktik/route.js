@@ -15,6 +15,72 @@ const getTanggalJakarta = (date) => {
   return `${values.year}-${values.month}-${values.day}`;
 };
 
+const getJamJakarta = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.hour}:${values.minute}`;
+};
+
+const getJamJadwalMaster = (jamPraktik) => {
+  const match = String(jamPraktik || "").match(/(?:^|\D)(\d{1,2})[:.](\d{2})/);
+  if (!match) return "08:00";
+
+  const jam = Number(match[1]);
+  const menit = Number(match[2]);
+  if (jam > 23 || menit > 59) return "08:00";
+  return `${String(jam).padStart(2, "0")}:${String(menit).padStart(2, "0")}`;
+};
+
+const ensureLogImutTable = async () => {
+  await turso.execute(`CREATE TABLE IF NOT EXISTS log_imut_keterlambatan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tanggal TEXT,
+    dokter_id TEXT,
+    nama_dokter TEXT,
+    klinik TEXT,
+    jam_jadwal_master TEXT,
+    jam_hadir_aktual TEXT,
+    is_terlambat BOOLEAN,
+    menit_terlambat INTEGER
+  )`);
+  await turso.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_log_imut_keterlambatan_tanggal_dokter
+    ON log_imut_keterlambatan (tanggal, dokter_id)`);
+};
+
+const insertLogImutKeterlambatan = async (transaction, { tanggal, dokter, jamJadwalMaster, jamHadirAktual }) => {
+  const [jadwalJam, jadwalMenit] = jamJadwalMaster.split(":").map(Number);
+  const [aktualJam, aktualMenit] = jamHadirAktual.split(":").map(Number);
+  const selisihMenit = (aktualJam * 60 + aktualMenit) - (jadwalJam * 60 + jadwalMenit);
+
+  await transaction.execute({
+    sql: `INSERT INTO log_imut_keterlambatan
+          (tanggal, dokter_id, nama_dokter, klinik, jam_jadwal_master, jam_hadir_aktual, is_terlambat, menit_terlambat)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(tanggal, dokter_id) DO UPDATE SET
+            nama_dokter = excluded.nama_dokter,
+            klinik = excluded.klinik,
+            jam_jadwal_master = excluded.jam_jadwal_master,
+            jam_hadir_aktual = excluded.jam_hadir_aktual,
+            is_terlambat = excluded.is_terlambat,
+            menit_terlambat = excluded.menit_terlambat`,
+    args: [
+      tanggal,
+      String(dokter.id),
+      dokter.nama_dokter,
+      dokter.klinik,
+      jamJadwalMaster,
+      jamHadirAktual,
+      selisihMenit > 15 ? 1 : 0,
+      Math.max(0, selisihMenit)
+    ]
+  });
+};
+
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -54,7 +120,7 @@ export async function POST(request) {
     }
 
     const dokterResult = await turso.execute({
-      sql: "SELECT id, ruangan FROM master_dokter WHERE id = ? LIMIT 1",
+      sql: "SELECT id, nama_dokter, klinik, jam_praktik, ruangan FROM master_dokter WHERE id = ? LIMIT 1",
       args: [dokterId]
     });
     const dokter = dokterResult.rows[0];
@@ -70,22 +136,42 @@ export async function POST(request) {
       return NextResponse.json({ error: "Dokter berada di ruangan yang berbeda." }, { status: 403 });
     }
 
-    await turso.execute({
-      sql: `INSERT OR IGNORE INTO indikator_mutu_praktik
-            (dokter_id, tanggal, ruangan, jam_mulai_aktual)
-            VALUES (?, ?, ?, ?)`,
-      args: [dokterId, tanggal, ruanganDokter, jamMulaiAktual]
-    });
+    const jamJadwalMaster = getJamJadwalMaster(dokter.jam_praktik);
+    await ensureLogImutTable();
+    const transaction = await turso.transaction("write");
+    let savedJamMulaiAktual = jamMulaiAktual;
+    try {
+      const insertResult = await transaction.execute({
+        sql: `INSERT OR IGNORE INTO indikator_mutu_praktik
+              (dokter_id, tanggal, ruangan, jam_mulai_aktual, jam_praktik)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [dokterId, tanggal, ruanganDokter, jamMulaiAktual, jamJadwalMaster]
+      });
 
-    const savedResult = await turso.execute({
-      sql: `SELECT jam_mulai_aktual FROM indikator_mutu_praktik
-            WHERE dokter_id = ? AND tanggal = ? LIMIT 1`,
-      args: [dokterId, tanggal]
-    });
+      const savedResult = await transaction.execute({
+        sql: `SELECT jam_mulai_aktual FROM indikator_mutu_praktik
+              WHERE dokter_id = ? AND tanggal = ? LIMIT 1`,
+        args: [dokterId, tanggal]
+      });
+      savedJamMulaiAktual = savedResult.rows[0]?.jam_mulai_aktual || jamMulaiAktual;
+
+      if (Number(insertResult.rowsAffected) > 0) {
+        await insertLogImutKeterlambatan(transaction, {
+          tanggal,
+          dokter,
+          jamJadwalMaster,
+          jamHadirAktual: getJamJakarta(new Date(savedJamMulaiAktual))
+        });
+      }
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
 
     return NextResponse.json({
       success: true,
-      jam_mulai_aktual: savedResult.rows[0]?.jam_mulai_aktual || jamMulaiAktual
+      jam_mulai_aktual: savedJamMulaiAktual
     });
   } catch (error) {
     console.error("Gagal mencatat mulai praktik:", error);
@@ -128,7 +214,7 @@ export async function PATCH(request) {
     }
 
     const dokterResult = await turso.execute({
-      sql: "SELECT id, ruangan FROM master_dokter WHERE id = ? LIMIT 1",
+      sql: "SELECT id, nama_dokter, klinik, jam_praktik, ruangan FROM master_dokter WHERE id = ? LIMIT 1",
       args: [dokterId]
     });
     const dokter = dokterResult.rows[0];
@@ -145,17 +231,40 @@ export async function PATCH(request) {
     }
 
     const jamMulaiAktual = waktuMulai.toISOString();
-    await turso.execute({
-      sql: `INSERT INTO indikator_mutu_praktik
-            (dokter_id, tanggal, ruangan, jam_mulai_aktual)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(dokter_id, tanggal) DO UPDATE SET
-              ruangan = excluded.ruangan,
-              jam_mulai_aktual = excluded.jam_mulai_aktual`,
-      args: [dokterId, tanggal, ruanganDokter, jamMulaiAktual]
-    });
+    const jamJadwalMaster = getJamJadwalMaster(dokter.jam_praktik);
+    await ensureLogImutTable();
+    const transaction = await turso.transaction("write");
+    try {
+      await transaction.execute({
+        sql: `INSERT INTO indikator_mutu_praktik
+              (dokter_id, tanggal, ruangan, jam_mulai_aktual, jam_praktik)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(dokter_id, tanggal) DO UPDATE SET
+                ruangan = excluded.ruangan,
+                jam_mulai_aktual = excluded.jam_mulai_aktual,
+                jam_praktik = excluded.jam_praktik`,
+        args: [dokterId, tanggal, ruanganDokter, jamMulaiAktual, jamJadwalMaster]
+      });
 
-    return NextResponse.json({ success: true, jam_mulai_aktual: jamMulaiAktual });
+      await insertLogImutKeterlambatan(transaction, {
+        tanggal,
+        dokter,
+        jamJadwalMaster,
+        jamHadirAktual: jamMulaiManual
+      });
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    return NextResponse.json({
+      success: true,
+      jam_mulai_aktual: jamMulaiAktual,
+      jam_jadwal_master: jamJadwalMaster,
+      is_terlambat: (Number(jamMulaiManual.slice(0, 2)) * 60 + Number(jamMulaiManual.slice(3, 5)))
+        - (Number(jamJadwalMaster.slice(0, 2)) * 60 + Number(jamJadwalMaster.slice(3, 5))) > 15
+    });
   } catch (error) {
     console.error("Gagal memperbarui jam praktik:", error);
     return NextResponse.json({ error: "Gagal menyimpan jam praktik." }, { status: 500 });

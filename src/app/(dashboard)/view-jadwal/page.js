@@ -89,7 +89,7 @@ const getJamJakarta = (value) => {
   return `${values.hour}:${values.minute}`;
 };
 const getStatusMutuPraktik = (jamPraktik, jamMulaiAktual) => {
-  const jadwal = String(jamPraktik || "").match(/(?:^|\D)(\d{1,2})[:.](\d{2})/);
+  const jadwal = String(jamPraktik || "08:00").match(/(?:^|\D)(\d{1,2})[:.](\d{2})/);
   const waktuAktual = new Date(jamMulaiAktual || "");
   if (!jadwal || Number.isNaN(waktuAktual.getTime())) return null;
 
@@ -148,7 +148,7 @@ const LiveClock = () => {
   );
 };
 
-const DoctorPracticeReminder = ({ doctors }) => {
+const BannerPengingat = ({ doctors }) => {
   const belumDiisi = doctors.filter((doctor) =>
     !doctor.jam_mulai_aktual
     && !doctor.isCuti
@@ -158,9 +158,9 @@ const DoctorPracticeReminder = ({ doctors }) => {
   if (belumDiisi.length === 0) return null;
 
   return (
-    <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900 shadow-sm">
+    <div role="status" className="rounded-2xl border border-red-200 bg-red-100 px-5 py-4 text-red-900 shadow-sm">
       <p className="text-xs font-black uppercase tracking-wide">
-        ⚠️ Terdapat {belumDiisi.length} dokter yang belum diisi jam praktiknya:
+        ⚠️ Terdapat {belumDiisi.length} dokter yang belum diisi jam praktiknya pada tanggal ini.
       </p>
       <p className="mt-1 text-xs font-semibold">
         {belumDiisi.map((doctor) => `${doctor.nama_dokter} (Poli ${doctor.klinik})`).join(", ")}
@@ -168,6 +168,160 @@ const DoctorPracticeReminder = ({ doctors }) => {
     </div>
   );
 };
+
+function ModalImutPasien({ modal, onClose }) {
+  const [noRM, setNoRM] = useState("");
+  const [jamAsesmen, setJamAsesmen] = useState("");
+  const [jamSelesai, setJamSelesai] = useState("");
+  const [identifikasiPraTindakan, setIdentifikasiPraTindakan] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const waktuTungguMenit = jamAsesmen && jamSelesai
+    ? (() => {
+        const [jamMulai, menitMulai] = jamAsesmen.split(":").map(Number);
+        const [jamAkhir, menitAkhir] = jamSelesai.split(":").map(Number);
+        return (jamAkhir * 60 + menitAkhir) - (jamMulai * 60 + menitMulai);
+      })()
+    : null;
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const nomorRM = noRM.trim();
+    if (!nomorRM || !jamAsesmen || !jamSelesai || !Number.isSafeInteger(waktuTungguMenit) || waktuTungguMenit < 0) {
+      return alert("Isi Nomor RM dan pastikan Jam Selesai tidak mendahului Jam Asesmen.");
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/imut-pasien", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dokter_id: modal.dokter.id,
+          tanggal: modal.tanggal,
+          no_rm: nomorRM,
+          jam_asesmen: jamAsesmen,
+          jam_selesai: jamSelesai,
+          waktu_tunggu_menit: waktuTungguMenit,
+          identifikasi: identifikasiPraTindakan
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Gagal menyimpan sampel IMUT.");
+      }
+
+      setNoRM("");
+  setJamAsesmen("");
+  setJamSelesai("");
+      setIdentifikasiPraTindakan(true);
+  alert("Berhasil disimpan");
+    } catch (error) {
+      console.error("Gagal menyimpan sampel IMUT pasien:", error);
+      alert(error.message || "Gagal menyimpan sampel IMUT.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[10030] flex items-center justify-center bg-black/50 p-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-imut-pasien-title"
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+      >
+        <div className="mb-6">
+          <h2 id="modal-imut-pasien-title" className="text-lg font-black uppercase text-slate-900">
+            Input Sampel IMUT 2 &amp; 3
+          </h2>
+          <p className="mt-2 text-xs font-bold text-slate-500">
+            {modal.dokter.nama_dokter} · {modal.dokter.klinik} · {modal.tanggal}
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <label className="block text-xs font-black uppercase text-slate-600">
+            Nomor RM
+            <input
+              type="text"
+              value={noRM}
+              onChange={(event) => setNoRM(event.target.value)}
+              autoComplete="off"
+              required
+              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+              placeholder="Contoh: 17164"
+              suppressHydrationWarning={true}
+            />
+          </label>
+
+          <label className="block text-xs font-black uppercase text-slate-600">
+            Jam Asesmen Perawat
+            <input
+              type="time"
+              value={jamAsesmen}
+              onChange={(event) => setJamAsesmen(event.target.value)}
+              required
+              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+              suppressHydrationWarning={true}
+            />
+          </label>
+
+          <label className="block text-xs font-black uppercase text-slate-600">
+            Jam Selesai Dilayani (Discharge)
+            <input
+              type="time"
+              value={jamSelesai}
+              onChange={(event) => setJamSelesai(event.target.value)}
+              required
+              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+              suppressHydrationWarning={true}
+            />
+          </label>
+
+          {waktuTungguMenit !== null && (
+            <p className={`rounded-lg px-3 py-2 text-xs font-black ${waktuTungguMenit < 0 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+              {waktuTungguMenit < 0
+                ? "Jam Selesai harus sama atau setelah Jam Asesmen."
+                : `Waktu Tunggu: ${waktuTungguMenit} Menit`}
+            </p>
+          )}
+
+          <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-xs font-bold text-slate-700">
+            <input
+              type="checkbox"
+              checked={identifikasiPraTindakan}
+              onChange={(event) => setIdentifikasiPraTindakan(event.target.checked)}
+              className="h-4 w-4 accent-blue-600"
+              suppressHydrationWarning={true}
+            />
+            Identifikasi Pasien Pra-Tindakan?
+          </label>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              suppressHydrationWarning={true}
+            >
+              Tutup
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-blue-700 px-4 py-2.5 text-xs font-black uppercase text-white hover:bg-blue-800 disabled:opacity-60"
+              suppressHydrationWarning={true}
+            >
+              {saving ? "Menyimpan..." : "Simpan Sampel"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
 
 // ======================================================
 // 1. MODAL ABSENSI KAMERA & GPS (INTEGRASI LANGSUNG)
@@ -359,7 +513,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
     <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
       <div className="w-full max-w-md bg-white rounded-[3rem] p-6 md:p-8 shadow-2xl relative border-4 border-emerald-500/20">
         
-        <button onClick={onClose} className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full">
+        <button onClick={onClose} className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full" suppressHydrationWarning={true}>
             <XCircle size={20} />
         </button>
 
@@ -395,13 +549,13 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
                 <button 
                     onClick={() => setTipeAbsen('MASUK')} 
                     className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'MASUK' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
-                >
+                 suppressHydrationWarning={true}>
                     <LogIn size={14} className="mb-1" /> MASUK
                 </button>
                 <button 
                     onClick={() => setTipeAbsen('PULANG')} 
                     className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'PULANG' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
-                >
+                 suppressHydrationWarning={true}>
                     <LogOut size={14} className="mb-1" /> PULANG
                 </button>
             </div>
@@ -431,7 +585,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
                     onClick={capturePreviewFoto} 
                     disabled={loading}
                     className="w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 bg-blue-600 border-blue-800 hover:bg-blue-700 transition-all flex justify-center items-center gap-2"
-                >
+                 suppressHydrationWarning={true}>
                     <Camera size={16} />
                     AMBIL FOTO PRATINJAU
                 </button>
@@ -451,14 +605,14 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
                     onClick={handleKirimAbsensi} 
                     disabled={loading || (tipeAbsen === 'MASUK' && !previewFoto)}
                     className={`w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 transition-all flex justify-center items-center gap-2 ${tipeAbsen === 'MASUK' ? 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700' : 'bg-red-600 border-red-800 hover:bg-red-700'}`}
-                >
+                 suppressHydrationWarning={true}>
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                     {loading ? 'MEMPROSES...' : `KIRIM ABSEN ${tipeAbsen === 'MASUK' ? 'MASUK' : 'PULANG'}`}
                 </button>
               </>
             )}
             
-            <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase text-[9px] border-2 border-slate-200 hover:bg-slate-200 transition-all">
+            <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase text-[9px] border-2 border-slate-200 hover:bg-slate-200 transition-all" suppressHydrationWarning={true}>
                 Absen Manual (Gagal Kamera)
             </button>
         </div>
@@ -481,7 +635,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
             
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-emerald-500 pl-4 flex items-center gap-3"><UserCheck size={24} className="text-emerald-500"/> Laporan Absensi Harian</h3>
-              <button onClick={onClose} className="p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200"><XCircle size={20}/></button>
+              <button onClick={onClose} className="p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200" suppressHydrationWarning={true}><XCircle size={20}/></button>
             </div>
 
             <div className="mb-6 bg-emerald-50 p-4 rounded-2xl text-[10px] font-black uppercase text-emerald-800 border border-emerald-100">
@@ -552,7 +706,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                     </td>
                                     <td className="p-5 text-left">
                                         {row.foto_masuk ? (
-                                          <button type="button" onClick={() => setPreviewImage(row.foto_masuk)} className="group block rounded-xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all">
+                                          <button type="button" onClick={() => setPreviewImage(row.foto_masuk)} className="group block rounded-xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all" suppressHydrationWarning={true}>
                                             <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={220} height={154} className="rounded-xl object-cover transition-transform duration-200 group-hover:scale-105" unoptimized />
                                           </button>
                                         ) : (
@@ -567,7 +721,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                             onDeleteAbsen(row.id, false, row);
                                           }}
                                           className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-red-500 hover:bg-red-600 text-white"
-                                        >
+                                         suppressHydrationWarning={true}>
                                           Hapus Absen
                                         </button>
                                         <button
@@ -577,7 +731,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                             onDeleteAbsen(row.id, true, row);
                                           }}
                                           className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white"
-                                        >
+                                         suppressHydrationWarning={true}>
                                           Ulang Absen
                                         </button>
                                     </td>
@@ -595,7 +749,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                     onClick={() => setPreviewImage(null)}
                     className="absolute top-3 right-3 z-20 rounded-full bg-white/90 p-2 shadow-lg text-slate-700"
                     aria-label="Tutup pratinjau foto"
-                  >
+                   suppressHydrationWarning={true}>
                     <XCircle size={20} />
                   </button>
                   <Image
@@ -666,6 +820,7 @@ export default function ViewJadwalPublic() {
   const [showKameraModal, setShowKameraModal] = useState(false);
   const [perawatTarget, setPerawatTarget] = useState(null);
   const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
+  const [modalImutOpen, setModalImutOpen] = useState(null);
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
@@ -1056,6 +1211,7 @@ export default function ViewJadwalPublic() {
       {/* RENDER MODALS */}
       <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} onDeleteAbsen={handleDeleteAbsen} />
       <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
+      {modalImutOpen && <ModalImutPasien modal={modalImutOpen} onClose={() => setModalImutOpen(null)} />}
 
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
@@ -1095,24 +1251,24 @@ export default function ViewJadwalPublic() {
                 setShowLaporanAbsenModal(true);
               }}
               className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800 text-white"
-            >
+             suppressHydrationWarning={true}>
               <UserCheck size={18} /> Laporan Absen
             </button>
             
-            <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700">
+            <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700" suppressHydrationWarning={true}>
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
 
             {data?.missingPasien?.length > 0 && (
-              <button onClick={() => setShowMissingModal(true)} className="bg-red-500 hover:bg-red-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-red-700 text-white">
+              <button onClick={() => setShowMissingModal(true)} className="bg-red-500 hover:bg-red-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-red-700 text-white" suppressHydrationWarning={true}>
                 <Bell size={18} /> {data.missingPasien.length} Belum Isi Point
               </button>
             )}
 
-            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800">
+            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800" suppressHydrationWarning={true}>
                 <Edit3 size={18} /> Ajukan Cuti Staf
             </button>
-            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800">
+            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800" suppressHydrationWarning={true}>
                 <RefreshCw size={18} /> Tukar Asisten
             </button>
             
@@ -1140,7 +1296,7 @@ export default function ViewJadwalPublic() {
               className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)}
-            />
+             suppressHydrationWarning={true}/>
           </div>
           <div className="flex gap-4 w-full lg:w-auto items-center">
             
@@ -1153,20 +1309,20 @@ export default function ViewJadwalPublic() {
                 value={selectedDateFull}
                 onChange={(e) => setSelectedDateFull(e.target.value)}
                 className="bg-emerald-600 text-white text-[11px] font-black pl-12 pr-6 py-5 rounded-2xl uppercase shadow-lg outline-none cursor-pointer appearance-none hover:bg-emerald-700 transition-colors [&::-webkit-calendar-picker-indicator]:invert"
-              />
+               suppressHydrationWarning={true}/>
             </div>
 
             <button 
               onClick={() => setShowDownloadModal(true)}
               className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg flex items-center gap-2"
-            >
+             suppressHydrationWarning={true}>
               <Download size={14}/> Laporan
             </button>
           </div>
         </div>
 
         {!loading && !dashboardError && (
-          <DoctorPracticeReminder doctors={dokterPraktikTanggalIni} />
+          <BannerPengingat doctors={dokterPraktikTanggalIni} />
         )}
 
         {/* GRID UNIT CONTAINER (GROUPED CARD) */}
@@ -1190,7 +1346,7 @@ export default function ViewJadwalPublic() {
                 type="button"
                 onClick={() => mutateDashboard()}
                 className="rounded-xl bg-red-600 px-5 py-3 text-[10px] font-black uppercase text-white transition hover:bg-red-700"
-              >
+               suppressHydrationWarning={true}>
                 Muat Ulang
               </button>
             </div>
@@ -1253,7 +1409,7 @@ export default function ViewJadwalPublic() {
                                   onClick={() => handleMulaiPraktik(dok)}
                                   disabled={startingDoctorId === Number(dok.id)}
                                   className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                                >
+                                 suppressHydrationWarning={true}>
                                   {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
                                   Mulai Praktik
                                 </button>
@@ -1273,7 +1429,7 @@ export default function ViewJadwalPublic() {
                                           setEditingJamPraktik((previous) => ({ ...previous, [cardKey]: true }));
                                         }}
                                         className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[8px] font-black uppercase text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                                      >
+                                       suppressHydrationWarning={true}>
                                         <Edit3 size={11} /> Edit Jam
                                       </button>
                                     </>
@@ -1303,12 +1459,12 @@ export default function ViewJadwalPublic() {
                                           }
                                         }}
                                         className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-bold text-slate-700"
-                                      />
+                                       suppressHydrationWarning={true}/>
                                       <button
                                         type="submit"
                                         disabled={savingJamPraktikId === Number(dok.id)}
                                         className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
-                                      >
+                                       suppressHydrationWarning={true}>
                                         {savingJamPraktikId === Number(dok.id)
                                           ? <Loader2 size={12} className="animate-spin" />
                                           : <Save size={12} />}
@@ -1331,7 +1487,7 @@ export default function ViewJadwalPublic() {
                                           }}
                                           disabled={savingJamPraktikId === Number(dok.id)}
                                           className="text-[8px] font-black uppercase text-slate-500 hover:text-slate-800"
-                                        >
+                                         suppressHydrationWarning={true}>
                                           Batal
                                         </button>
                                       )}
@@ -1413,7 +1569,7 @@ export default function ViewJadwalPublic() {
                                         }} 
                                         className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-emerald-500 hover:text-white border border-slate-200 rounded-lg transition-all text-slate-600 shadow-sm ml-1" 
                                         title="Terminal Absensi Kamera"
-                                      >
+                                       suppressHydrationWarning={true}>
                                           <Camera size={12} /> <span className="text-[8px] not-italic font-black">ABSEN</span>
                                       </button>
                                     )}
@@ -1427,18 +1583,30 @@ export default function ViewJadwalPublic() {
                                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
                                   <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
-                                    setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
-                                  }}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
-                                  title="Edit jumlah pasien"
-                                  aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
-                                >
-                                  <Edit3 size={15} />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
+                                      setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
+                                    }}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
+                                    title="Edit jumlah pasien"
+                                    aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
+                                    suppressHydrationWarning={true}
+                                  >
+                                    <Edit3 size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setModalImutOpen({ dokter: dok, tanggal: selectedDateFull })}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 text-[9px] font-black uppercase text-blue-700 hover:border-blue-400 hover:bg-blue-50"
+                                    title="Input sampel IMUT pasien"
+                                    suppressHydrationWarning={true}
+                                  >
+                                    📊 Input Sampel IMUT
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <form
@@ -1462,7 +1630,7 @@ export default function ViewJadwalPublic() {
                                       setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
                                     }}
                                     placeholder="Total pasien"
-                                  />
+                                   suppressHydrationWarning={true}/>
                                 </label>
                                 <button
                                   type="submit"
@@ -1470,7 +1638,7 @@ export default function ViewJadwalPublic() {
                                   onTouchStart={(event) => event.preventDefault()}
                                   disabled={submitting}
                                   className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[9px] font-black uppercase text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
-                                >
+                                 suppressHydrationWarning={true}>
                                   {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                                   Simpan
                                 </button>
@@ -1482,7 +1650,7 @@ export default function ViewJadwalPublic() {
                                   }}
                                   disabled={submitting}
                                   className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                                >
+                                 suppressHydrationWarning={true}>
                                   Batal
                                 </button>
                               </form>
@@ -1526,7 +1694,7 @@ export default function ViewJadwalPublic() {
                   className="bg-transparent w-full text-[10px] font-black uppercase outline-none placeholder:text-slate-400"
                   value={searchCutiTerm}
                   onChange={(e) => setSearchCutiTerm(e.target.value)}
-                />
+                 suppressHydrationWarning={true}/>
               </div>
 
               {data?.sdmIzinList?.length > 0 ? (
@@ -1570,7 +1738,7 @@ export default function ViewJadwalPublic() {
               <h3 className="text-xl font-black italic uppercase text-slate-800 border-l-8 border-amber-500 pl-4 flex items-center gap-3">
                 <TrendingUp size={24} className="text-amber-500" /> Akumulasi Poin Terintegrasi
               </h3>
-              <button onClick={() => setShowLeaderboardModal(false)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600">
+              <button onClick={() => setShowLeaderboardModal(false)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-600" suppressHydrationWarning={true}>
                 <XCircle size={24} />
               </button>
             </div>
@@ -1657,7 +1825,7 @@ export default function ViewJadwalPublic() {
                 <h3 className="text-xl font-black uppercase tracking-widest text-slate-900">Detail Entri Belum Input Point</h3>
                 <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] mt-2">Dokter dan perawat yang terjadwal bulan ini tetapi belum mengisi jumlah pasien.</p>
               </div>
-              <button onClick={() => setShowMissingModal(false)} className="p-3 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600">
+              <button onClick={() => setShowMissingModal(false)} className="p-3 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600" suppressHydrationWarning={true}>
                 <XCircle size={20} />
               </button>
             </div>
@@ -1670,7 +1838,7 @@ export default function ViewJadwalPublic() {
                 onChange={(e) => setSearchMissingTerm(e.target.value)}
                 placeholder="Cari nama / klinik / tanggal..."
                 className="w-full bg-transparent outline-none text-[10px] font-black uppercase placeholder:text-slate-400"
-              />
+               suppressHydrationWarning={true}/>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -1722,7 +1890,7 @@ export default function ViewJadwalPublic() {
             </h3>
             <form onSubmit={handleSimpanCutiForm} className="space-y-6">
               
-              <input type="hidden" name="ruangan" value={ruanganAktifGlobal} />
+              <input type="hidden" name="ruangan" value={ruanganAktifGlobal}  suppressHydrationWarning={true}/>
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Nama Staf (Real-time)</label>
@@ -1739,15 +1907,15 @@ export default function ViewJadwalPublic() {
                 <select name="jenis_cuti" className="w-1/3 bg-slate-900 text-white rounded-2xl px-4 py-5 text-xs font-black uppercase italic shadow-lg">
                   {["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"].map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
-                <input name="alasan" required className="w-2/3 bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-xs font-black uppercase shadow-inner outline-none focus:border-blue-500 text-slate-800" placeholder="KEPERLUAN" />
+                <input name="alasan" required className="w-2/3 bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 text-xs font-black uppercase shadow-inner outline-none focus:border-blue-500 text-slate-800" placeholder="KEPERLUAN"  suppressHydrationWarning={true}/>
               </div>
               <div className="flex gap-2">
-                <input name="tgl_mulai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700" />
-                <input name="tgl_selesai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700" />
+                <input name="tgl_mulai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700"  suppressHydrationWarning={true}/>
+                <input name="tgl_selesai" type="date" required className="w-1/2 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 text-[10px] font-black shadow-inner text-slate-700"  suppressHydrationWarning={true}/>
               </div>
               <div className="flex gap-4 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowCutiModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button disabled={submitting} type="submit" className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1">KIRIM FORM</button>
+                <button type="button" onClick={() => setShowCutiModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
+                <button disabled={submitting} type="submit" className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1" suppressHydrationWarning={true}>KIRIM FORM</button>
               </div>
             </form>
           </div>
@@ -1793,8 +1961,8 @@ export default function ViewJadwalPublic() {
                 </select>
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700">EKSEKUSI TUKAR</button>
+                <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
+                <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700" suppressHydrationWarning={true}>EKSEKUSI TUKAR</button>
               </div>
             </div>
           </div>
@@ -1811,15 +1979,15 @@ export default function ViewJadwalPublic() {
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Mulai (Awal)</label>
-                <input type="date" value={rentangDownload.awal} onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700" />
+                <input type="date" value={rentangDownload.awal} onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700"  suppressHydrationWarning={true}/>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Selesai (Akhir)</label>
-                <input type="date" value={rentangDownload.akhir} onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700" />
+                <input type="date" value={rentangDownload.akhir} onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700"  suppressHydrationWarning={true}/>
               </div>
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors">Batal</button>
-                <button type="button" onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2">
+                <button type="button" onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
+                <button type="button" onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2" suppressHydrationWarning={true}>
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
                 </button>

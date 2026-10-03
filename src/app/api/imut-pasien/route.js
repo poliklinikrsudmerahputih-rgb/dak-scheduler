@@ -115,3 +115,106 @@ export async function POST(request) {
     return NextResponse.json({ success: false, error: "Gagal menyimpan sampel IMUT pasien." }, { status: 500 });
   }
 }
+
+export async function GET(request) {
+  try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+    if (!session) {
+      return NextResponse.json({ error: "Sesi tidak ditemukan." }, { status: 401 });
+    }
+
+    let sessionRuangan;
+    try {
+      const sessionData = JSON.parse(session.value);
+      sessionRuangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+    } catch {
+      return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+    }
+
+    const tanggal = String(request.nextUrl.searchParams.get("tanggal") || "").trim();
+    const dokterId = String(request.nextUrl.searchParams.get("dokter_id") || "").trim();
+    const dokterIdNumber = Number(dokterId);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(tanggal) ||
+      !Number.isSafeInteger(dokterIdNumber) ||
+      dokterIdNumber <= 0
+    ) {
+      return NextResponse.json({ error: "Tanggal atau dokter tidak valid." }, { status: 400 });
+    }
+
+    const doctorResult = await turso.execute({
+      sql: "SELECT ruangan FROM master_dokter WHERE id = ? LIMIT 1",
+      args: [dokterIdNumber]
+    });
+    const dokter = doctorResult.rows[0];
+    if (!dokter) {
+      return NextResponse.json({ error: "Dokter tidak ditemukan." }, { status: 404 });
+    }
+
+    const dokterRuangan = String(dokter.ruangan || "POLIKLINIK").trim().toUpperCase();
+    if (dokterRuangan !== sessionRuangan) {
+      return NextResponse.json({ error: "Dokter berada di ruangan yang berbeda." }, { status: 403 });
+    }
+
+    await ensureLogImutPasienTable();
+    const result = await turso.execute({
+      sql: "SELECT * FROM log_imut_pasien WHERE tanggal = ? AND dokter_id = ? ORDER BY created_at DESC",
+      args: [tanggal, dokterId]
+    });
+
+    return NextResponse.json({ data: result.rows }, { status: 200 });
+  } catch (error) {
+    console.error("Gagal mengambil riwayat sampel IMUT pasien:", error);
+    return NextResponse.json({ error: "Gagal mengambil riwayat sampel IMUT pasien." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("session_dak_pro");
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
+    }
+
+    let sessionRuangan;
+    try {
+      const sessionData = JSON.parse(session.value);
+      sessionRuangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+    } catch {
+      return NextResponse.json({ success: false, error: "Sesi tidak valid." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const id = Number(body?.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return NextResponse.json({ success: false, error: "ID sampel tidak valid." }, { status: 400 });
+    }
+
+    await ensureLogImutPasienTable();
+    const result = await turso.execute({
+      sql: `DELETE FROM log_imut_pasien
+            WHERE id = ?
+              AND EXISTS (
+                SELECT 1
+                FROM master_dokter
+                WHERE CAST(master_dokter.id AS TEXT) = log_imut_pasien.dokter_id
+                  AND UPPER(COALESCE(NULLIF(TRIM(master_dokter.ruangan), ''), 'POLIKLINIK')) = ?
+              )`,
+      args: [id, sessionRuangan]
+    });
+
+    if (Number(result.rowsAffected) === 0) {
+      return NextResponse.json(
+        { success: false, error: "Sampel tidak ditemukan atau tidak dapat dihapus." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (error) {
+    console.error("Gagal menghapus sampel IMUT pasien:", error);
+    return NextResponse.json({ success: false, error: "Gagal menghapus sampel IMUT pasien." }, { status: 500 });
+  }
+}

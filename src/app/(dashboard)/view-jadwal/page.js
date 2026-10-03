@@ -323,6 +323,144 @@ function ModalImutPasien({ modal, onClose }) {
   );
 }
 
+function ModalRiwayatImut({ modal, onClose }) {
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
+  const isOpen = Boolean(modal);
+  const apiUrl = isOpen
+    ? `/api/imut-pasien?tanggal=${encodeURIComponent(modal.tanggal)}&dokter_id=${encodeURIComponent(modal.dokter.id)}`
+    : null;
+  const { data, error, isLoading, mutate } = useSWR(apiUrl, fetchJSONWithTimeout, {
+    refreshInterval: isOpen ? 10000 : 0,
+    revalidateOnFocus: true
+  });
+  const riwayat = Array.isArray(data?.data) ? data.data : [];
+
+  const handleDelete = async (sampel) => {
+    if (!window.confirm(`Hapus sampel IMUT untuk No RM ${sampel.no_rm}?`)) return;
+
+    setDeletingId(sampel.id);
+    setDeleteError("");
+    try {
+      const response = await fetch("/api/imut-pasien", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sampel.id })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Gagal menghapus sampel IMUT.");
+      }
+
+      await mutate();
+    } catch (error) {
+      console.error("Gagal menghapus sampel IMUT:", error);
+      setDeleteError(error.message || "Gagal menghapus sampel IMUT.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[10040] flex items-center justify-center bg-black/50 p-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-riwayat-imut-title"
+        className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+      >
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 id="modal-riwayat-imut-title" className="text-lg font-black uppercase text-slate-900">
+              Riwayat Sampel IMUT
+            </h2>
+            <p className="mt-2 text-xs font-bold text-slate-500">
+              {modal.dokter.nama_dokter} · {modal.dokter.klinik} · {modal.tanggal}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => mutate()}
+            disabled={isLoading}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Muat Ulang
+          </button>
+        </div>
+
+        {error ? (
+          <p role="alert" className="py-10 text-center text-sm font-bold text-red-600">
+            Gagal memuat riwayat: {error.message}
+          </p>
+        ) : isLoading ? (
+          <p className="py-10 text-center text-sm font-bold text-slate-500">Memuat riwayat sampel...</p>
+        ) : riwayat.length === 0 ? (
+          <p className="py-10 text-center text-sm font-bold text-slate-500">
+            Belum ada sampel IMUT yang diinput untuk sesi praktik ini.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3">No RM</th>
+                  <th className="px-4 py-3">Jam Asesmen</th>
+                  <th className="px-4 py-3">Jam Selesai</th>
+                  <th className="px-4 py-3">Waktu Tunggu (Menit)</th>
+                  <th className="px-4 py-3">Identifikasi</th>
+                  <th className="px-4 py-3">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {riwayat.map((sampel) => (
+                  <tr key={sampel.id} className="border-b border-slate-100 text-slate-700">
+                    <td className="px-4 py-3 font-bold">{sampel.no_rm}</td>
+                    <td className="px-4 py-3">{sampel.jam_asesmen || "-"}</td>
+                    <td className="px-4 py-3">{sampel.jam_selesai || "-"}</td>
+                    <td className="px-4 py-3">{sampel.waktu_tunggu_menit ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      {sampel.identifikasi_pra_tindakan ? "Ya" : "Tidak"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(sampel)}
+                        disabled={deletingId !== null}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Hapus sampel No RM ${sampel.no_rm}`}
+                      >
+                        <Trash2 size={14} />
+                        {deletingId === sampel.id ? "Menghapus..." : "Hapus"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {deleteError && (
+          <p role="alert" className="mt-3 text-center text-sm font-bold text-red-600">
+            {deleteError}
+          </p>
+        )}
+
+        <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-black uppercase text-slate-600 hover:bg-slate-50"
+          >
+            Tutup Modal
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ======================================================
 // 1. MODAL ABSENSI KAMERA & GPS (INTEGRASI LANGSUNG)
 // ======================================================
@@ -821,6 +959,7 @@ export default function ViewJadwalPublic() {
   const [perawatTarget, setPerawatTarget] = useState(null);
   const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
   const [modalImutOpen, setModalImutOpen] = useState(null);
+  const [modalRiwayatOpen, setModalRiwayatOpen] = useState(null);
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
@@ -1212,6 +1351,7 @@ export default function ViewJadwalPublic() {
       <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} onDeleteAbsen={handleDeleteAbsen} />
       <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
       {modalImutOpen && <ModalImutPasien modal={modalImutOpen} onClose={() => setModalImutOpen(null)} />}
+      {modalRiwayatOpen && <ModalRiwayatImut modal={modalRiwayatOpen} onClose={() => setModalRiwayatOpen(null)} />}
 
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
@@ -1605,6 +1745,15 @@ export default function ViewJadwalPublic() {
                                     suppressHydrationWarning={true}
                                   >
                                     📊 Input Sampel IMUT
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setModalRiwayatOpen({ dokter: dok, tanggal: selectedDateFull })}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-transparent px-3 text-[9px] font-black uppercase text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+                                    title="Lihat riwayat sampel IMUT"
+                                    suppressHydrationWarning={true}
+                                  >
+                                    📋 Riwayat Sampel
                                   </button>
                                 </div>
                               </div>

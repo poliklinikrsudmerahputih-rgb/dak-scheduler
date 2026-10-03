@@ -56,7 +56,7 @@ export async function GET(request) {
     const tanggalAwal = `${tahun}-${String(bulan).padStart(2, "0")}-01`;
     const tanggalAkhir = `${tahun}-${String(bulan).padStart(2, "0")}-${String(new Date(tahun, bulan, 0).getDate()).padStart(2, "0")}`;
     const doctorResult = await turso.execute({
-      sql: `SELECT id, klinik FROM master_dokter
+      sql: `SELECT id, nama_dokter, klinik, jadwal_hari, simbol_praktik FROM master_dokter
             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?`,
       args: [ruangan]
     });
@@ -67,13 +67,20 @@ export async function GET(request) {
       .filter(([key, name]) => key && name)).values()].sort((a, b) => a.localeCompare(b, "id"));
 
     if (!doctorIds.length) {
-      return NextResponse.json({ rekap: [], belumInputHariIni: [], statusHariIni: [], aiInsight: "Belum ada klinik pada ruangan ini." });
+      return NextResponse.json({
+        rekap: [],
+        belumInputHariIni: [],
+        statusHariIni: [],
+        tanggalHariIni,
+        jumlahDokterTerjadwal: 0,
+        aiInsight: "Belum ada klinik pada ruangan ini."
+      });
     }
 
     const placeholders = doctorIds.map(() => "?").join(", ");
     const argsRekap = [...doctorIds, tanggalAwal, tanggalAkhir];
     const argsHariIni = [...doctorIds, tanggalHariIni];
-    const [lateMonthly, patientMonthly, lateToday, patientToday] = await Promise.all([
+    const [lateMonthly, patientMonthly, lateToday, patientToday, scheduleToday] = await Promise.all([
       turso.execute({
         sql: `SELECT UPPER(TRIM(klinik)) AS klinik_key,
                 SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 1 THEN 1 ELSE 0 END) AS terlambat,
@@ -110,6 +117,23 @@ export async function GET(request) {
               WHERE dokter_id IN (${placeholders}) AND tanggal = ?
               GROUP BY UPPER(TRIM(klinik))`,
         args: argsHariIni
+      }),
+      turso.execute({
+        sql: `SELECT j.simbol, j.sdm_id, s.nama
+              FROM jadwal_dinas j
+              LEFT JOIN sdm s ON s.id = j.sdm_id
+              WHERE CAST(j.tanggal AS INTEGER) = ?
+                AND CAST(j.bulan AS INTEGER) = ?
+                AND CAST(j.tahun AS INTEGER) = ?
+                AND (j.ruangan IS NULL OR TRIM(j.ruangan) = '' OR UPPER(TRIM(j.ruangan)) = ?)
+                AND (s.ruangan IS NULL OR TRIM(s.ruangan) = '' OR UPPER(TRIM(s.ruangan)) = ?)`,
+        args: [
+          Number(tanggalHariIni.slice(8, 10)),
+          Number(tanggalHariIni.slice(5, 7)),
+          Number(tanggalHariIni.slice(0, 4)),
+          ruangan,
+          ruangan
+        ]
       })
     ]);
 
@@ -117,6 +141,98 @@ export async function GET(request) {
     const patientsByClinic = new Map((patientMonthly.rows || []).map((row) => [row.klinik_key, row]));
     const lateTodayByClinic = new Map((lateToday.rows || []).map((row) => [row.klinik_key, Number(row.total) || 0]));
     const patientTodayByClinic = new Map((patientToday.rows || []).map((row) => [row.klinik_key, Number(row.total) || 0]));
+
+    const normalizeSymbol = (value) => String(value || "")
+      .trim()
+      .replace(/[^A-Za-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .toUpperCase();
+    const symbolKey = (value) => {
+      const normalized = normalizeSymbol(value);
+      const ners = normalized.match(/NERS\s*\d+/);
+      if (ners) return ners[0].replace(/\s+/g, " ");
+      const poli = normalized.match(/POLI\s*[A-Z0-9]+/);
+      if (poli) return poli[0].replace(/\s+/g, " ");
+      return normalized;
+    };
+    const symbolsMatch = (first, second) => {
+      const firstKey = symbolKey(first);
+      const secondKey = symbolKey(second);
+      if (!firstKey || !secondKey) return false;
+      if (firstKey === secondKey) return true;
+      const firstNers = firstKey.match(/^NERS\s*(\d+)$/)?.[1];
+      const secondNers = secondKey.match(/^NERS\s*(\d+)$/)?.[1];
+      const firstPoli = firstKey.match(/^POLI\s*(.+)$/)?.[1];
+      const secondPoli = secondKey.match(/^POLI\s*(.+)$/)?.[1];
+      const firstNumber = firstKey.match(/^(\d+)$/)?.[1];
+      const secondNumber = secondKey.match(/^(\d+)$/)?.[1];
+      return (firstNers && secondNers && firstNers === secondNers)
+        || (firstPoli && secondPoli && firstPoli === secondPoli)
+        || (firstNumber && secondNumber && firstNumber === secondNumber)
+        || (firstNers && secondNumber && firstNers === secondNumber)
+        || (secondNers && firstNumber && secondNers === firstNumber);
+    };
+    const hariTarget = new Intl.DateTimeFormat("id-ID", {
+      weekday: "long",
+      timeZone: "UTC"
+    }).format(new Date(`${tanggalHariIni}T00:00:00.000Z`)).toUpperCase();
+    const doctorsToday = doctors.filter((doctor) => String(doctor.jadwal_hari || "")
+      .split(/[,;/|]+/)
+      .map((day) => day.trim().toUpperCase())
+      .includes(hariTarget));
+    const scheduledStaff = scheduleToday.rows || [];
+
+    let visitRowsToday = [];
+    if (doctorIds.length) {
+      const visitsToday = await turso.execute({
+        sql: `SELECT nama_dokter, klinik
+              FROM jumlah_pasien_poli
+              WHERE CAST(tanggal AS INTEGER) = ?
+                AND CAST(bulan AS INTEGER) = ?
+                AND CAST(tahun AS INTEGER) = ?`,
+        args: [
+          Number(tanggalHariIni.slice(8, 10)),
+          Number(tanggalHariIni.slice(5, 7)),
+          Number(tanggalHariIni.slice(0, 4))
+        ]
+      });
+      visitRowsToday = visitsToday.rows || [];
+    }
+    const visitedDoctorKeys = new Set(visitRowsToday.map((row) =>
+      `${normalizeClinic(row.nama_dokter)}|${normalizeClinic(row.klinik)}`
+    ));
+    const lateDoctorIds = new Set((await turso.execute({
+      sql: `SELECT dokter_id FROM log_imut_keterlambatan
+            WHERE dokter_id IN (${placeholders}) AND tanggal = ?`,
+      args: argsHariIni
+    })).rows.map((row) => String(row.dokter_id)));
+    const imutDoctorIds = new Set((await turso.execute({
+      sql: `SELECT dokter_id FROM log_imut_pasien
+            WHERE dokter_id IN (${placeholders}) AND tanggal = ?`,
+      args: argsHariIni
+    })).rows.map((row) => String(row.dokter_id)));
+
+    const belumInputHariIni = doctorsToday.map((doctor) => {
+      const doctorId = String(doctor.id);
+      const doctorName = String(doctor.nama_dokter || "").trim();
+      const clinicName = String(doctor.klinik || "").trim();
+      const assistants = scheduledStaff
+        .filter((staff) => symbolsMatch(staff.simbol, doctor.simbol_praktik))
+        .map((staff) => String(staff.nama || "").trim())
+        .filter(Boolean);
+      const tunggakan = [];
+      if (!lateDoctorIds.has(doctorId)) tunggakan.push("IMUT 1");
+      if (!imutDoctorIds.has(doctorId)) tunggakan.push("IMUT 2/3");
+      if (!visitedDoctorKeys.has(`${normalizeClinic(doctorName)}|${normalizeClinic(clinicName)}`)) {
+        tunggakan.push("Kunjungan Pasien");
+      }
+      return {
+        poli: clinicName,
+        dokter: doctorName,
+        asisten: assistants.length ? [...new Set(assistants)].join(", ") : "Belum ada asisten terjadwal",
+        tunggakan
+      };
+    }).filter((entry) => entry.tunggakan.length > 0);
 
     const rekap = clinics.map((klinik) => {
       const clinicKey = normalizeClinic(klinik);
@@ -144,14 +260,17 @@ export async function GET(request) {
       const imut23 = patientTodayByClinic.get(clinicKey) || 0;
       return { klinik, imut1, imut23 };
     });
-    const belumInputHariIni = statusHariIni
+    const poliBelumInputHariIni = statusHariIni
       .filter((status) => status.imut1 === 0 || status.imut23 === 0)
       .map((status) => status.klinik);
 
     return NextResponse.json({
       rekap,
       belumInputHariIni,
+      poliBelumInputHariIni,
       statusHariIni,
+      tanggalHariIni,
+      jumlahDokterTerjadwal: doctorsToday.length,
       aiInsight: createInsight(rekap)
     });
   } catch (error) {

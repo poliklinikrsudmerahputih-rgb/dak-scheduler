@@ -17,6 +17,7 @@ export default function middleware(request) {
     pathname === "/signup" || 
     pathname === "/forgot-password" ||
     pathname === "/view-jadwal" ||
+    pathname === "/laporan-eksekutif" ||
     pathname.startsWith("/shared");
 
   // 3. LOGIKA PROTEKSI:

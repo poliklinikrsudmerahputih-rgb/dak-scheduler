@@ -32,7 +32,6 @@ export default function DashboardLayout({ children }) {
 
   const menu = [
     { name: "Dashboard", icon: <LayoutDashboard size={20}/>, href: "/" },
-    { name: "Analitik", icon: <TrendingUp size={20}/>, href: "/dashboard" },
     { name: "Analisis & Intelligence", icon: <BrainCircuit size={20}/>, href: "/analisis" },
     { name: "Master SDM", icon: <Users size={20}/>, href: "/sdm" },
     { name: "Master Dokter", icon: <Stethoscope size={20}/>, href: "/dokter" },

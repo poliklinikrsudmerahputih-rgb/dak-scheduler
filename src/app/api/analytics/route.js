@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
+import { addWorkloadScores, buildScheduleAssignments } from "@/lib/schedule-assignments";
 
 export const dynamic = "force-dynamic";
 
@@ -88,20 +89,26 @@ export async function GET(request) {
     if (!range) return NextResponse.json({ error: "Rentang tanggal tidak valid (maksimal 366 hari)." }, { status: 400 });
 
     const roomMatch = `(ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)`;
-    const [doctorResult, staffResult, scheduleResult, staffLeaveResult, doctorLeaveResult, practiceResult, attendanceResult] = await Promise.all([
+    const [doctorResult, staffResult, scheduleResult, staffLeaveResult, doctorLeaveResult, practiceResult, attendanceResult, nasaResult] = await Promise.all([
       turso.execute({
-        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, ruangan
+        sql: `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, ruangan
               FROM master_dokter WHERE ${roomMatch}`,
         args: [ruangan]
       }),
       turso.execute({
-        sql: `SELECT id, nama FROM sdm WHERE ${roomMatch} ORDER BY nama`,
+        sql: `SELECT id, nama, jabatan, jenis_jabatan FROM sdm
+              WHERE ${roomMatch}
+                AND COALESCE(is_aktif, 1) = 1
+                AND UPPER(COALESCE(status_kerja, '')) NOT IN ('RESIGN', 'NON_AKTIF')
+              ORDER BY nama`,
         args: [ruangan]
       }),
       turso.execute({
-        sql: `SELECT j.sdm_id, j.tanggal, j.bulan, j.tahun, j.simbol, s.nama
+        sql: `SELECT j.sdm_id, j.tanggal, j.bulan, j.tahun, j.simbol, s.nama, s.jabatan, s.jenis_jabatan
               FROM jadwal_dinas j JOIN sdm s ON s.id = j.sdm_id
                 AND (s.ruangan IS NULL OR TRIM(s.ruangan) = '' OR UPPER(TRIM(s.ruangan)) = ?)
+                AND COALESCE(s.is_aktif, 1) = 1
+                AND UPPER(COALESCE(s.status_kerja, '')) NOT IN ('RESIGN', 'NON_AKTIF')
               WHERE (j.ruangan IS NULL OR TRIM(j.ruangan) = '' OR UPPER(TRIM(j.ruangan)) = ?)
                 AND printf('%04d-%02d-%02d', CAST(j.tahun AS INTEGER), CAST(j.bulan AS INTEGER), CAST(j.tanggal AS INTEGER)) BETWEEN ? AND ?`,
         args: [ruangan, ruangan, range.start, range.end]
@@ -126,11 +133,28 @@ export async function GET(request) {
               WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)
                 AND tanggal BETWEEN ? AND ?`,
         args: [ruangan, range.start, range.end]
-      }).catch(() => ({ rows: [] }))
+      }),
+      turso.execute({
+        sql: `SELECT n.sdm_id,
+                COALESCE(NULLIF(TRIM(s.jabatan), ''), NULLIF(TRIM(s.jenis_jabatan), ''), 'Jabatan belum diisi') AS jabatan,
+                AVG((CAST(n.mental_demand AS REAL) + CAST(n.physical_demand AS REAL) +
+                     CAST(n.temporal_demand AS REAL) + CAST(n.performance AS REAL) +
+                     CAST(n.effort AS REAL) + CAST(n.frustration AS REAL)) / 6.0) AS skor_nasa_tlx
+              FROM log_nasa_tlx n
+              JOIN sdm s ON s.id = n.sdm_id
+              WHERE UPPER(TRIM(n.ruangan)) = ?
+                AND (s.ruangan IS NULL OR TRIM(s.ruangan) = '' OR UPPER(TRIM(s.ruangan)) = ?)
+                AND COALESCE(s.is_aktif, 1) = 1
+                AND UPPER(COALESCE(s.status_kerja, '')) NOT IN ('RESIGN', 'NON_AKTIF')
+                AND date(n.tanggal_isi) BETWEEN date(?) AND date(?)
+              GROUP BY n.sdm_id`,
+        args: [ruangan, ruangan, range.start, range.end]
+      })
     ]);
 
     const doctors = doctorResult.rows || [];
     const staff = staffResult.rows || [];
+    const nasaScores = nasaResult.rows || [];
     const requestedClinic = normalize(searchParams.get("clinic"));
     const selectedClinic = requestedClinic === "ALL" ? "" : requestedClinic;
     const clinics = [...new Map(doctors
@@ -142,6 +166,50 @@ export async function GET(request) {
     const visibleDoctors = selectedClinic
       ? doctors.filter((doctor) => normalize(doctor.klinik) === selectedClinic)
       : doctors;
+    let scheduleAssignments = buildScheduleAssignments(scheduleResult.rows || [], visibleDoctors);
+    const professionMetricsMap = new Map();
+    for (const person of staff) {
+      const profession = String(person.jabatan || person.jenis_jabatan || "Jabatan belum diisi").trim();
+      const key = profession.toUpperCase();
+      if (!professionMetricsMap.has(key)) {
+        professionMetricsMap.set(key, {
+          jabatan: profession,
+          totalSdmAktif: 0,
+          dokterIds: new Set(),
+          scoreByStaff: new Map()
+        });
+      }
+      professionMetricsMap.get(key).totalSdmAktif += 1;
+    }
+    const staffById = new Map(staff.map((person) => [String(person.id), person]));
+    for (const assignment of scheduleAssignments) {
+      const person = staffById.get(String(assignment.sdmId));
+      const profession = String(person?.jabatan || person?.jenis_jabatan || "Jabatan belum diisi").trim();
+      const group = professionMetricsMap.get(profession.toUpperCase());
+      if (group) group.dokterIds.add(String(assignment.dokterId));
+    }
+    for (const row of nasaScores) {
+      const person = staffById.get(String(row.sdm_id));
+      const profession = String(row.jabatan || person?.jabatan || person?.jenis_jabatan || "Jabatan belum diisi").trim();
+      const group = professionMetricsMap.get(profession.toUpperCase());
+      const score = Number(row.skor_nasa_tlx);
+      if (group && Number.isFinite(score)) group.scoreByStaff.set(String(row.sdm_id), score);
+    }
+    const professionMetrics = [...professionMetricsMap.values()].map((group) => {
+      const scores = [...group.scoreByStaff.values()];
+      const averageWorkload = scores.length
+        ? scores.reduce((total, score) => total + score, 0) / scores.length
+        : null;
+      return {
+        jabatan: group.jabatan,
+        totalSdmAktif: group.totalSdmAktif,
+        totalDokterDitangani: group.dokterIds.size,
+        rataRataSkorNasaTlx: averageWorkload === null ? null : Math.round(averageWorkload * 10) / 10,
+        rasioKepadatan: group.totalSdmAktif
+          ? Math.round(group.dokterIds.size / group.totalSdmAktif * 100) / 100
+          : null
+      };
+    }).sort((first, second) => first.jabatan.localeCompare(second.jabatan, "id"));
     const visibleClinicKeys = [...new Set(visibleDoctors.map((doctor) => normalize(doctor.klinik)).filter(Boolean))];
 
     let patientRows = [];
@@ -157,6 +225,7 @@ export async function GET(request) {
       });
       patientRows = (patientResult.rows || []).filter((row) => !selectedClinic || normalize(row.klinik) === selectedClinic);
     }
+    scheduleAssignments = addWorkloadScores(scheduleAssignments, patientRows, visibleDoctors);
 
     const visitByDay = new Map();
     const visitByDoctor = new Map();
@@ -304,6 +373,8 @@ export async function GET(request) {
       trend,
       doctorWorkload,
       staffWorkload,
+      scheduleAssignments,
+      professionMetrics,
       leaveTypes,
       heatmap,
       insights

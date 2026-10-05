@@ -47,6 +47,18 @@ const getMonthlyPatientCount = (doctor) => {
   return Number.isFinite(count) ? count : 0;
 };
 
+const getBerhalanganLabel = (value) => {
+  const labels = {
+    CT: "Cuti Tahunan (CT)",
+    CS: "Sakit (CS)",
+    DL: "Dinas Luar (DL)",
+    CM: "Melahirkan (CM)",
+    TP: "Tutup Pendaftaran (TP)"
+  };
+  const status = String(value || "").trim();
+  return labels[status.toUpperCase()] || status;
+};
+
 const normalisasiSimbolTampilan = (value) => String(value || "")
   .trim()
   .replace(/[^A-Za-z0-9]+/g, " ")
@@ -169,7 +181,7 @@ const BannerPengingat = ({ doctors }) => {
   );
 };
 
-function ModalImutPasien({ modal, onClose }) {
+function ModalImutPasien({ modal, onClose, onSaved }) {
   const [noRM, setNoRM] = useState("");
   const [jamAsesmen, setJamAsesmen] = useState("");
   const [jamSelesai, setJamSelesai] = useState("");
@@ -211,10 +223,10 @@ function ModalImutPasien({ modal, onClose }) {
       }
 
       setNoRM("");
-  setJamAsesmen("");
-  setJamSelesai("");
+      setJamAsesmen("");
+      setJamSelesai("");
       setIdentifikasiPraTindakan(true);
-  alert("Berhasil disimpan");
+      onSaved();
     } catch (error) {
       console.error("Gagal menyimpan sampel IMUT pasien:", error);
       alert(error.message || "Gagal menyimpan sampel IMUT.");
@@ -930,7 +942,7 @@ export default function ViewJadwalPublic() {
     : new URLSearchParams(window.location.search).get("ruangan");
   const shareQuery = ruanganShare ? `&ruangan=${encodeURIComponent(ruanganShare)}` : "";
   const dashboardUrl = `/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`;
-  const swrOptions = { revalidateOnFocus: false, dedupingInterval: 60000 };
+  const swrOptions = { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 60000 };
   const { data, error: dashboardError, isLoading: loading, mutate: mutateDashboard } = useSWR(
     dashboardUrl,
     fetchJSONWithTimeout,
@@ -960,6 +972,13 @@ export default function ViewJadwalPublic() {
   const [ruanganAktifGlobal, setRuanganAktifGlobal] = useState('POLIKLINIK');
   const [modalImutOpen, setModalImutOpen] = useState(null);
   const [modalRiwayatOpen, setModalRiwayatOpen] = useState(null);
+  const [imutSaveNotice, setImutSaveNotice] = useState("");
+
+  useEffect(() => {
+    if (!imutSaveNotice) return undefined;
+    const timeoutId = window.setTimeout(() => setImutSaveNotice(""), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [imutSaveNotice]);
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [rentangDownload, setRentangDownload] = useState({
@@ -1004,6 +1023,16 @@ export default function ViewJadwalPublic() {
       return;
     }
 
+    let waktuManual = jamMulaiManual;
+    if (selectedDateFull < getTanggalJakarta() && !waktuManual) {
+      waktuManual = window.prompt("Masukkan jam mulai praktik pada tanggal tersebut (HH:mm):") || "";
+      if (!waktuManual) return;
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(waktuManual)) {
+        alert("Format jam praktik harus HH:mm.");
+        return;
+      }
+    }
+
     setStartingDoctorId(dokterId);
     try {
       const res = await fetch("/api/mulai-praktik", {
@@ -1012,7 +1041,7 @@ export default function ViewJadwalPublic() {
         body: JSON.stringify({
           dokter_id: dokterId,
           tanggal: selectedDateFull,
-          ...(jamMulaiManual ? { jam_mulai_manual: jamMulaiManual } : {})
+          ...(waktuManual ? { jam_mulai_manual: waktuManual } : {})
         })
       });
       const result = await res.json();
@@ -1329,7 +1358,6 @@ export default function ViewJadwalPublic() {
   };
 
   const labelHariIni = format(parseISO(selectedDateFull), "eeee, dd MMMM yyyy", { locale: id });
-  const isTanggalPraktikAktif = selectedDateFull === getTanggalJakarta();
 
   const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
     const simbol = ambilGrupSimbolDokter(dok.simbol_praktik || dok.simbol || dok.klinik);
@@ -1350,8 +1378,26 @@ export default function ViewJadwalPublic() {
       {/* RENDER MODALS */}
       <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} onDeleteAbsen={handleDeleteAbsen} />
       <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
-      {modalImutOpen && <ModalImutPasien modal={modalImutOpen} onClose={() => setModalImutOpen(null)} />}
+      {modalImutOpen && (
+        <ModalImutPasien
+          modal={modalImutOpen}
+          onClose={() => setModalImutOpen(null)}
+          onSaved={() => {
+            setModalImutOpen(null);
+            setImutSaveNotice("Sampel IMUT sudah tersimpan.");
+          }}
+        />
+      )}
       {modalRiwayatOpen && <ModalRiwayatImut modal={modalRiwayatOpen} onClose={() => setModalRiwayatOpen(null)} />}
+      {imutSaveNotice && (
+        <div
+          role="status"
+          className="fixed right-5 top-5 z-[10060] flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 shadow-lg"
+        >
+          <CheckCircle2 size={18} />
+          {imutSaveNotice}
+        </div>
+      )}
 
       {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
@@ -1523,27 +1569,34 @@ export default function ViewJadwalPublic() {
                     const patientCount = getPatientCount(dok);
                     const monthlyPatientCount = getMonthlyPatientCount(dok);
                     const isEditing = Boolean(editingStatus[cardKey]);
+                    const isBerhalangan = dok.is_berhalangan === true;
+                    const keteranganBerhalangan = getBerhalanganLabel(dok.keterangan_berhalangan);
                     const mutuPraktik = getStatusMutuPraktik(dok.jam_praktik, dok.jam_mulai_aktual);
 
                     return (
-                      <div key={cardKey} className={`p-6 rounded-[2.5rem] border-2 transition-all ${dok.isCuti ? 'border-red-100 bg-red-50/20 opacity-60' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
+                      <div key={cardKey} className={`p-6 rounded-[2.5rem] border-2 transition-all ${isBerhalangan ? 'border-red-100 bg-red-50/30 opacity-75' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div>
                             <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
                             <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 tracking-wider">{dok.klinik} • {dok.jam_praktik || "Jam Pelayanan"}</p>
+                            {isBerhalangan && (
+                              <span className="mt-2 inline-flex rounded-full border border-red-200 bg-red-100 px-2.5 py-1 text-[8px] font-black uppercase tracking-wide text-red-800">
+                                🚫 {keteranganBerhalangan || "Dokter Berhalangan"}
+                              </span>
+                            )}
 
                             <div className="flex flex-wrap items-center gap-2 mt-2">
-                              {mutuPraktik && (
+                              {!isBerhalangan && mutuPraktik && (
                                 <span className={`text-[8px] font-black uppercase px-2.5 py-1 rounded-full border ${mutuPraktik.terlambatMenit <= 15 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-red-100 text-red-700 border-red-200"}`}>
                                   {mutuPraktik.terlambatMenit <= 15 ? `Tepat Waktu · ${mutuPraktik.jamAktual}` : `Terlambat ${mutuPraktik.terlambatMenit} menit`}
                                 </span>
                               )}
-                              {dok.jam_mulai_aktual && !mutuPraktik && (
+                              {!isBerhalangan && dok.jam_mulai_aktual && !mutuPraktik && (
                                 <span className="text-[8px] font-bold uppercase px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-500">
                                   Waktu tercatat · jadwal tidak valid
                                 </span>
                               )}
-                              {!dok.jam_mulai_aktual && isTanggalPraktikAktif && !dok.isCuti && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
+                              {!dok.jam_mulai_aktual && !isBerhalangan && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
                                 <button
                                   type="button"
                                   onClick={() => handleMulaiPraktik(dok)}
@@ -1554,7 +1607,7 @@ export default function ViewJadwalPublic() {
                                   Mulai Praktik
                                 </button>
                               )}
-                              {!dok.isCuti && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
+                              {!isBerhalangan && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
                                 <div className="flex flex-wrap items-center gap-2">
                                   {dok.jam_mulai_aktual && !editingJamPraktik[cardKey] ? (
                                     <>
@@ -1637,7 +1690,7 @@ export default function ViewJadwalPublic() {
                               )}
                             </div>
                             
-                            {!dok.isCuti && (
+                            {!isBerhalangan && (
                               <p className="text-[8px] font-black text-blue-600 uppercase mt-2 bg-blue-50 w-fit px-2 py-0.5 rounded border border-blue-100 italic">
                                 Kunjungan Bulan Ini: {monthlyPatientCount} Pasien
                               </p>
@@ -1646,7 +1699,7 @@ export default function ViewJadwalPublic() {
 
                         </div>
 
-                        {!dok.isCuti ? (
+                        {!isBerhalangan ? (
                           <div className="mt-4 pt-4 border-t border-slate-200/40 space-y-4">
                             
                             {/* --- INTEGRASI PEMBAGI DINAMIS & POTONGAN ABSENSI --- */}
@@ -1808,7 +1861,7 @@ export default function ViewJadwalPublic() {
                         ) : (
                           <div className="mt-4 p-4 bg-red-50 rounded-2xl text-center border border-dashed border-red-200 flex items-center justify-center gap-2">
                               <AlertCircle size={14} className="text-red-400" />
-                              <p className="text-[10px] font-black text-red-600 uppercase italic">Dokter Izin / Berhalangan Praktik</p>
+                              <p className="text-[10px] font-black text-red-600 uppercase italic">{keteranganBerhalangan || "Dokter Berhalangan Praktik"}</p>
                           </div>
                         )}
                       </div>

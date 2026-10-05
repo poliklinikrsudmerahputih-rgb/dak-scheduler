@@ -45,16 +45,45 @@ export async function GET(request) {
     const bulan = Number(searchParams.get("bulan"));
     const tahun = Number(searchParams.get("tahun"));
     const tanggalHariIni = String(searchParams.get("tanggal_hari_ini") || "");
-    if (
-      !Number.isInteger(bulan) || bulan < 1 || bulan > 12 ||
-      !Number.isInteger(tahun) || tahun < 2000 || tahun > 9999 ||
-      !validDate(tanggalHariIni)
-    ) {
-      return NextResponse.json({ error: "Parameter bulan, tahun, atau tanggal tidak valid." }, { status: 400 });
+    const requestedType = searchParams.get("tipe");
+    const reportType = requestedType || "bulanan";
+    let reportMonth = bulan;
+    let reportYear = tahun;
+    let reportDate = String(searchParams.get("tanggal") || "");
+    let reportFilter;
+    let reportFilterArgs;
+
+    if (!validDate(tanggalHariIni)) {
+      return NextResponse.json({ error: "Tanggal monitoring tidak valid." }, { status: 400 });
+    }
+    if (reportType === "harian") {
+      if (!validDate(reportDate)) {
+        return NextResponse.json({ error: "Tanggal laporan tidak valid." }, { status: 400 });
+      }
+      reportMonth = Number(reportDate.slice(5, 7));
+      reportYear = Number(reportDate.slice(0, 4));
+      reportFilter = "tanggal = ?";
+      reportFilterArgs = [reportDate];
+    } else if (reportType === "bulanan") {
+      if (
+        !Number.isInteger(reportMonth) || reportMonth < 1 || reportMonth > 12 ||
+        !Number.isInteger(reportYear) || reportYear < 2000 || reportYear > 9999
+      ) {
+        return NextResponse.json({ error: "Parameter bulan atau tahun tidak valid." }, { status: 400 });
+      }
+      reportFilter = "strftime('%m', tanggal) = ? AND strftime('%Y', tanggal) = ?";
+      reportFilterArgs = [String(reportMonth).padStart(2, "0"), String(reportYear)];
+    } else if (reportType === "tahunan") {
+      reportYear = Number(searchParams.get("tahun"));
+      if (!Number.isInteger(reportYear) || reportYear < 2000 || reportYear > 9999) {
+        return NextResponse.json({ error: "Parameter tahun tidak valid." }, { status: 400 });
+      }
+      reportFilter = "strftime('%Y', tanggal) = ?";
+      reportFilterArgs = [String(reportYear)];
+    } else {
+      return NextResponse.json({ error: "Tipe periode tidak valid." }, { status: 400 });
     }
 
-    const tanggalAwal = `${tahun}-${String(bulan).padStart(2, "0")}-01`;
-    const tanggalAkhir = `${tahun}-${String(bulan).padStart(2, "0")}-${String(new Date(tahun, bulan, 0).getDate()).padStart(2, "0")}`;
     const doctorResult = await turso.execute({
       sql: `SELECT id, nama_dokter, klinik, jadwal_hari, simbol_praktik FROM master_dokter
             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?`,
@@ -78,15 +107,29 @@ export async function GET(request) {
     }
 
     const placeholders = doctorIds.map(() => "?").join(", ");
-    const argsRekap = [...doctorIds, tanggalAwal, tanggalAkhir];
+    const argsRekap = [...doctorIds, ...reportFilterArgs];
     const argsHariIni = [...doctorIds, tanggalHariIni];
-    const [lateMonthly, patientMonthly, lateToday, patientToday, scheduleToday] = await Promise.all([
+    const visitFilter = reportType === "harian"
+      ? "CAST(tanggal AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ? AND CAST(tahun AS INTEGER) = ?"
+      : reportType === "bulanan"
+        ? "CAST(bulan AS INTEGER) = ? AND CAST(tahun AS INTEGER) = ?"
+        : "CAST(tahun AS INTEGER) = ?";
+    const visitFilterArgs = reportType === "harian"
+      ? [
+          Number(reportDate.slice(8, 10)),
+          Number(reportDate.slice(5, 7)),
+          Number(reportDate.slice(0, 4))
+        ]
+      : reportType === "bulanan"
+        ? [reportMonth, reportYear]
+        : [reportYear];
+    const [latePeriod, patientPeriod, visitsPeriod, lateToday, patientToday, scheduleToday] = await Promise.all([
       turso.execute({
         sql: `SELECT UPPER(TRIM(klinik)) AS klinik_key,
                 SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 1 THEN 1 ELSE 0 END) AS terlambat,
                 SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 0 THEN 1 ELSE 0 END) AS tepat_waktu
               FROM log_imut_keterlambatan
-              WHERE dokter_id IN (${placeholders}) AND tanggal BETWEEN ? AND ?
+              WHERE dokter_id IN (${placeholders}) AND ${reportFilter}
               GROUP BY UPPER(TRIM(klinik))`,
         args: argsRekap
       }),
@@ -100,9 +143,17 @@ export async function GET(request) {
                 COUNT(waktu_tunggu_menit) AS total_sampel,
                 COALESCE(SUM(waktu_tunggu_menit), 0) AS total_waktu_tunggu
               FROM log_imut_pasien
-              WHERE dokter_id IN (${placeholders}) AND tanggal BETWEEN ? AND ?
+              WHERE dokter_id IN (${placeholders}) AND ${reportFilter}
               GROUP BY UPPER(TRIM(klinik))`,
         args: argsRekap
+      }),
+      turso.execute({
+        sql: `SELECT UPPER(TRIM(nama_dokter)) AS dokter_key, UPPER(TRIM(klinik)) AS klinik_key,
+                SUM(CAST(jumlah AS INTEGER)) AS total_kunjungan
+              FROM jumlah_pasien_poli
+              WHERE ${visitFilter}
+              GROUP BY UPPER(TRIM(nama_dokter)), UPPER(TRIM(klinik))`,
+        args: visitFilterArgs
       }),
       turso.execute({
         sql: `SELECT UPPER(TRIM(klinik)) AS klinik_key, COUNT(*) AS total
@@ -137,8 +188,19 @@ export async function GET(request) {
       })
     ]);
 
-    const lateByClinic = new Map((lateMonthly.rows || []).map((row) => [row.klinik_key, row]));
-    const patientsByClinic = new Map((patientMonthly.rows || []).map((row) => [row.klinik_key, row]));
+    const lateByClinic = new Map((latePeriod.rows || []).map((row) => [row.klinik_key, row]));
+    const patientsByClinic = new Map((patientPeriod.rows || []).map((row) => [row.klinik_key, row]));
+    const visibleDoctorKeys = new Set(doctors.map((doctor) =>
+      `${normalizeClinic(doctor.nama_dokter)}|${normalizeClinic(doctor.klinik)}`
+    ));
+    const visitsByClinic = new Map();
+    for (const row of visitsPeriod.rows || []) {
+      if (!visibleDoctorKeys.has(`${row.dokter_key}|${row.klinik_key}`)) continue;
+      visitsByClinic.set(
+        row.klinik_key,
+        (visitsByClinic.get(row.klinik_key) || 0) + (Number(row.total_kunjungan) || 0)
+      );
+    }
     const lateTodayByClinic = new Map((lateToday.rows || []).map((row) => [row.klinik_key, Number(row.total) || 0]));
     const patientTodayByClinic = new Map((patientToday.rows || []).map((row) => [row.klinik_key, Number(row.total) || 0]));
 
@@ -242,6 +304,7 @@ export async function GET(request) {
       const totalWait = Number(patient.total_waktu_tunggu) || 0;
       return {
         klinik,
+        kunjungan: visitsByClinic.get(clinicKey) || 0,
         tepatWaktu: Number(late.tepat_waktu) || 0,
         terlambat: Number(late.terlambat) || 0,
         identifikasiYa: Number(patient.identifikasi_ya) || 0,

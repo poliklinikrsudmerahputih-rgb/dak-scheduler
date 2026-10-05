@@ -96,13 +96,18 @@ export async function POST(request) {
     }
 
     const now = new Date();
-    if (tanggal !== getTanggalJakarta(now)) {
-      return NextResponse.json({ error: "Waktu mulai hanya dapat dicatat untuk tanggal hari ini." }, { status: 400 });
+    const tanggalHariIni = getTanggalJakarta(now);
+    if (tanggal < tanggalHariIni && !jamMulaiManual) {
+      return NextResponse.json({ error: "Jam mulai manual wajib diisi untuk tanggal lampau." }, { status: 400 });
     }
     const waktuMulai = jamMulaiManual
       ? new Date(`${tanggal}T${jamMulaiManual}:00+07:00`)
       : now;
-    if (Number.isNaN(waktuMulai.getTime()) || waktuMulai.getTime() > now.getTime()) {
+    if (
+      Number.isNaN(waktuMulai.getTime()) ||
+      getTanggalJakarta(waktuMulai) !== tanggal ||
+      waktuMulai.getTime() > now.getTime()
+    ) {
       return NextResponse.json({ error: "Jam mulai manual tidak valid atau berada di masa depan." }, { status: 400 });
     }
     const jamMulaiAktual = waktuMulai.toISOString();

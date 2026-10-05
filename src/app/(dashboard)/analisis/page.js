@@ -190,10 +190,10 @@ function ComplianceSection({ data, loading = false, error }) {
               </tr>
             </thead>
             <tbody>
-              {doctors.map((doctor) => {
+              {doctors.map((doctor, index) => {
                 const late = doctor.statusDisiplin === "Terlambat";
                 return (
-                  <tr key={`${doctor.namaDokter}-${doctor.klinik}`} className={`border-b border-slate-100 ${late ? "bg-amber-50/60" : "odd:bg-white even:bg-slate-50/50"}`}>
+                  <tr key={`${doctor.namaDokter}-${doctor.klinik}-${index}`} className={`border-b border-slate-100 ${late ? "bg-amber-50/60" : "odd:bg-white even:bg-slate-50/50"}`}>
                     <th scope="row" className="px-4 py-3 font-bold text-slate-800">{doctor.namaDokter}</th>
                     <td className="px-4 py-3 text-slate-700">{doctor.klinik}</td>
                     <td className="px-4 py-3 text-slate-700">{numberFormat.format(doctor.totalSesiPraktik)}</td>
@@ -330,19 +330,27 @@ export default function AnalisisPage() {
     return { start: `${shareYear}-01-01`, end: `${shareYear}-12-31` };
   }, [periodType, selectedDate, shareMonth, shareYear]);
 
-  const analyticsParams = new URLSearchParams({ preset: "custom", clinic });
+  const analyticsParams = new URLSearchParams({ preset: "custom", tipe: periodType, clinic });
   const imutParams = new URLSearchParams({ tipe: periodType, clinic });
   if (range) {
     analyticsParams.set("start", range.start);
     analyticsParams.set("end", range.end);
     imutParams.set("start", range.start);
     imutParams.set("end", range.end);
-    if (periodType === "harian") imutParams.set("tanggal", selectedDate);
+    if (periodType === "harian") {
+      analyticsParams.set("tanggal", selectedDate);
+      imutParams.set("tanggal", selectedDate);
+    }
     if (periodType === "bulanan") {
+      analyticsParams.set("bulan", String(shareMonth));
+      analyticsParams.set("tahun", String(shareYear));
       imutParams.set("bulan", String(shareMonth));
       imutParams.set("tahun", String(shareYear));
     }
-    if (periodType === "tahunan") imutParams.set("tahun", String(shareYear));
+    if (periodType === "tahunan") {
+      analyticsParams.set("tahun", String(shareYear));
+      imutParams.set("tahun", String(shareYear));
+    }
   }
   const analyticsUrl = range ? `/api/analytics?${analyticsParams}` : null;
   const imutUrl = range ? `/api/laporan-eksekutif?${imutParams}` : null;
@@ -350,10 +358,17 @@ export default function AnalisisPage() {
   const tanggalMonitoring = periodType === "harian" ? selectedDate : `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
   const monitoringDate = isValidDateKey(tanggalMonitoring) ? tanggalMonitoring : `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
   const monitoringParams = new URLSearchParams({
+    tipe: periodType,
     bulan: String(Number(monitoringDate.slice(5, 7))),
     tahun: String(Number(monitoringDate.slice(0, 4))),
     tanggal_hari_ini: monitoringDate
   });
+  if (periodType === "harian") monitoringParams.set("tanggal", selectedDate);
+  if (periodType === "bulanan") {
+    monitoringParams.set("bulan", String(shareMonth));
+    monitoringParams.set("tahun", String(shareYear));
+  }
+  if (periodType === "tahunan") monitoringParams.set("tahun", String(shareYear));
   const monitoringUrl = `/api/analisis-imut?${monitoringParams}`;
   const swrOptions = { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 30000 };
   const { data, error, isLoading, mutate } = useSWR(analyticsUrl, fetchReport, swrOptions);
@@ -411,7 +426,7 @@ export default function AnalisisPage() {
   };
 
   const tabs = [
-    { id: "summary", label: "Ringkasan Eksekutif", icon: Activity },
+    { id: "summary", label: "Ringkasan Manajemen", icon: Activity },
     { id: "operations", label: "Operasional & SDM", icon: Users },
     { id: "imut", label: "Laporan Mutu (IMUT)", icon: ClipboardCheck }
   ];
@@ -426,7 +441,7 @@ export default function AnalisisPage() {
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
           <button type="button" onClick={shareExecutiveLink} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-teal-900">
-            <Copy size={16} /> Bagikan Laporan Eksekutif
+            <Copy size={16} /> Bagikan Laporan Manajemen
           </button>
           <button type="button" onClick={exportCsv} disabled={!data} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700 disabled:opacity-40">
             <Download size={16} /> CSV
@@ -477,7 +492,7 @@ export default function AnalisisPage() {
           <CalendarDays size={15} className="mr-2 shrink-0" />{data ? `${periodeLabel} · ${data.filters.ruangan}` : periodeLabel}
         </p>
         <p className="text-[11px] leading-5 text-slate-500 sm:col-span-2 lg:col-span-4">
-          Link eksekutif mengikuti jenis dan nilai periode yang sedang dipilih.
+          Tautan laporan mengikuti jenis dan nilai periode yang sedang dipilih.
         </p>
       </section>
 

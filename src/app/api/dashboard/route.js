@@ -6,6 +6,8 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
+const normalizeDoctorIdentity = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+
 // =======================================================================
 // 1. FUNGSI GET: MENGAMBIL DATA DASHBOARD & KALKULASI POIN LEADERBOARD
 // =======================================================================
@@ -94,7 +96,8 @@ export async function GET(request) {
 
     const sqlMasterDokter = `SELECT id, nama_dokter, klinik, jadwal_hari, jam_praktik, simbol_praktik, bobot_jaspel, keterangan_simbol, ruangan
                              FROM master_dokter
-                             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))`;
+                             WHERE ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+                             ORDER BY id ASC`;
 
     // Launch every independent dashboard read in the same round trip window.
     const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll] = await Promise.all([
@@ -129,11 +132,16 @@ export async function GET(request) {
       turso.execute({ sql: sqlMasterDokter, args: [kunciRuangan] })
     ]);
 
-    const dokterHariRows = isModeLaporan ? [] : resMasterDokterAll.rows.filter(dok =>
+    const dokterRowsForCard = (isModeLaporan ? resMasterDokterAll.rows : resMasterDokterAll.rows.filter(dok =>
       String(dok.jadwal_hari || "").trim().toUpperCase() === namaHariIndo.trim().toUpperCase()
-    );
+    ));
+    const dokterByIdentity = new Map();
+    for (const dokter of dokterRowsForCard) {
+      const key = `${normalizeDoctorIdentity(dokter.nama_dokter)}|${normalizeDoctorIdentity(dokter.klinik)}`;
+      if (!dokterByIdentity.has(key)) dokterByIdentity.set(key, dokter);
+    }
     const resMasterDokterHariIni = {
-      rows: isModeLaporan ? resMasterDokterAll.rows : dokterHariRows
+      rows: [...dokterByIdentity.values()]
     };
 
     const semuaJadwalBulanIni = resJadwal.rows;
@@ -152,6 +160,12 @@ export async function GET(request) {
     const dokterCount = dokterCountRes;
 
     const amanStr = (str) => String(str || "").trim().toUpperCase();
+    const normalizeDoctorName = (str) => amanStr(str).replace(/\s+/g, " ");
+    const dateKey = (value) => String(value || "").trim().slice(0, 10);
+    const isMaternityLeave = (value) => {
+      const status = amanStr(value);
+      return status === "CM" || status.includes("MELAHIR");
+    };
     const normalizeSimbol = (str) => String(str || "")
       .trim()
       .replace(/[^A-Za-z0-9]+/g, " ")
@@ -317,10 +331,16 @@ export async function GET(request) {
 
       const timHarian = jadwalHariIni.filter(j => isAsistenUntukDokter(j, dok));
 
-      const isCutiDokter = !isModeLaporan ? resDokterCuti.rows.some(c => 
-        amanStr(c.nama_dokter) === amanStr(dok.nama_dokter) && 
-        formatTglTarget >= c.tgl_mulai && formatTglTarget <= c.tgl_selesai
-      ) : false;
+      const cutiDokter = !isModeLaporan
+        ? resDokterCuti.rows
+          .filter(c =>
+            normalizeDoctorName(c.nama_dokter) === normalizeDoctorName(dok.nama_dokter) &&
+            formatTglTarget >= dateKey(c.tgl_mulai) &&
+            formatTglTarget <= dateKey(c.tgl_selesai)
+          )
+          .sort((first, second) => Number(second.id) - Number(first.id))[0] || null
+        : null;
+      const isCutiDokter = Boolean(cutiDokter);
 
       // Gabungkan data absensi harian untuk setiap asisten perawat
       const asistenMapped = timHarian.map(t => {
@@ -348,11 +368,15 @@ export async function GET(request) {
         jam_mulai_aktual: waktuPraktikMap.get(Number(dok.id)) || null,
         bobot_jaspel: dok.bobot_jaspel || 1.0, 
         isCuti: isCutiDokter,
+        is_berhalangan: isCutiDokter,
+        keterangan_berhalangan: cutiDokter?.jenis_cuti || null,
         jumlah_pasien_poli: !isModeLaporan ? totalPasienHarian : 0,
         total_pasien_bulanan: totalPasienRentang, 
         timAsisten: asistenMapped
       };
-    });
+    }).filter(dokter =>
+      !(dokter.is_berhalangan && isMaternityLeave(dokter.keterangan_berhalangan))
+    );
 
     /**
      * ALGORITMA FINAL: PEMBAGI DINAMIS & BOBOT JASPEL (SISI SERVER)

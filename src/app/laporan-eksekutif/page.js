@@ -74,7 +74,7 @@ function getPeriodFromSearch(searchParams) {
 async function fetchExecutiveReport(url) {
   const response = await fetch(url);
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Laporan eksekutif gagal dimuat.");
+  if (!response.ok) throw new Error(result.error || "Laporan manajemen gagal dimuat.");
   return result;
 }
 
@@ -205,10 +205,10 @@ function DoctorComplianceSection({ data }) {
               </tr>
             </thead>
             <tbody>
-              {doctors.map((doctor) => {
+              {doctors.map((doctor, index) => {
                 const late = doctor.statusDisiplin === "Terlambat";
                 return (
-                  <tr key={`${doctor.namaDokter}-${doctor.klinik}`} className={`border-b border-slate-100 ${late ? "bg-amber-50/70" : "odd:bg-white even:bg-slate-50/60"}`}>
+                  <tr key={`${doctor.namaDokter}-${doctor.klinik}-${index}`} className={`border-b border-slate-100 ${late ? "bg-amber-50/70" : "odd:bg-white even:bg-slate-50/60"}`}>
                     <th scope="row" className="px-4 py-3 font-bold text-slate-800">{doctor.namaDokter}</th>
                     <td className="px-4 py-3 text-slate-700">{doctor.klinik}</td>
                     <td className="px-4 py-3 text-slate-700">{numberFormat.format(doctor.totalSesiPraktik)}</td>
@@ -277,7 +277,7 @@ function ExecutiveReportContent() {
         )}
         {isLoading && !data && (
           <div className="grid min-h-48 place-items-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-500">
-            <span className="inline-flex items-center gap-2"><Activity className="animate-pulse" size={18} />Memuat laporan eksekutif...</span>
+            <span className="inline-flex items-center gap-2"><Activity className="animate-pulse" size={18} />Memuat laporan manajemen...</span>
           </div>
         )}
 
@@ -390,7 +390,7 @@ function ExecutiveReportContent() {
 
 export default function LaporanEksekutifPage() {
   return (
-    <Suspense fallback={<main className="grid min-h-screen place-items-center bg-slate-50 px-4 text-sm font-semibold text-slate-500">Memuat laporan eksekutif...</main>}>
+    <Suspense fallback={<main className="grid min-h-screen place-items-center bg-slate-50 px-4 text-sm font-semibold text-slate-500">Memuat laporan manajemen...</main>}>
       <ExecutiveReportContent />
     </Suspense>
   );

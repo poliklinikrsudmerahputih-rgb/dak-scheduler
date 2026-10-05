@@ -447,7 +447,7 @@ export async function GET(request) {
       aiInsight: buildInsight(rekap)
     });
   } catch (error) {
-    console.error("Gagal memuat laporan eksekutif:", error);
-    return NextResponse.json({ error: "Laporan eksekutif belum dapat dimuat." }, { status: 500 });
+    console.error("Gagal memuat laporan manajemen:", error);
+    return NextResponse.json({ error: "Laporan manajemen belum dapat dimuat." }, { status: 500 });
   }
 }

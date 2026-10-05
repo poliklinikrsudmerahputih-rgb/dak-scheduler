@@ -43,6 +43,18 @@ const getMonthlyPatientCount = (doctor) => {
   return Number.isFinite(count) ? count : 0;
 };
 
+const getBerhalanganLabel = (value) => {
+  const labels = {
+    CT: "Cuti Tahunan (CT)",
+    CS: "Sakit (CS)",
+    DL: "Dinas Luar (DL)",
+    CM: "Melahirkan (CM)",
+    TP: "Tutup Pendaftaran (TP)"
+  };
+  const status = String(value || "").trim();
+  return labels[status.toUpperCase()] || status;
+};
+
 const getPatientDoctorKey = (doctor) => {
   const id = String(doctor?.id ?? "").trim();
   if (id) return `id:${id}`;
@@ -79,9 +91,9 @@ export default function DashboardUtama() {
     if (!response.ok) throw new Error(`Server merespons dengan status ${response.status}.`);
     return response.json();
   }, {
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
     dedupingInterval: 60000,
-    refreshInterval: 300000
+    refreshInterval: 60000
   });
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -410,19 +422,26 @@ export default function DashboardUtama() {
               const patientCount = getPatientCount(dok);
               const monthlyPatientCount = getMonthlyPatientCount(dok);
               const isEditing = Boolean(editingStatus[cardKey]);
+              const isBerhalangan = dok.is_berhalangan === true;
+              const keteranganBerhalangan = getBerhalanganLabel(dok.keterangan_berhalangan);
               return (
-              <div key={cardKey} className={`bg-white p-8 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl relative overflow-hidden group ${dok.isCuti ? 'border-red-100 opacity-60 bg-red-50/20' : 'border-white hover:border-blue-500'}`}>
+              <div key={cardKey} className={`bg-white p-8 rounded-[3.5rem] border-2 transition-all hover:shadow-2xl relative overflow-hidden group ${isBerhalangan ? 'border-red-100 opacity-75 bg-red-50/30' : 'border-white hover:border-blue-500'}`}>
                 <div className="flex justify-between items-start mb-6">
-                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xs italic shadow-lg ${dok.isCuti ? 'bg-red-400 text-white' : 'bg-slate-900 text-white'}`}>
+                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xs italic shadow-lg ${isBerhalangan ? 'bg-red-400 text-white' : 'bg-slate-900 text-white'}`}>
                     {dok.simbol_praktik}
                    </div>
                 </div>
 
                 <h4 className="text-lg font-black text-slate-800 uppercase italic tracking-tighter leading-tight">{dok.nama_dokter}</h4>
                 <p className="text-[10px] font-bold text-blue-600 uppercase mt-1 tracking-widest">{dok.klinik}</p>
+                {isBerhalangan && (
+                  <span className="mt-3 inline-flex rounded-full border border-red-200 bg-red-100 px-3 py-1.5 text-[9px] font-black uppercase tracking-wide text-red-800">
+                    🚫 {keteranganBerhalangan || "Dokter Berhalangan"}
+                  </span>
+                )}
                 
                 {/* FITUR BARU: TOTAL PASIEN BULANAN */}
-                {!dok.isCuti && (
+                {!isBerhalangan && (
                   <div className="mt-3 inline-block bg-blue-50 border border-blue-100 px-3 py-1 rounded-lg">
                     <p className="text-[9px] font-black text-blue-700 uppercase italic tracking-widest">
                       Kunjungan Bulan Ini: {monthlyPatientCount} Pasien
@@ -430,7 +449,7 @@ export default function DashboardUtama() {
                   </div>
                 )}
                 
-                {!dok.isCuti ? (
+                {!isBerhalangan ? (
                   <div className="mt-6 space-y-4">
                     <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 group-hover:bg-slate-100/50 transition-colors">
                       <p className="text-[8px] font-black text-slate-400 uppercase italic mb-3 flex items-center gap-1">
@@ -518,7 +537,7 @@ export default function DashboardUtama() {
                 ) : (
                   <div className="mt-8 p-10 bg-red-100/30 rounded-[2.5rem] text-center border-2 border-dashed border-red-200">
                       <AlertCircle size={40} className="mx-auto text-red-300 mb-4" />
-                      <p className="text-[11px] font-black text-red-600 uppercase italic tracking-widest">Dokter Izin / Berhalangan</p>
+                      <p className="text-[11px] font-black text-red-600 uppercase italic tracking-widest">{keteranganBerhalangan || "Dokter Berhalangan"}</p>
                   </div>
                 )}
               </div>

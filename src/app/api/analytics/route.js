@@ -16,6 +16,33 @@ function validDate(value) {
 }
 
 function getDateRange(searchParams) {
+  const type = searchParams.get("tipe");
+  if (type === "harian") {
+    const date = searchParams.get("tanggal") || "";
+    return validDate(date) ? { start: date, end: date, days: 1 } : null;
+  }
+  if (type === "bulanan") {
+    const month = Number(searchParams.get("bulan"));
+    const year = Number(searchParams.get("tahun"));
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000 || year > 9999) {
+      return null;
+    }
+    const monthKey = String(month).padStart(2, "0");
+    const start = `${year}-${monthKey}-01`;
+    const end = `${year}-${monthKey}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+    const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
+    return { start, end, days };
+  }
+  if (type === "tahunan") {
+    const year = Number(searchParams.get("tahun"));
+    if (!Number.isInteger(year) || year < 2000 || year > 9999) return null;
+    const start = `${year}-01-01`;
+    const end = `${year}-12-31`;
+    const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
+    return { start, end, days };
+  }
+  if (type) return null;
+
   const today = new Date();
   const todayKey = toDateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
   const preset = searchParams.get("preset") || "month";

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import AIInsightEfektivitasSDM from "@/components/AIInsightEfektivitasSDM";
 import CapacityLeaveRecommendation from "@/components/CapacityLeaveRecommendation";
+import AccreditationIndicatorReport from "@/components/AccreditationIndicatorReport";
 import {
   Activity, AlertCircle, BrainCircuit, CalendarDays, CheckCircle2, ClipboardCheck,
   Clock3, Copy, Download, FileText, RefreshCw, Stethoscope, Users, UserRoundCheck, X
@@ -309,6 +310,7 @@ export default function AnalisisPage() {
   const [periodType, setPeriodType] = useState("bulanan");
   const [clinic, setClinic] = useState("all");
   const [toast, setToast] = useState("");
+  const [shareQuarter, setShareQuarter] = useState(() => Math.ceil(Number(getJakartaDateParts().month) / 3));
   const [shareMonth, setShareMonth] = useState(() => Number(getJakartaDateParts().month));
   const [shareYear, setShareYear] = useState(() => Number(getJakartaDateParts().year));
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -327,8 +329,17 @@ export default function AnalisisPage() {
       const lastDay = new Date(shareYear, shareMonth, 0).getDate();
       return { start: `${shareYear}-${month}-01`, end: `${shareYear}-${month}-${String(lastDay).padStart(2, "0")}` };
     }
+    if (periodType === "triwulan") {
+      if (!Number.isInteger(shareQuarter) || shareQuarter < 1 || shareQuarter > 4) return null;
+      const firstMonth = (shareQuarter - 1) * 3 + 1;
+      const lastMonth = firstMonth + 2;
+      return {
+        start: `${shareYear}-${String(firstMonth).padStart(2, "0")}-01`,
+        end: `${shareYear}-${String(lastMonth).padStart(2, "0")}-${String(new Date(shareYear, lastMonth, 0).getDate()).padStart(2, "0")}`
+      };
+    }
     return { start: `${shareYear}-01-01`, end: `${shareYear}-12-31` };
-  }, [periodType, selectedDate, shareMonth, shareYear]);
+  }, [periodType, selectedDate, shareMonth, shareQuarter, shareYear]);
 
   const analyticsParams = new URLSearchParams({ preset: "custom", tipe: periodType, clinic });
   const imutParams = new URLSearchParams({ tipe: periodType, clinic });
@@ -345,6 +356,12 @@ export default function AnalisisPage() {
       analyticsParams.set("bulan", String(shareMonth));
       analyticsParams.set("tahun", String(shareYear));
       imutParams.set("bulan", String(shareMonth));
+      imutParams.set("tahun", String(shareYear));
+    }
+    if (periodType === "triwulan") {
+      analyticsParams.set("triwulan", String(shareQuarter));
+      analyticsParams.set("tahun", String(shareYear));
+      imutParams.set("triwulan", String(shareQuarter));
       imutParams.set("tahun", String(shareYear));
     }
     if (periodType === "tahunan") {
@@ -366,6 +383,10 @@ export default function AnalisisPage() {
   if (periodType === "harian") monitoringParams.set("tanggal", selectedDate);
   if (periodType === "bulanan") {
     monitoringParams.set("bulan", String(shareMonth));
+    monitoringParams.set("tahun", String(shareYear));
+  }
+  if (periodType === "triwulan") {
+    monitoringParams.set("triwulan", String(shareQuarter));
     monitoringParams.set("tahun", String(shareYear));
   }
   if (periodType === "tahunan") monitoringParams.set("tahun", String(shareYear));
@@ -400,7 +421,9 @@ export default function AnalisisPage() {
     ? range.start
     : periodType === "bulanan"
       ? `${String(shareMonth).padStart(2, "0")}/${shareYear}`
-      : String(shareYear);
+      : periodType === "triwulan"
+        ? `Triwulan ${shareQuarter}/${shareYear}`
+        : String(shareYear);
 
   const shareExecutiveLink = async () => {
     const params = new URLSearchParams({ tipe: periodType });
@@ -408,6 +431,9 @@ export default function AnalisisPage() {
       params.set("tanggal", selectedDate);
     } else if (periodType === "bulanan") {
       params.set("bulan", String(shareMonth));
+      params.set("tahun", String(shareYear));
+    } else if (periodType === "triwulan") {
+      params.set("triwulan", String(shareQuarter));
       params.set("tahun", String(shareYear));
     } else {
       params.set("tahun", String(shareYear));
@@ -463,6 +489,7 @@ export default function AnalisisPage() {
           <select value={periodType} onChange={(event) => setPeriodType(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
             <option value="harian">Harian</option>
             <option value="bulanan">Bulanan</option>
+            <option value="triwulan">Triwulan</option>
             <option value="tahunan">Tahunan</option>
           </select>
         </label>
@@ -475,6 +502,22 @@ export default function AnalisisPage() {
             if (year && month) { setShareYear(year); setShareMonth(month); }
           }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
         </label>}
+        {periodType === "triwulan" && <>
+          <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih triwulan
+            <select value={shareQuarter} onChange={(event) => setShareQuarter(Number(event.target.value))} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800">
+              <option value={1}>Triwulan 1 (Jan–Mar)</option>
+              <option value={2}>Triwulan 2 (Apr–Jun)</option>
+              <option value={3}>Triwulan 3 (Jul–Sep)</option>
+              <option value={4}>Triwulan 4 (Okt–Des)</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih tahun
+            <input type="number" min="2000" max="9999" value={shareYear} onChange={(event) => {
+              const year = Number(event.target.value);
+              if (Number.isInteger(year) && year >= 2000 && year <= 9999) setShareYear(year);
+            }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
+          </label>
+        </>}
         {periodType === "tahunan" && <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih tahun
           <input type="number" min="2000" max="9999" value={shareYear} onChange={(event) => {
             const year = Number(event.target.value);
@@ -641,9 +684,10 @@ export default function AnalisisPage() {
                 <div><h3 className="text-sm font-black text-slate-900">Smart Summary · Mutu</h3><p className="mt-2 text-sm leading-6 text-slate-700">{imutData.aiInsight}</p></div>
               </div>
             </section>
+            <AccreditationIndicatorReport indicators={imutData.indikatorMutu || []} />
             <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
-                <h3 className="text-sm font-extrabold text-slate-900">Tabel Rekapitulasi Standar Akreditasi</h3>
+                <h3 className="text-sm font-extrabold text-slate-900">Rincian Rekap IMUT per Poliklinik</h3>
                 <p className="mt-1 text-xs text-slate-500">IMUT 3 mencakup kategori &lt;60, tepat 60, dan &gt;60 menit.</p>
               </div>
               <div className="overflow-x-auto">

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
+import { buildImutIndicators, sumImutCounts } from "@/lib/imut-indicators";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function GET(request) {
     const tanggalHariIni = String(searchParams.get("tanggal_hari_ini") || "");
     const requestedType = searchParams.get("tipe");
     const reportType = requestedType || "bulanan";
+    const reportQuarter = Number(searchParams.get("triwulan"));
     let reportMonth = bulan;
     let reportYear = tahun;
     let reportDate = String(searchParams.get("tanggal") || "");
@@ -73,6 +75,19 @@ export async function GET(request) {
       }
       reportFilter = "strftime('%m', tanggal) = ? AND strftime('%Y', tanggal) = ?";
       reportFilterArgs = [String(reportMonth).padStart(2, "0"), String(reportYear)];
+    } else if (reportType === "triwulan") {
+      reportYear = Number(searchParams.get("tahun"));
+      const quarterMonths = {
+        1: ["01", "02", "03"],
+        2: ["04", "05", "06"],
+        3: ["07", "08", "09"],
+        4: ["10", "11", "12"]
+      }[reportQuarter];
+      if (!quarterMonths || !Number.isInteger(reportYear) || reportYear < 2000 || reportYear > 9999) {
+        return NextResponse.json({ error: "Parameter triwulan atau tahun tidak valid." }, { status: 400 });
+      }
+      reportFilter = `strftime('%m', tanggal) IN ('${quarterMonths.join("','")}') AND strftime('%Y', tanggal) = ?`;
+      reportFilterArgs = [String(reportYear)];
     } else if (reportType === "tahunan") {
       reportYear = Number(searchParams.get("tahun"));
       if (!Number.isInteger(reportYear) || reportYear < 2000 || reportYear > 9999) {
@@ -102,6 +117,7 @@ export async function GET(request) {
         statusHariIni: [],
         tanggalHariIni,
         jumlahDokterTerjadwal: 0,
+        indikatorMutu: buildImutIndicators(),
         aiInsight: "Belum ada klinik pada ruangan ini."
       });
     }
@@ -113,7 +129,9 @@ export async function GET(request) {
       ? "CAST(tanggal AS INTEGER) = ? AND CAST(bulan AS INTEGER) = ? AND CAST(tahun AS INTEGER) = ?"
       : reportType === "bulanan"
         ? "CAST(bulan AS INTEGER) = ? AND CAST(tahun AS INTEGER) = ?"
-        : "CAST(tahun AS INTEGER) = ?";
+        : reportType === "triwulan"
+          ? "CAST(bulan AS INTEGER) IN (?, ?, ?) AND CAST(tahun AS INTEGER) = ?"
+          : "CAST(tahun AS INTEGER) = ?";
     const visitFilterArgs = reportType === "harian"
       ? [
           Number(reportDate.slice(8, 10)),
@@ -122,11 +140,14 @@ export async function GET(request) {
         ]
       : reportType === "bulanan"
         ? [reportMonth, reportYear]
-        : [reportYear];
+        : reportType === "triwulan"
+          ? [(reportQuarter - 1) * 3 + 1, (reportQuarter - 1) * 3 + 2, (reportQuarter - 1) * 3 + 3, reportYear]
+          : [reportYear];
     const [latePeriod, patientPeriod, visitsPeriod, lateToday, patientToday, scheduleToday] = await Promise.all([
       turso.execute({
         sql: `SELECT UPPER(TRIM(klinik)) AS klinik_key,
-                SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 1 THEN 1 ELSE 0 END) AS terlambat,
+                  COUNT(*) AS total_sampling,
+                  SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 1 THEN 1 ELSE 0 END) AS terlambat,
                 SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 0 THEN 1 ELSE 0 END) AS tepat_waktu
               FROM log_imut_keterlambatan
               WHERE dokter_id IN (${placeholders}) AND ${reportFilter}
@@ -140,7 +161,7 @@ export async function GET(request) {
                 SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                 SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
                 SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
-                COUNT(waktu_tunggu_menit) AS total_sampel,
+                COUNT(*) AS total_sampel,
                 COALESCE(SUM(waktu_tunggu_menit), 0) AS total_waktu_tunggu
               FROM log_imut_pasien
               WHERE dokter_id IN (${placeholders}) AND ${reportFilter}
@@ -302,20 +323,26 @@ export async function GET(request) {
       const patient = patientsByClinic.get(clinicKey) || {};
       const sampleCount = Number(patient.total_sampel) || 0;
       const totalWait = Number(patient.total_waktu_tunggu) || 0;
-      return {
-        klinik,
-        kunjungan: visitsByClinic.get(clinicKey) || 0,
+      const counts = {
         tepatWaktu: Number(late.tepat_waktu) || 0,
         terlambat: Number(late.terlambat) || 0,
+        sampelKehadiran: Number(late.total_sampling) || 0,
         identifikasiYa: Number(patient.identifikasi_ya) || 0,
         identifikasiTidak: Number(patient.identifikasi_tidak) || 0,
         waktuKurang60: Number(patient.waktu_kurang_60) || 0,
         waktuTepat60: Number(patient.waktu_tepat_60) || 0,
         waktuLebih60: Number(patient.waktu_lebih_60) || 0,
-        sampelWaktuTunggu: sampleCount,
+        sampelWaktuTunggu: sampleCount
+      };
+      return {
+        klinik,
+        kunjungan: visitsByClinic.get(clinicKey) || 0,
+        ...counts,
+        indikatorMutu: buildImutIndicators(counts),
         rataRataWaktuTunggu: sampleCount ? Math.round(totalWait / sampleCount) : null
       };
     });
+    const indikatorMutu = buildImutIndicators(sumImutCounts(rekap));
 
     const statusHariIni = clinics.map((klinik) => {
       const clinicKey = normalizeClinic(klinik);
@@ -334,6 +361,7 @@ export async function GET(request) {
       statusHariIni,
       tanggalHariIni,
       jumlahDokterTerjadwal: doctorsToday.length,
+      indikatorMutu,
       aiInsight: createInsight(rekap)
     });
   } catch (error) {

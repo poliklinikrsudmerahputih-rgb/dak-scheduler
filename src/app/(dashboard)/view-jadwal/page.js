@@ -925,6 +925,7 @@ export default function ViewJadwalPublic() {
   const [submitting, setSubmitting] = useState(false);
   const [pasienInputValues, setPasienInputValues] = useState({});
   const [editingStatus, setEditingStatus] = useState({});
+  const [hasSavedPatientCount, setHasSavedPatientCount] = useState({});
   
   const [selectedDateFull, setSelectedDateFull] = useState(getTanggalJakarta());
   const [startingDoctorId, setStartingDoctorId] = useState(null);
@@ -943,6 +944,19 @@ export default function ViewJadwalPublic() {
   const shareQuery = ruanganShare ? `&ruangan=${encodeURIComponent(ruanganShare)}` : "";
   const dashboardUrl = `/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}${shareQuery}`;
   const swrOptions = { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 60000 };
+  const tanggalLaporanImut = getTanggalJakarta();
+  const [isModalImutOpen, setIsModalImutOpen] = useState(false);
+  const imutParams = new URLSearchParams({
+    tipe: "bulanan",
+    bulan: String(Number(tanggalLaporanImut.slice(5, 7))),
+    tahun: String(Number(tanggalLaporanImut.slice(0, 4))),
+    tanggal_hari_ini: tanggalLaporanImut
+  });
+  const { data: dataImut, error: errorImut, isLoading: loadingImut } = useSWR(
+    isModalImutOpen ? `/api/analisis-imut?${imutParams}` : null,
+    fetchJSONWithTimeout,
+    { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 60000 }
+  );
   const { data, error: dashboardError, isLoading: loading, mutate: mutateDashboard } = useSWR(
     dashboardUrl,
     fetchJSONWithTimeout,
@@ -1153,6 +1167,7 @@ export default function ViewJadwalPublic() {
       if (res.ok && result.success) {
         alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
         setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
+        setHasSavedPatientCount((previous) => ({ ...previous, [cardKey]: true }));
         setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
         await mutateDashboard((current) => {
           if (!current || !Array.isArray(current.dokterPraktik)) return current;
@@ -1396,6 +1411,109 @@ export default function ViewJadwalPublic() {
         >
           <CheckCircle2 size={18} />
           {imutSaveNotice}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setIsModalImutOpen(true)}
+        className="fixed bottom-5 right-5 z-[10010] inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-black text-blue-700 shadow-2xl transition hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-200"
+        aria-haspopup="dialog"
+        aria-expanded={isModalImutOpen}
+      >
+        📊 Lihat Capaian Mutu
+      </button>
+      {isModalImutOpen && (
+        <div
+          className="fixed inset-0 z-[10070] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsModalImutOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-capaian-inm-title"
+            className="max-h-[90vh] w-11/12 max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 id="modal-capaian-inm-title" className="text-lg font-black text-slate-900 sm:text-xl">
+                  Capaian Indikator Nasional Mutu (INM) - Instalasi Rawat Jalan
+                </h2>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Periode {format(parseISO(`${tanggalLaporanImut.slice(0, 7)}-01`), "MMMM yyyy", { locale: id })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalImutOpen(false)}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
+                aria-label="Tutup pop-up capaian mutu"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingImut && !dataImut && (
+              <div className="py-12 text-center text-sm font-semibold text-slate-500">
+                <Loader2 className="mx-auto mb-2 animate-spin" size={22} />
+                Memuat capaian mutu...
+              </div>
+            )}
+            {errorImut && (
+              <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                {errorImut.message.includes("status 401")
+                  ? "Capaian mutu hanya tersedia setelah Anda login."
+                  : errorImut.message || "Capaian mutu belum dapat dimuat."}
+              </div>
+            )}
+            {dataImut && (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead className="bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th scope="col" className="border-b border-slate-200 px-4 py-3">No</th>
+                      <th scope="col" className="border-b border-slate-200 px-4 py-3">Indikator Mutu</th>
+                      <th scope="col" className="border-b border-slate-200 px-4 py-3">Target</th>
+                      <th scope="col" className="border-b border-slate-200 px-4 py-3">Capaian (%)</th>
+                      <th scope="col" className="border-b border-slate-200 px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(dataImut.indikatorMutu || []).map((indikator, index) => {
+                      const hasSamples = Number(indikator.denominator) > 0 && indikator.capaian !== null;
+                      const tercapai = hasSamples && Number(indikator.capaian) >= Number(indikator.target);
+                      return (
+                        <tr key={indikator.key || `${indikator.nama}-${index}`} className="odd:bg-white even:bg-slate-50/70">
+                          <td className="border-b border-slate-100 px-4 py-3 text-slate-700">{index + 1}</td>
+                          <th scope="row" className="border-b border-slate-100 px-4 py-3 font-bold text-slate-800">{indikator.nama}</th>
+                          <td className="border-b border-slate-100 px-4 py-3 text-slate-700">{Number(indikator.target).toLocaleString("id-ID")}%</td>
+                          <td className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-700">
+                            {hasSamples ? `${Number(indikator.capaian).toLocaleString("id-ID", { maximumFractionDigits: 1 })}%` : "—"}
+                          </td>
+                          <td className="border-b border-slate-100 px-4 py-3">
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-black ${!hasSamples ? "bg-slate-100 text-slate-600" : tercapai ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+                              {!hasSamples ? "Belum ada sampling" : tercapai ? "🟢 Tercapai" : "🔴 Belum"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {(!dataImut.indikatorMutu || dataImut.indikatorMutu.length === 0) && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                          Belum ada data indikator mutu pada periode ini.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-4 text-[10px] leading-4 text-slate-500">
+              Capaian ditampilkan dari rekap sampling indikator mutu bulan berjalan. Data diperbarui otomatis setiap menit.
+            </p>
+          </section>
         </div>
       )}
 
@@ -1771,7 +1889,7 @@ export default function ViewJadwalPublic() {
                               }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            {patientCount > 0 && !isEditing ? (
+                            {(patientCount > 0 || hasSavedPatientCount[cardKey]) && !isEditing ? (
                               <div className="flex items-center justify-between gap-3 pt-2">
                                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
                                   <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
@@ -1789,24 +1907,6 @@ export default function ViewJadwalPublic() {
                                     suppressHydrationWarning={true}
                                   >
                                     <Edit3 size={15} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setModalImutOpen({ dokter: dok, tanggal: selectedDateFull })}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 text-[9px] font-black uppercase text-blue-700 hover:border-blue-400 hover:bg-blue-50"
-                                    title="Input sampel IMUT pasien"
-                                    suppressHydrationWarning={true}
-                                  >
-                                    📊 Input Sampel IMUT
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setModalRiwayatOpen({ dokter: dok, tanggal: selectedDateFull })}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-transparent px-3 text-[9px] font-black uppercase text-slate-600 hover:border-slate-400 hover:bg-slate-50"
-                                    title="Lihat riwayat sampel IMUT"
-                                    suppressHydrationWarning={true}
-                                  >
-                                    📋 Riwayat Sampel
                                   </button>
                                 </div>
                               </div>
@@ -1857,6 +1957,26 @@ export default function ViewJadwalPublic() {
                                 </button>
                               </form>
                             )}
+                            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                              <button
+                                type="button"
+                                onClick={() => setModalImutOpen({ dokter: dok, tanggal: selectedDateFull })}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 text-[9px] font-black uppercase text-blue-700 hover:border-blue-400 hover:bg-blue-50"
+                                title="Input sampel IMUT pasien"
+                                suppressHydrationWarning={true}
+                              >
+                                📊 Input Sampel IMUT
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModalRiwayatOpen({ dokter: dok, tanggal: selectedDateFull })}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-transparent px-3 text-[9px] font-black uppercase text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+                                title="Lihat riwayat sampel IMUT"
+                                suppressHydrationWarning={true}
+                              >
+                                📋 Riwayat Sampel
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="mt-4 p-4 bg-red-50 rounded-2xl text-center border border-dashed border-red-200 flex items-center justify-center gap-2">

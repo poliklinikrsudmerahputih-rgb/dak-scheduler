@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import AIInsightEfektivitasSDM from "@/components/AIInsightEfektivitasSDM";
 import CapacityLeaveRecommendation from "@/components/CapacityLeaveRecommendation";
+import AccreditationIndicatorReport from "@/components/AccreditationIndicatorReport";
+import { generateWordINM } from "@/lib/exportWordINM";
 import { Activity, AlertCircle, Clock3, ShieldCheck, Users } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
@@ -43,7 +45,7 @@ function getCurrentPeriod() {
 }
 
 function getPeriodFromSearch(searchParams) {
-  const allowedTypes = ["harian", "bulanan", "tahunan"];
+  const allowedTypes = ["harian", "bulanan", "triwulan", "tahunan"];
   const requestedType = searchParams.get("tipe");
   const type = allowedTypes.includes(requestedType) ? requestedType : "bulanan";
   const current = getCurrentPeriod();
@@ -61,6 +63,16 @@ function getPeriodFromSearch(searchParams) {
   }
 
   if (type === "tahunan") return { type, year };
+  if (type === "triwulan") {
+    const requestedQuarter = Number(searchParams.get("triwulan"));
+    return {
+      type,
+      year,
+      quarter: Number.isInteger(requestedQuarter) && requestedQuarter >= 1 && requestedQuarter <= 4
+        ? requestedQuarter
+        : Math.ceil(current.month / 3)
+    };
+  }
   const requestedMonth = Number(searchParams.get("bulan"));
   return {
     type,
@@ -232,12 +244,17 @@ function DoctorComplianceSection({ data }) {
 }
 
 function ExecutiveReportContent() {
+  const [wordExportError, setWordExportError] = useState("");
   const searchParams = useSearchParams();
   const period = getPeriodFromSearch(searchParams);
   const periodParams = new URLSearchParams({ tipe: period.type });
   if (period.type === "harian") periodParams.set("tanggal", period.date);
   if (period.type === "bulanan") {
     periodParams.set("bulan", String(period.month));
+    periodParams.set("tahun", String(period.year));
+  }
+  if (period.type === "triwulan") {
+    periodParams.set("triwulan", String(period.quarter));
     periodParams.set("tahun", String(period.year));
   }
   if (period.type === "tahunan") periodParams.set("tahun", String(period.year));
@@ -251,7 +268,26 @@ function ExecutiveReportContent() {
     ? `Periode Harian: ${new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${period.date}T00:00:00.000Z`))}`
     : period.type === "tahunan"
       ? `Periode Tahunan: ${period.year}`
-      : `Periode Bulanan: ${monthNames[period.month - 1]} ${period.year}`;
+      : period.type === "triwulan"
+        ? `Periode Triwulan ${period.quarter}: ${period.year}`
+        : `Periode Bulanan: ${monthNames[period.month - 1]} ${period.year}`;
+  const exportPeriodLabel = period.type === "harian"
+    ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+        .format(new Date(`${period.date}T00:00:00.000Z`))
+    : period.type === "tahunan"
+      ? String(period.year)
+      : period.type === "triwulan"
+        ? `Triwulan ${period.quarter} ${period.year}`
+        : `${monthNames[period.month - 1]} ${period.year}`;
+  const downloadWordINM = async () => {
+    setWordExportError("");
+    try {
+      await generateWordINM(data, exportPeriodLabel);
+    } catch (exportError) {
+      console.error("Gagal membuat laporan INM Word:", exportError);
+      setWordExportError(exportError.message || "Gagal membuat file laporan INM.");
+    }
+  };
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 sm:px-8 sm:py-10 print:bg-white print:px-0 print:py-0">
@@ -333,9 +369,12 @@ function ExecutiveReportContent() {
             </div>
           </section>
 
+          {wordExportError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{wordExportError}</div>}
+          <AccreditationIndicatorReport indicators={data.indikatorMutu || []} onDownload={downloadWordINM} />
+
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm print:break-inside-avoid print:shadow-none">
             <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
-              <h2 className="text-base font-black text-slate-950">Rekapitulasi Indikator Mutu (IMUT)</h2>
+              <h2 className="text-base font-black text-slate-950">Rincian Indikator Mutu per Poliklinik (IMUT)</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
                 Rekap per poliklinik. IMUT 3 mengelompokkan waktu tunggu menjadi &lt;60, tepat 60, dan &gt;60 menit.
               </p>

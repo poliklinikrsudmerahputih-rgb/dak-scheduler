@@ -33,6 +33,19 @@ function getDateRange(searchParams) {
     const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
     return { start, end, days };
   }
+  if (type === "triwulan") {
+    const quarter = Number(searchParams.get("triwulan"));
+    const year = Number(searchParams.get("tahun"));
+    if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4 || !Number.isInteger(year) || year < 2000 || year > 9999) {
+      return null;
+    }
+    const firstMonth = (quarter - 1) * 3 + 1;
+    const lastMonth = firstMonth + 2;
+    const start = `${year}-${String(firstMonth).padStart(2, "0")}-01`;
+    const end = `${year}-${String(lastMonth).padStart(2, "0")}-${String(new Date(year, lastMonth, 0).getDate()).padStart(2, "0")}`;
+    const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
+    return { start, end, days };
+  }
   if (type === "tahunan") {
     const year = Number(searchParams.get("tahun"));
     if (!Number.isInteger(year) || year < 2000 || year > 9999) return null;

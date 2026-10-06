@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
 import { addWorkloadScores, buildScheduleAssignments } from "@/lib/schedule-assignments";
+import { buildImutIndicators, sumImutCounts } from "@/lib/imut-indicators";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,17 @@ function getRange(searchParams) {
   if (type === "harian") {
     const date = searchParams.get("tanggal") || "";
     return isValidDate(date) ? { start: date, end: date, days: 1 } : null;
+  }
+  if (type === "triwulan") {
+    const quarter = Number(searchParams.get("triwulan"));
+    const year = Number(searchParams.get("tahun"));
+    if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4 || !Number.isInteger(year) || year < 2000 || year > 9999) return null;
+    const firstMonth = (quarter - 1) * 3 + 1;
+    const lastMonth = firstMonth + 2;
+    const start = `${year}-${String(firstMonth).padStart(2, "0")}-01`;
+    const end = `${year}-${String(lastMonth).padStart(2, "0")}-${String(new Date(year, lastMonth, 0).getDate()).padStart(2, "0")}`;
+    const days = (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86400000 + 1;
+    return { start, end, days };
   }
   if (type === "tahunan") {
     const year = Number(searchParams.get("tahun"));
@@ -220,6 +232,7 @@ export async function GET(request) {
       const [lateResult, imutResult, complianceResult] = await Promise.all([
         turso.execute({
           sql: `SELECT UPPER(TRIM(klinik)) AS clinic_key,
+                  COUNT(*) AS total_sampling,
                   SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 1 THEN 1 ELSE 0 END) AS terlambat,
                   SUM(CASE WHEN CAST(is_terlambat AS INTEGER) = 0 THEN 1 ELSE 0 END) AS tepat_waktu
                 FROM log_imut_keterlambatan
@@ -234,7 +247,7 @@ export async function GET(request) {
                   SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                   SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
                   SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
-                  COUNT(waktu_tunggu_menit) AS total_sampel,
+                  COUNT(*) AS total_sampel,
                   COALESCE(SUM(waktu_tunggu_menit), 0) AS total_waktu_tunggu
                 FROM log_imut_pasien
                 WHERE dokter_id IN (${placeholders}) AND tanggal BETWEEN ? AND ?
@@ -261,21 +274,27 @@ export async function GET(request) {
       const late = lateByClinic.get(key) || {};
       const imut = imutByClinic.get(key) || {};
       const sampleCount = Number(imut.total_sampel) || 0;
-      return {
-        klinik,
+      const counts = {
         tepatWaktu: Number(late.tepat_waktu) || 0,
         terlambat: Number(late.terlambat) || 0,
+        sampelKehadiran: Number(late.total_sampling) || 0,
         identifikasiYa: Number(imut.identifikasi_ya) || 0,
         identifikasiTidak: Number(imut.identifikasi_tidak) || 0,
         waktuKurang60: Number(imut.waktu_kurang_60) || 0,
         waktuTepat60: Number(imut.waktu_tepat_60) || 0,
         waktuLebih60: Number(imut.waktu_lebih_60) || 0,
-        sampelWaktuTunggu: sampleCount,
+        sampelWaktuTunggu: sampleCount
+      };
+      return {
+        klinik,
+        ...counts,
+        indikatorMutu: buildImutIndicators(counts),
         rataRataWaktuTunggu: sampleCount
           ? Math.round((Number(imut.total_waktu_tunggu) || 0) / sampleCount)
           : null
       };
     }).sort((first, second) => first.klinik.localeCompare(second.klinik, "id"));
+    const indikatorMutu = buildImutIndicators(sumImutCounts(rekap));
 
     const patientResult = clinics.length
       ? await turso.execute({
@@ -441,6 +460,7 @@ export async function GET(request) {
       trend,
       clinicVisits,
       scheduleAssignments,
+      indikatorMutu,
       rekap,
       doctorCompliance,
       statusHariIni,

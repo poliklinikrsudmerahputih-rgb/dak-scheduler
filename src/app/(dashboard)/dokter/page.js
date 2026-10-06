@@ -1,9 +1,20 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { simpanDokter, hapusDokter, simpanDeskripsiSimbol } from "./actions";
 import { Pencil, Trash2, Stethoscope, Clock, Calendar, Tag, ShieldCheck, Activity, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
+import { daftarKlinikSop } from "@/lib/sop-constants";
+
+const urutanHari = {
+  Senin: 1,
+  Selasa: 2,
+  Rabu: 3,
+  Kamis: 4,
+  Jumat: 5,
+  Sabtu: 6,
+  Minggu: 7
+};
 
 export default function MasterDokter() {
   const [dataDokter, setDataDokter] = useState([]);
@@ -17,18 +28,9 @@ export default function MasterDokter() {
   const [simbolDeskripsi, setSimbolDeskripsi] = useState(null);
   const [isSavingSimbol, setIsSavingSimbol] = useState(false);
 
-  const daftarKlinik = [
-    "Poliklinik Dalam", "Gigi", "Mata", "THT", "Kulit dan Kelamin", 
-    "Umum", "Paru", "Saraf", "Jiwa", "Bedah", "Bedah Anak", "Orto", "Obsgyn", 
-    "Anak", "Jantung", "Urologi", "Rehabilitasi Medik", "Klinik Nyeri"
-  ];
+  const daftarKlinik = daftarKlinikSop;
 
-  const urutanHari = {
-    "Senin": 1, "Selasa": 2, "Rabu": 3, "Kamis": 4, 
-    "Jumat": 5, "Sabtu": 6, "Minggu": 7
-  };
-
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     try {
       // Jika sedang mengetik pencarian, ambil semua hari agar hasil menampilkan semua
       // hari praktik dokter yang dicari. Hanya gunakan filterHari jika tidak sedang mencari.
@@ -63,24 +65,29 @@ export default function MasterDokter() {
     } catch (error) {
       console.error("Gagal sinkronisasi data:", error);
     }
-  };
+  }, [filterHari, searchQuery]);
 
   useEffect(() => {
-    const skrg = new Date();
-    const daftarHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-    const hariSekarang = daftarHari[skrg.getDay()];
-    
-    setHariIni(hariSekarang);
-    setTglSekarang(format(skrg, "yyyy-MM-dd"));
-    setFilterHari(hariSekarang); 
+    const timeoutId = window.setTimeout(() => {
+      const skrg = new Date();
+      const daftarHari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+      const hariSekarang = daftarHari[skrg.getDay()];
+
+      setHariIni(hariSekarang);
+      setTglSekarang(format(skrg, "yyyy-MM-dd"));
+      setFilterHari(hariSekarang);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   useEffect(() => {
-    // Refresh data saat filter hari berubah atau saat searchQuery berubah
-    if (filterHari !== "" || searchQuery !== "") {
-      refreshData();
-    }
-  }, [filterHari, searchQuery]);
+    const timeoutId = window.setTimeout(() => {
+      if (filterHari !== "" || searchQuery !== "") {
+        void refreshData();
+      }
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [filterHari, searchQuery, refreshData]);
 
   const cekSedangCuti = (nama, simbol) => {
     return dataCuti.find(c => 

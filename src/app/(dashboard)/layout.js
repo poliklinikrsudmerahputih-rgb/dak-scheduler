@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation"; 
 import { 
   Users, Stethoscope, Calendar, PlaneTakeoff, 
-  LayoutDashboard, Menu, X, Code, Cpu, LogOut, TrendingUp, BrainCircuit
+  LayoutDashboard, Menu, X, Code, Cpu, LogOut, TrendingUp, BrainCircuit, BookOpen
 } from "lucide-react";
 
 const siteConfig = {
@@ -38,6 +38,7 @@ export default function DashboardLayout({ children }) {
     { name: "Buat Jadwal", icon: <Calendar size={20}/>, href: "/buat-jadwal" },
     { name: "Cuti SDM", icon: <PlaneTakeoff size={20}/>, href: "/cuti-sdm" },
     { name: "Cuti Dokter", icon: <PlaneTakeoff size={20}/>, href: "/cuti-dokter" },
+    { name: "Manajemen SOP", icon: <BookOpen size={20}/>, href: "/manajemen-sop" },
   ];
 
   return (

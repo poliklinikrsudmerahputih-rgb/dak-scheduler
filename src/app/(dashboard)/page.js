@@ -9,7 +9,7 @@ import {
   Activity, UserCheck, Clock, AlertCircle, Cpu, Calendar, 
   HeartPulse, Save, RefreshCw, ArrowLeftRight, TrendingUp,
   CheckCircle2, Loader2, Search, Medal,
-  FileText, CalendarRange, Download, ClipboardList, Edit3
+  FileText, CalendarRange, Download, ClipboardList, Edit3, Trash2, X
 } from "lucide-react";
 import { daftarKlinikSop } from "@/lib/sop-constants";
 
@@ -65,6 +65,25 @@ const getPatientDoctorKey = (doctor) => {
   return `doctor:${namaDokter}|clinic:${klinik}`;
 };
 
+const fetchSopList = async (url) => {
+  const response = await fetch(url);
+  const result = await response.json();
+  if (!response.ok) {
+    const error = new Error(result.error || "Gagal memuat daftar SOP.");
+    error.details = result.details;
+    throw error;
+  }
+  return result;
+};
+
+const getMissingSopFields = (sop) => [
+  !String(sop.judul_prosedur || sop.judul_sop || "").trim() && "Judul SOP",
+  !String(sop.klinik || "").trim() && "Klinik",
+  !String(sop.tanggal_pembuatan || "").trim() && "Tanggal Pembuatan",
+  !String(sop.tanggal_pengesahan || "").trim() && "Tanggal Pengesahan",
+  !String(sop.link_gdrive || "").trim() && "Link Google Drive",
+].filter(Boolean);
+
 export default function DashboardUtama() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -96,22 +115,38 @@ export default function DashboardUtama() {
     dedupingInterval: 60000,
     refreshInterval: 60000
   });
+  const {
+    data: sopList,
+    error: sopListError,
+    isLoading: sopListLoading,
+    mutate: mutateSopList
+  } = useSWR("/api/sop", fetchSopList);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
   const [isSopModalOpen, setIsSopModalOpen] = useState(false);
+  const [isSopMenuOpen, setIsSopMenuOpen] = useState(false);
+  const [showOnlyIncompleteSop, setShowOnlyIncompleteSop] = useState(false);
   const [isSopSubmitting, setIsSopSubmitting] = useState(false);
   const [sopFormError, setSopFormError] = useState("");
+  const [sopSuccess, setSopSuccess] = useState("");
+  const [editingSop, setEditingSop] = useState(null);
+  const [deletingSopId, setDeletingSopId] = useState(null);
   const [sopForm, setSopForm] = useState({
     judul_sop: "",
     ruangan: "",
     klinik: "",
-    tanggal_pembuatan: format(new Date(), "yyyy-MM-dd"),
-    tanggal_pengesahan: format(new Date(), "yyyy-MM-dd"),
+    tanggal_pembuatan: "",
+    tanggal_pengesahan: "",
     link_gdrive: ""
   });
   const activeRoom = String(data?.summary?.ruangan || "").trim().toUpperCase();
+  const registeredSop = Array.isArray(sopList) ? sopList : [];
+  const incompleteSopCount = registeredSop.filter((sop) => getMissingSopFields(sop).length > 0).length;
+  const displayedSopList = showOnlyIncompleteSop
+    ? registeredSop.filter((sop) => getMissingSopFields(sop).length > 0)
+    : registeredSop;
 
   // STATE BARU: MODAL DOWNLOAD LAPORAN
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -232,35 +267,107 @@ export default function DashboardUtama() {
     setSopFormError("");
     setIsSopSubmitting(true);
     try {
-      const response = await fetch("/api/sop", {
-        method: "POST",
+      const response = await fetch(editingSop ? `/api/sop/${editingSop.id}` : "/api/sop", {
+        method: editingSop ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sopForm)
+        body: JSON.stringify(editingSop
+          ? {
+              no_sop: editingSop.no_sop,
+              judul_prosedur: sopForm.judul_sop,
+              klinik: sopForm.klinik,
+              tanggal_pembuatan: sopForm.tanggal_pembuatan,
+              tanggal_pengesahan: sopForm.tanggal_pengesahan,
+              link_gdrive: sopForm.link_gdrive
+            }
+          : sopForm)
       });
       const result = await response.json();
       if (response.status === 401) {
         router.push("/login");
         return;
       }
-      if (!response.ok || result.success !== true || !result.data?.nomor_sop) {
-        throw new Error(result.error || "Nomor SOP tidak berhasil dibuat.");
+      if (!response.ok || result.success !== true || (!editingSop && !result.data?.nomor_sop)) {
+        const error = new Error(result.error || (editingSop ? "Data SOP tidak berhasil diperbarui." : "Nomor SOP tidak berhasil dibuat."));
+        error.details = result.details;
+        throw error;
       }
 
-      alert(
-        `SUKSES! Nomor SOP untuk dokumen ini adalah: ${result.data.nomor_sop}. ` +
-        "Silakan catat/salin nomor ini ke dokumen Word Anda."
-      );
+      setSopSuccess(editingSop
+        ? `✅ Data SOP ${editingSop.no_sop} berhasil diperbarui.`
+        : `✅ SOP berhasil didaftarkan. Nomor SOP: ${result.data.nomor_sop}`);
+      await mutateSopList();
       setSopForm((current) => ({
         ...current,
         judul_sop: "",
         klinik: "",
+        tanggal_pembuatan: "",
+        tanggal_pengesahan: "",
         link_gdrive: ""
       }));
-      setIsSopModalOpen(false);
+      setEditingSop(null);
     } catch (error) {
-      setSopFormError(error.message || "Gagal membuat nomor SOP.");
+      const details = error.details ? ` ${error.details}` : "";
+      setSopFormError(`${error.message || (editingSop ? "Gagal memperbarui data SOP." : "Gagal membuat nomor SOP.")}${details}`);
     } finally {
       setIsSopSubmitting(false);
+    }
+  };
+
+  const startEditingSop = (sop) => {
+    setEditingSop(sop);
+    setSopForm({
+      judul_sop: sop.judul_prosedur || sop.judul_sop || "",
+      ruangan: activeRoom,
+      klinik: sop.klinik || "",
+      tanggal_pembuatan: sop.tanggal_pembuatan || "",
+      tanggal_pengesahan: sop.tanggal_pengesahan || "",
+      link_gdrive: sop.link_gdrive || ""
+    });
+    setSopSuccess("");
+    setSopFormError("");
+  };
+
+  const cancelEditingSop = () => {
+    setEditingSop(null);
+    setSopForm({
+      judul_sop: "",
+      ruangan: activeRoom,
+      klinik: "",
+      tanggal_pembuatan: "",
+      tanggal_pengesahan: "",
+      link_gdrive: ""
+    });
+    setSopSuccess("");
+    setSopFormError("");
+  };
+
+  const handleDeleteSop = async (sop) => {
+    const nomorSop = sop.no_sop || "SOP ini";
+    if (!window.confirm(`Hapus ${nomorSop} secara permanen?`)) return;
+
+    setDeletingSopId(sop.id);
+    setSopFormError("");
+    setSopSuccess("");
+    try {
+      const response = await fetch(`/api/sop/${sop.id}`, { method: "DELETE" });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok || result.success !== true) {
+        const error = new Error(result.error || "Gagal menghapus data SOP.");
+        error.details = result.details;
+        throw error;
+      }
+      if (editingSop?.id === sop.id) cancelEditingSop();
+      setSopSuccess(`${nomorSop} berhasil dihapus.`);
+      await mutateSopList();
+    } catch (error) {
+      const details = error.details ? ` Detail: ${error.details}` : "";
+      setSopFormError(`${error.message || "Gagal menghapus data SOP."}${details}`);
+    } finally {
+      setDeletingSopId(null);
     }
   };
 
@@ -437,16 +544,61 @@ export default function DashboardUtama() {
           <button onClick={shareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 flex items-center gap-2" suppressHydrationWarning={true}>
             <Share2 size={16} /> Share
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSopFormError("");
-              setIsSopModalOpen(true);
-            }}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-wide transition-all shadow-xl active:scale-95 flex items-center gap-2"
-          >
-            📝 Buat Nomor SOP Baru
-          </button>
+          <div className="relative flex">
+            <button
+              type="button"
+              onClick={() => {
+                setShowOnlyIncompleteSop(false);
+                setSopFormError("");
+                setSopSuccess("");
+                setIsSopModalOpen(true);
+                setIsSopMenuOpen(false);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-4 rounded-l-2xl text-xs font-black uppercase tracking-wide transition-all shadow-xl active:scale-95 flex items-center gap-2"
+            >
+              📝 Buat Nomor SOP Baru
+            </button>
+            <button
+              type="button"
+              aria-label="Buka submenu SOP"
+              aria-expanded={isSopMenuOpen}
+              onClick={() => setIsSopMenuOpen((open) => !open)}
+              className="rounded-r-2xl border-l border-emerald-500 bg-emerald-600 px-3 text-white transition hover:bg-emerald-500"
+            >
+              <ChevronDown size={16} />
+            </button>
+            {isSopMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowOnlyIncompleteSop(false);
+                    setSopFormError("");
+                    setSopSuccess("");
+                    setIsSopModalOpen(true);
+                    setIsSopMenuOpen(false);
+                  }}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Buka formulir nomor SOP baru
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowOnlyIncompleteSop(true);
+                    setSopFormError("");
+                    setIsSopModalOpen(true);
+                    setIsSopMenuOpen(false);
+                  }}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-amber-800 hover:bg-amber-50"
+                >
+                  Lihat isian belum lengkap ({incompleteSopCount})
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -456,7 +608,7 @@ export default function DashboardUtama() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="buat-sop-title"
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-slate-100 bg-white p-6 shadow-2xl sm:p-8"
+            className="max-h-[90vh] w-11/12 max-w-6xl overflow-y-auto rounded-[2rem] border border-slate-100 bg-white p-6 shadow-2xl sm:p-8"
           >
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
@@ -477,92 +629,179 @@ export default function DashboardUtama() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateSop} className="space-y-4">
-              <label className="block space-y-2 text-xs font-bold text-slate-600">
-                <span>Judul SOP</span>
-                <input
-                  required
-                  maxLength={255}
-                  value={sopForm.judul_sop}
-                  onChange={(event) => setSopForm((current) => ({ ...current, judul_sop: event.target.value }))}
-                  placeholder="Masukkan judul prosedur"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
-              </label>
-
-              <label className="block space-y-2 text-xs font-bold text-slate-600">
-                <span>Klinik Tujuan</span>
-                <select
-                  required
-                  value={sopForm.klinik}
-                  onChange={(event) => setSopForm((current) => ({ ...current, klinik: event.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="" disabled>Pilih klinik</option>
-                  {daftarKlinikSop.map((klinik) => (
-                    <option key={klinik} value={klinik}>{klinik}</option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block space-y-2 text-xs font-bold text-slate-600">
-                  <span>Tanggal Pembuatan</span>
-                  <input
-                    required
-                    type="date"
-                    value={sopForm.tanggal_pembuatan}
-                    onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pembuatan: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  />
-                </label>
-                <label className="block space-y-2 text-xs font-bold text-slate-600">
-                  <span>Tanggal Pengesahan</span>
-                  <input
-                    required
-                    type="date"
-                    value={sopForm.tanggal_pengesahan}
-                    onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pengesahan: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  />
-                </label>
-              </div>
-
-              <label className="block space-y-2 text-xs font-bold text-slate-600">
-                <span>Link Google Drive <span className="font-medium text-slate-400">(opsional)</span></span>
-                <input
-                  type="url"
-                  value={sopForm.link_gdrive}
-                  onChange={(event) => setSopForm((current) => ({ ...current, link_gdrive: event.target.value }))}
-                  placeholder="https://drive.google.com/..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
-              </label>
-
-              {sopFormError && (
-                <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                  {sopFormError}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <form onSubmit={handleCreateSop} className="space-y-4">
+                <h3 className="text-sm font-black uppercase tracking-wide text-slate-800">
+                  {editingSop ? `Edit SOP ${editingSop.no_sop}` : "Buat SOP Baru"}
+                </h3>
+                {sopSuccess && (
+                  <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                    <p className="font-black">{sopSuccess}</p>
+                    {!editingSop && <p className="mt-1 font-semibold">Silakan salin nomor ini ke dokumen Anda.</p>}
+                  </div>
+                )}
+                <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
+                  Nomor urut SOP akan digenerate otomatis oleh sistem.
                 </p>
-              )}
-
-              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsSopModalOpen(false)}
-                  className="rounded-xl bg-slate-100 px-5 py-3 text-xs font-black uppercase text-slate-600 hover:bg-slate-200"
-                >
-                  Batal
-                </button>
+                <label className="block space-y-2 text-xs font-bold text-slate-600">
+                  <span>Judul SOP</span>
+                  <input
+                    required
+                    maxLength={255}
+                    value={sopForm.judul_sop}
+                    onChange={(event) => setSopForm((current) => ({ ...current, judul_sop: event.target.value }))}
+                    placeholder="Masukkan judul prosedur"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+                <label className="block space-y-2 text-xs font-bold text-slate-600">
+                  <span>Klinik Tujuan</span>
+                  <select
+                    required
+                    value={sopForm.klinik}
+                    onChange={(event) => setSopForm((current) => ({ ...current, klinik: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="" disabled>Pilih klinik</option>
+                    {daftarKlinikSop.map((klinik) => (
+                      <option key={klinik} value={klinik}>{klinik}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block space-y-2 text-xs font-bold text-slate-600">
+                    <span>Tanggal Pembuatan <span className="font-medium text-slate-400">(opsional)</span></span>
+                    <input
+                      type="date"
+                      value={sopForm.tanggal_pembuatan}
+                      onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pembuatan: event.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="block space-y-2 text-xs font-bold text-slate-600">
+                    <span>Tanggal Pengesahan <span className="font-medium text-slate-400">(opsional)</span></span>
+                    <input
+                      type="date"
+                      value={sopForm.tanggal_pengesahan}
+                      onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pengesahan: event.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                </div>
+                <label className="block space-y-2 text-xs font-bold text-slate-600">
+                  <span>Link Google Drive <span className="font-medium text-slate-400">(opsional)</span></span>
+                  <input
+                    type="url"
+                    value={sopForm.link_gdrive}
+                    onChange={(event) => setSopForm((current) => ({ ...current, link_gdrive: event.target.value }))}
+                    placeholder="https://drive.google.com/..."
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+                {sopFormError && (
+                  <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    {sopFormError}
+                  </p>
+                )}
                 <button
                   type="submit"
                   disabled={isSopSubmitting || !activeRoom}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-xs font-black uppercase text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isSopSubmitting && <Loader2 size={16} className="animate-spin" />}
-                  {isSopSubmitting ? "Memproses..." : "Generate Nomor SOP"}
+                  {isSopSubmitting ? "Memproses..." : editingSop ? "Simpan Perubahan" : "Simpan & Generate Nomor"}
                 </button>
-              </div>
-            </form>
+                {editingSop && (
+                  <button
+                    type="button"
+                    onClick={cancelEditingSop}
+                    disabled={isSopSubmitting}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 py-3 text-xs font-black uppercase text-slate-600 hover:bg-slate-200 disabled:opacity-60"
+                  >
+                    <X size={16} /> Batal Edit
+                  </button>
+                )}
+              </form>
+
+              <section className="min-h-0">
+                <h3 className="mb-4 text-sm font-black uppercase tracking-wide text-slate-800">
+                  {showOnlyIncompleteSop ? "SOP dengan Isian Belum Lengkap" : "Daftar Nomor SOP Terdaftar"}
+                </h3>
+                {showOnlyIncompleteSop && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyIncompleteSop(false)}
+                    className="mb-3 text-xs font-bold text-blue-700 hover:underline"
+                  >
+                    Tampilkan semua SOP
+                  </button>
+                )}
+                {sopListLoading && (
+                  <p className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Memuat...</p>
+                )}
+                {sopListError && (
+                  <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                    <p className="font-bold">{sopListError.message}</p>
+                    {sopListError.details && <p className="mt-2 break-words text-xs">{sopListError.details}</p>}
+                  </div>
+                )}
+                {!sopListLoading && !sopListError && (
+                  <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+                    {displayedSopList.map((sop) => {
+                      const missingFields = getMissingSopFields(sop);
+                      return (
+                      <article key={sop.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="mb-2 inline-flex rounded-lg bg-blue-100 px-3 py-1 text-xs font-black text-blue-800">
+                          {sop.no_sop || "Nomor belum tersedia"}
+                        </p>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {sop.judul_sop || sop.judul_prosedur || "Tanpa judul"}
+                        </p>
+                        {sop.klinik && <p className="mt-1 text-xs font-medium text-slate-500">{sop.klinik}</p>}
+                        {missingFields.length > 0 && (
+                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <p className="text-xs font-black text-amber-800">Belum lengkap:</p>
+                            <p className="mt-1 text-xs font-medium text-amber-700">{missingFields.join(", ")}</p>
+                            <a href="/manajemen-sop" className="mt-2 inline-block text-xs font-bold text-blue-700 hover:underline">
+                              Lengkapi data SOP
+                            </a>
+                          </div>
+                        )}
+                        <div className="mt-3 flex gap-2 border-t border-slate-200 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => startEditingSop(sop)}
+                            disabled={isSopSubmitting || deletingSopId === sop.id}
+                            className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-200 disabled:opacity-50"
+                          >
+                            <Edit3 size={14} /> Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSop(sop)}
+                            disabled={isSopSubmitting || deletingSopId === sop.id}
+                            className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-200 disabled:opacity-50"
+                          >
+                            {deletingSopId === sop.id
+                              ? <Loader2 size={14} className="animate-spin" />
+                              : <Trash2 size={14} />}
+                            Hapus
+                          </button>
+                        </div>
+                      </article>
+                    );
+                    })}
+                    {displayedSopList.length === 0 && (
+                      <p className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+                        {showOnlyIncompleteSop
+                          ? "Semua data SOP sudah lengkap."
+                          : "Belum ada SOP terdaftar pada ruangan ini."}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+            </div>
           </section>
         </div>
       )}

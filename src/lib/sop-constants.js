@@ -20,3 +20,26 @@ export const daftarKlinikSop = [
   "Terapi Wicara",
   "Terapi Okupasi",
 ];
+
+export const kodeKlinikSop = {
+  "Poliklinik Dalam": "PDL",
+  Gigi: "GIG",
+  Mata: "MAT",
+  THT: "THT",
+  "Kulit dan Kelamin": "KDK",
+  Umum: "UMU",
+  Paru: "PAR",
+  Saraf: "SAR",
+  Jiwa: "JIW",
+  Bedah: "BED",
+  "Bedah Anak": "BDA",
+  Orto: "ORT",
+  Obsgyn: "OBG",
+  Anak: "ANA",
+  Jantung: "JAN",
+  Urologi: "URO",
+  "Rehabilitasi Medik": "RHM",
+  "Klinik Nyeri": "KNY",
+  "Terapi Wicara": "TWI",
+  "Terapi Okupasi": "TOK",
+};

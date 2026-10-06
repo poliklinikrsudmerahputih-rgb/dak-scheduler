@@ -28,18 +28,19 @@ function validateSop(body) {
   if (!daftarKlinikSop.includes(klinik)) {
     return { error: "Klinik SOP harus dipilih dari daftar yang tersedia." };
   }
-  if (tanggal_pembuatan || tanggal_pengesahan) {
-    const isValidDate = (value) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-      const date = new Date(`${value}T00:00:00.000Z`);
-      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-    };
-    if (!isValidDate(tanggal_pembuatan) || !isValidDate(tanggal_pengesahan)) {
-      return { error: "Tanggal pembuatan dan pengesahan harus valid." };
-    }
-    if (tanggal_pengesahan < tanggal_pembuatan) {
-      return { error: "Tanggal pengesahan tidak boleh sebelum tanggal pembuatan." };
-    }
+  const isValidDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (tanggal_pembuatan && !isValidDate(tanggal_pembuatan)) {
+    return { error: "Tanggal pembuatan harus valid." };
+  }
+  if (tanggal_pengesahan && !isValidDate(tanggal_pengesahan)) {
+    return { error: "Tanggal pengesahan harus valid." };
+  }
+  if (tanggal_pembuatan && tanggal_pengesahan && tanggal_pengesahan < tanggal_pembuatan) {
+    return { error: "Tanggal pengesahan tidak boleh sebelum tanggal pembuatan." };
   }
 
   if (link_gdrive) {
@@ -102,8 +103,8 @@ export async function PUT(request, { params }) {
     const result = await turso.execute({
       sql: `UPDATE sop
             SET no_sop = ?, judul_prosedur = ?, link_gdrive = ?, klinik = ?,
-                tanggal_pembuatan = COALESCE(NULLIF(?, ''), tanggal_pembuatan),
-                tanggal_pengesahan = COALESCE(NULLIF(?, ''), tanggal_pengesahan),
+                tanggal_pembuatan = NULLIF(?, ''),
+                tanggal_pengesahan = NULLIF(?, ''),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND UPPER(TRIM(ruangan)) = ?`,
       args: [
@@ -150,6 +151,12 @@ export async function DELETE(_request, { params }) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Gagal menghapus SOP:", error);
-    return NextResponse.json({ error: "Gagal menghapus data SOP." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Gagal menghapus data SOP.",
+        details: error instanceof Error ? error.message : "Terjadi kesalahan database yang tidak diketahui.",
+      },
+      { status: 500 }
+    );
   }
 }

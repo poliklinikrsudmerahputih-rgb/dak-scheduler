@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
-import { daftarKlinikSop } from "@/lib/sop-constants";
+import { daftarKlinikSop, kodeKlinikSop } from "@/lib/sop-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +24,23 @@ function validateLink(value) {
   return { value: link_gdrive };
 }
 
-async function createGeneratedSop(body, ruangan) {
+async function getSopColumns(client = turso) {
+  const result = await client.execute("PRAGMA table_info('sop')");
+  return new Set((result.rows || []).map((column) => String(column.name)));
+}
+
+async function createGeneratedSop(body, ruangan, columns) {
   const judul_sop = typeof body?.judul_sop === "string" ? body.judul_sop.trim() : "";
   const requestedRuangan = typeof body?.ruangan === "string"
     ? body.ruangan.trim().toUpperCase()
     : "";
   const klinik = typeof body?.klinik === "string" ? body.klinik.trim() : "";
-  const tanggal_pembuatan = body?.tanggal_pembuatan;
-  const tanggal_pengesahan = body?.tanggal_pengesahan;
+  const tanggal_pembuatan = typeof body?.tanggal_pembuatan === "string"
+    ? body.tanggal_pembuatan.trim()
+    : "";
+  const tanggal_pengesahan = typeof body?.tanggal_pengesahan === "string"
+    ? body.tanggal_pengesahan.trim()
+    : "";
   const link = validateLink(body?.link_gdrive);
 
   if (!judul_sop || judul_sop.length > 255) {
@@ -43,42 +52,54 @@ async function createGeneratedSop(body, ruangan) {
   if (!daftarKlinikSop.includes(klinik)) {
     return { error: "Klinik SOP harus dipilih dari daftar yang tersedia.", status: 400 };
   }
-  if (!isValidDate(tanggal_pembuatan) || !isValidDate(tanggal_pengesahan)) {
-    return { error: "Tanggal pembuatan dan pengesahan harus valid.", status: 400 };
+  if (tanggal_pembuatan && !isValidDate(tanggal_pembuatan)) {
+    return { error: "Tanggal pembuatan harus valid.", status: 400 };
   }
-  if (tanggal_pengesahan < tanggal_pembuatan) {
+  if (tanggal_pengesahan && !isValidDate(tanggal_pengesahan)) {
+    return { error: "Tanggal pengesahan harus valid.", status: 400 };
+  }
+  if (tanggal_pembuatan && tanggal_pengesahan && tanggal_pengesahan < tanggal_pembuatan) {
     return { error: "Tanggal pengesahan tidak boleh sebelum tanggal pembuatan.", status: 400 };
   }
   if (link.error) return { error: link.error, status: 400 };
 
-  const tahun = tanggal_pembuatan.slice(0, 4);
+  const tahun = tanggal_pembuatan
+    ? tanggal_pembuatan.slice(0, 4)
+    : String(new Date().getFullYear());
+  const kodeKlinik = kodeKlinikSop[klinik];
   const transaction = await turso.transaction("write");
   try {
     const existing = await transaction.execute({
       sql: `SELECT no_sop FROM sop
             WHERE UPPER(TRIM(ruangan)) = ? AND no_sop LIKE ?`,
-      args: [ruangan, `%/${tahun}`],
+      args: [ruangan, `IRJA/${kodeKlinik}/%/${tahun}`],
     });
 
     const nomorUrutTerakhir = existing.rows.reduce((max, row) => {
-      const match = String(row.no_sop || "").match(new RegExp(`^IRJA/(\\d+)/${tahun}$`));
+      const match = String(row.no_sop || "").match(
+        new RegExp(`^IRJA/${kodeKlinik}/(\\d+)/${tahun}$`)
+      );
       return match ? Math.max(max, Number(match[1])) : max;
     }, 0);
-    const nomor_sop = `IRJA/${String(nomorUrutTerakhir + 1).padStart(2, "0")}/${tahun}`;
+    const nomor_sop = `IRJA/${kodeKlinik}/${String(nomorUrutTerakhir + 1).padStart(3, "0")}/${tahun}`;
+
+    const insertColumns = ["no_sop", "judul_prosedur", "link_gdrive", "ruangan"];
+    const insertArgs = [nomor_sop, judul_sop, link.value, ruangan];
+    for (const [column, value] of [
+      ["klinik", klinik],
+      ["tanggal_pembuatan", tanggal_pembuatan || null],
+      ["tanggal_pengesahan", tanggal_pengesahan || null],
+    ]) {
+      if (columns.has(column)) {
+        insertColumns.push(column);
+        insertArgs.push(value);
+      }
+    }
 
     await transaction.execute({
-      sql: `INSERT INTO sop
-              (no_sop, judul_prosedur, link_gdrive, ruangan, klinik, tanggal_pembuatan, tanggal_pengesahan)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        nomor_sop,
-        judul_sop,
-        link.value,
-        ruangan,
-        klinik,
-        tanggal_pembuatan,
-        tanggal_pengesahan,
-      ],
+      sql: `INSERT INTO sop (${insertColumns.join(", ")})
+            VALUES (${insertColumns.map(() => "?").join(", ")})`,
+      args: insertArgs,
     });
     await transaction.commit();
     return {
@@ -98,18 +119,36 @@ export async function GET() {
     if (!ruangan) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
+    const columns = await getSopColumns();
+    const requiredColumns = ["id", "no_sop", "judul_prosedur", "link_gdrive", "ruangan"];
+    const missingColumns = requiredColumns.filter((column) => !columns.has(column));
+    if (missingColumns.length > 0) {
+      throw new Error(`Tabel SOP tidak memiliki kolom wajib: ${missingColumns.join(", ")}`);
+    }
+    const selectedColumns = [
+      "id",
+      "no_sop",
+      "judul_prosedur",
+      "link_gdrive",
+      "ruangan",
+      "klinik",
+      "tanggal_pembuatan",
+      "tanggal_pengesahan",
+    ].filter((column) => columns.has(column));
     const result = await turso.execute({
-      sql: `SELECT id, no_sop, judul_prosedur, link_gdrive, ruangan, klinik,
-                   tanggal_pembuatan, tanggal_pengesahan
+      sql: `SELECT ${selectedColumns.join(", ")}
             FROM sop
-            WHERE UPPER(TRIM(ruangan)) = ?
+            WHERE UPPER(TRIM(COALESCE(ruangan, ''))) = ?
             ORDER BY no_sop COLLATE NOCASE ASC, id ASC`,
       args: [ruangan],
     });
     return NextResponse.json(result.rows || []);
   } catch (error) {
-    console.error("Gagal mengambil daftar SOP:", error);
-    return NextResponse.json({ error: "Gagal mengambil daftar SOP." }, { status: 500 });
+    console.error("API SOP Error:", error);
+    return NextResponse.json(
+      { error: "Gagal memuat data SOP", details: error.message },
+      { status: 500 }
+    );
   }
 }
 
@@ -128,7 +167,8 @@ export async function POST(request) {
     }
 
     if (body?.judul_sop !== undefined) {
-      const result = await createGeneratedSop(body, ruangan);
+      const columns = await getSopColumns();
+      const result = await createGeneratedSop(body, ruangan, columns);
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: result.status });
       }
@@ -149,14 +189,24 @@ export async function POST(request) {
     if (link.error) {
       return NextResponse.json({ error: link.error }, { status: 400 });
     }
+    const columns = await getSopColumns();
+    const insertColumns = ["no_sop", "judul_prosedur", "link_gdrive", "ruangan"];
+    const insertArgs = [no_sop, judul_prosedur, link.value, ruangan];
+    if (columns.has("klinik")) {
+      insertColumns.push("klinik");
+      insertArgs.push(body?.klinik || null);
+    }
     const result = await turso.execute({
-      sql: `INSERT INTO sop (no_sop, judul_prosedur, link_gdrive, ruangan, klinik)
-            VALUES (?, ?, ?, ?, ?)`,
-      args: [no_sop, judul_prosedur, link.value, ruangan, body?.klinik || null],
+      sql: `INSERT INTO sop (${insertColumns.join(", ")})
+            VALUES (${insertColumns.map(() => "?").join(", ")})`,
+      args: insertArgs,
     });
     return NextResponse.json({ success: true, id: Number(result.lastInsertRowid) }, { status: 201 });
   } catch (error) {
-    console.error("Gagal menambahkan SOP:", error);
-    return NextResponse.json({ error: "Gagal menambahkan data SOP." }, { status: 500 });
+    console.error("API SOP Error:", error);
+    return NextResponse.json(
+      { error: "Gagal memuat data SOP", details: error.message },
+      { status: 500 }
+    );
   }
 }

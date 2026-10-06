@@ -28,13 +28,12 @@ const getSessionRuangan = () => {
   }
 };
 
-const today = new Date().toISOString().slice(0, 10);
 const emptyForm = {
   judul_sop: "",
   ruangan: "",
   klinik: "",
-  tanggal_pembuatan: today,
-  tanggal_pengesahan: today,
+  tanggal_pembuatan: "",
+  tanggal_pengesahan: "",
   link_gdrive: ""
 };
 
@@ -146,12 +145,17 @@ export default function ManajemenSopPage() {
         router.push("/login");
         return;
       }
-      if (!response.ok) throw new Error(result.error || "Gagal menghapus data SOP.");
+      if (!response.ok) {
+        const error = new Error(result.error || "Gagal menghapus data SOP.");
+        error.details = result.details;
+        throw error;
+      }
       if (editingSop?.id === sop.id) cancelEditing();
       setNotice("SOP berhasil dihapus.");
       await mutate();
     } catch (deleteError) {
-      setFormError(deleteError.message || "Gagal menghapus data SOP.");
+      const details = deleteError.details ? ` Detail: ${deleteError.details}` : "";
+      setFormError(`${deleteError.message || "Gagal menghapus data SOP."}${details}`);
     } finally {
       setDeletingId(null);
     }
@@ -212,9 +216,8 @@ export default function ManajemenSopPage() {
             </select>
           </label>
           <label className="space-y-2 text-xs font-bold text-slate-600">
-            <span>Tanggal Pembuatan</span>
+            <span>Tanggal Pembuatan <span className="font-medium text-slate-400">(opsional)</span></span>
             <input
-              required={!editingSop}
               type="date"
               name="tanggal_pembuatan"
               value={form.tanggal_pembuatan}
@@ -223,9 +226,8 @@ export default function ManajemenSopPage() {
             />
           </label>
           <label className="space-y-2 text-xs font-bold text-slate-600">
-            <span>Tanggal Pengesahan</span>
+            <span>Tanggal Pengesahan <span className="font-medium text-slate-400">(opsional)</span></span>
             <input
-              required={!editingSop}
               type="date"
               name="tanggal_pengesahan"
               value={form.tanggal_pengesahan}

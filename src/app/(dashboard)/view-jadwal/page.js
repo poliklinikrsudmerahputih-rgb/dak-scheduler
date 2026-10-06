@@ -968,8 +968,8 @@ export default function ViewJadwalPublic() {
     judul_sop: "",
     ruangan: "",
     klinik: "",
-    tanggal_pembuatan: getTanggalJakarta(),
-    tanggal_pengesahan: getTanggalJakarta(),
+    tanggal_pembuatan: "",
+    tanggal_pengesahan: "",
     link_gdrive: ""
   });
   const [sopSubmitError, setSopSubmitError] = useState("");
@@ -1064,6 +1064,8 @@ export default function ViewJadwalPublic() {
         ...current,
         judul_sop: "",
         klinik: "",
+        tanggal_pembuatan: "",
+        tanggal_pengesahan: "",
         link_gdrive: ""
       }));
       setSearchSopTerm("");
@@ -1776,9 +1778,8 @@ export default function ViewJadwalPublic() {
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block space-y-2 text-xs font-bold text-slate-600">
-                    <span>Tanggal Pembuatan</span>
+                    <span>Tanggal Pembuatan <span className="font-medium text-slate-400">(opsional)</span></span>
                     <input
-                      required
                       type="date"
                       value={sopForm.tanggal_pembuatan}
                       onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pembuatan: event.target.value }))}
@@ -1786,9 +1787,8 @@ export default function ViewJadwalPublic() {
                     />
                   </label>
                   <label className="block space-y-2 text-xs font-bold text-slate-600">
-                    <span>Tanggal Pengesahan</span>
+                    <span>Tanggal Pengesahan <span className="font-medium text-slate-400">(opsional)</span></span>
                     <input
-                      required
                       type="date"
                       value={sopForm.tanggal_pengesahan}
                       onChange={(event) => setSopForm((current) => ({ ...current, tanggal_pengesahan: event.target.value }))}

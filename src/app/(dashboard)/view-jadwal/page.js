@@ -199,7 +199,7 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
   const [noRM, setNoRM] = useState("");
   const [jamAsesmen, setJamAsesmen] = useState("");
   const [jamSelesai, setJamSelesai] = useState("");
-  const [identifikasiPraTindakan, setIdentifikasiPraTindakan] = useState(true);
+  const [identifikasiPraTindakan, setIdentifikasiPraTindakan] = useState("");
   const [saving, setSaving] = useState(false);
   const waktuTungguMenit = jamAsesmen && jamSelesai
     ? (() => {
@@ -212,8 +212,12 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
   const handleSubmit = async (event) => {
     event.preventDefault();
     const nomorRM = noRM.trim();
-    if (!nomorRM || !jamAsesmen || !jamSelesai || !Number.isSafeInteger(waktuTungguMenit) || waktuTungguMenit < 0) {
-      return alert("Isi Nomor RM dan pastikan Jam Selesai tidak mendahului Jam Asesmen.");
+    if (
+      !nomorRM || !jamAsesmen || !jamSelesai ||
+      !["Ya", "Tidak"].includes(identifikasiPraTindakan) ||
+      !Number.isSafeInteger(waktuTungguMenit) || waktuTungguMenit < 0
+    ) {
+      return alert("Isi Nomor RM, pilih identifikasi Ya atau Tidak, dan pastikan Jam Selesai tidak mendahului Jam Asesmen.");
     }
 
     setSaving(true);
@@ -228,7 +232,7 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
           jam_asesmen: jamAsesmen,
           jam_selesai: jamSelesai,
           waktu_tunggu_menit: waktuTungguMenit,
-          identifikasi: identifikasiPraTindakan
+          identifikasi_pra_tindakan: identifikasiPraTindakan
         })
       });
       const result = await response.json().catch(() => ({}));
@@ -239,7 +243,7 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
       setNoRM("");
       setJamAsesmen("");
       setJamSelesai("");
-      setIdentifikasiPraTindakan(true);
+      setIdentifikasiPraTindakan("");
       onSaved();
     } catch (error) {
       console.error("Gagal menyimpan sampel IMUT pasien:", error);
@@ -281,6 +285,39 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
             />
           </label>
 
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-black uppercase text-slate-600">
+              Dilakukan Identifikasi Pra-Tindakan?
+            </legend>
+            <div className="grid grid-cols-2 gap-3">
+              {["Ya", "Tidak"].map((value) => {
+                const isSelected = identifikasiPraTindakan === value;
+                const activeStyle = value === "Ya"
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                  : "border-red-500 bg-red-50 text-red-800";
+                return (
+                  <label
+                    key={value}
+                    className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border p-3 text-sm font-black transition-colors ${
+                      isSelected ? activeStyle : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="identifikasi-pra-tindakan"
+                      value={value}
+                      checked={isSelected}
+                      required
+                      onChange={() => setIdentifikasiPraTindakan(value)}
+                      className="h-4 w-4 accent-blue-600"
+                    />
+                    {value}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
           <label className="block text-xs font-black uppercase text-slate-600">
             Jam Asesmen Perawat
             <input
@@ -312,17 +349,6 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
                 : `Waktu Tunggu: ${waktuTungguMenit} Menit`}
             </p>
           )}
-
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-xs font-bold text-slate-700">
-            <input
-              type="checkbox"
-              checked={identifikasiPraTindakan}
-              onChange={(event) => setIdentifikasiPraTindakan(event.target.checked)}
-              className="h-4 w-4 accent-blue-600"
-              suppressHydrationWarning={true}
-            />
-            Identifikasi Pasien Pra-Tindakan?
-          </label>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
             <button
@@ -447,7 +473,9 @@ function ModalRiwayatImut({ modal, onClose }) {
                     <td className="px-4 py-3">{sampel.jam_selesai || "-"}</td>
                     <td className="px-4 py-3">{sampel.waktu_tunggu_menit ?? "-"}</td>
                     <td className="px-4 py-3">
-                      {sampel.identifikasi_pra_tindakan ? "Ya" : "Tidak"}
+                      {["ya", "1", "true"].includes(
+                        String(sampel.identifikasi_pra_tindakan).trim().toLowerCase()
+                      ) ? "Ya" : "Tidak"}
                     </td>
                     <td className="px-4 py-3">
                       <button

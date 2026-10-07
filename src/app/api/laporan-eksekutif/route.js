@@ -242,8 +242,16 @@ export async function GET(request) {
         }),
         turso.execute({
           sql: `SELECT UPPER(TRIM(klinik)) AS clinic_key,
-                  SUM(CASE WHEN CAST(identifikasi_pra_tindakan AS INTEGER) = 1 THEN 1 ELSE 0 END) AS identifikasi_ya,
-                  SUM(CASE WHEN CAST(identifikasi_pra_tindakan AS INTEGER) = 0 THEN 1 ELSE 0 END) AS identifikasi_tidak,
+                  SUM(CASE
+                    WHEN identifikasi_pra_tindakan IS NULL
+                      OR TRIM(CAST(identifikasi_pra_tindakan AS TEXT)) = ''
+                      OR UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) IN ('YA', '1', '0', 'TRUE', 'FALSE')
+                    THEN 1 ELSE 0
+                  END) AS identifikasi_ya,
+                  SUM(CASE
+                    WHEN UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) = 'TIDAK'
+                    THEN 1 ELSE 0
+                  END) AS identifikasi_tidak,
                   SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                   SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
                   SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,

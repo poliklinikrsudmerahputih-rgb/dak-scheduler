@@ -15,7 +15,7 @@ const ensureLogImutPasienTable = async () => {
     jam_asesmen TEXT,
     jam_selesai TEXT,
     waktu_tunggu_menit INTEGER,
-    identifikasi_pra_tindakan BOOLEAN,
+    identifikasi_pra_tindakan TEXT DEFAULT 'Ya',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -26,6 +26,9 @@ const ensureLogImutPasienTable = async () => {
   }
   if (!columns.has("jam_selesai")) {
     await turso.execute("ALTER TABLE log_imut_pasien ADD COLUMN jam_selesai TEXT");
+  }
+  if (!columns.has("identifikasi_pra_tindakan")) {
+    await turso.execute("ALTER TABLE log_imut_pasien ADD COLUMN identifikasi_pra_tindakan TEXT DEFAULT 'Ya'");
   }
 };
 
@@ -46,13 +49,23 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const dokterId = Number(body?.dokter_id);
-    const tanggal = String(body?.tanggal || "").trim();
-    const noRM = String(body?.no_rm || "").trim();
-    const jamAsesmen = String(body?.jam_asesmen || "").trim();
-    const jamSelesai = String(body?.jam_selesai || "").trim();
-    const waktuTunggu = Number(body?.waktu_tunggu_menit);
-    const identifikasiPraTindakan = body?.identifikasi;
+    const {
+      dokter_id: dokterIdPayload,
+      tanggal: tanggalPayload,
+      no_rm: noRMpayload,
+      jam_asesmen: jamAsesmenPayload,
+      jam_selesai: jamSelesaiPayload,
+      waktu_tunggu_menit: waktuTungguPayload,
+      identifikasi_pra_tindakan: identifikasiPraTindakanPayload
+    } = body || {};
+    const dokterId = Number(dokterIdPayload);
+    const tanggal = String(tanggalPayload || "").trim();
+    const noRM = String(noRMpayload || "").trim();
+    const jamAsesmen = String(jamAsesmenPayload || "").trim();
+    const jamSelesai = String(jamSelesaiPayload || "").trim();
+    const waktuTunggu = Number(waktuTungguPayload);
+    const identifikasiPraTindakan = identifikasiPraTindakanPayload
+      ?? (typeof body?.identifikasi === "boolean" ? (body.identifikasi ? "Ya" : "Tidak") : null);
     const formatJamValid = /^([01]\d|2[0-3]):[0-5]\d$/;
     const menitDariJam = (jam) => {
       const [hours, minutes] = jam.split(":").map(Number);
@@ -71,7 +84,7 @@ export async function POST(request) {
       !noRM || noRM.length > 64 ||
       durasiTerhitung === null || durasiTerhitung < 0 ||
       !Number.isSafeInteger(waktuTunggu) || waktuTunggu !== durasiTerhitung ||
-      typeof identifikasiPraTindakan !== "boolean"
+      !["Ya", "Tidak"].includes(identifikasiPraTindakan)
     ) {
       return NextResponse.json({ success: false, error: "Data sampel IMUT tidak valid." }, { status: 400 });
     }
@@ -104,8 +117,8 @@ export async function POST(request) {
         noRM,
         jamAsesmen,
         jamSelesai,
-        identifikasiPraTindakan ? 1 : 0,
-        waktuTunggu
+        waktuTunggu,
+        identifikasiPraTindakan
       ]
     });
 

@@ -27,7 +27,7 @@ const indicatorDefinitions = [
     key: "waktuTungguRawatJalan",
     nama: "Waktu Tunggu Rawat Jalan (< 60 Menit)",
     label: "Waktu Tunggu <60 mnt",
-    numerator: (counts) => counts.waktuKurang60,
+    numerator: (counts) => counts.waktuKurang60Tercapai,
     denominator: (counts) => counts.sampelWaktuTunggu,
     target: 80
   }
@@ -41,6 +41,7 @@ export function buildImutIndicators(counts = {}) {
     "identifikasiYa",
     "identifikasiTidak",
     "waktuKurang60",
+    "waktuKurang60Tercapai",
     "sampelWaktuTunggu"
   ].map((key) => [key, Number(counts[key]) || 0]));
 
@@ -67,6 +68,7 @@ export function sumImutCounts(rows = []) {
     total.identifikasiYa += Number(row.identifikasiYa) || 0;
     total.identifikasiTidak += Number(row.identifikasiTidak) || 0;
     total.waktuKurang60 += Number(row.waktuKurang60) || 0;
+    total.waktuKurang60Tercapai += Number(row.waktuKurang60Tercapai) || 0;
     total.sampelWaktuTunggu += Number(row.sampelWaktuTunggu) || 0;
     return total;
   }, {
@@ -76,6 +78,7 @@ export function sumImutCounts(rows = []) {
     identifikasiYa: 0,
     identifikasiTidak: 0,
     waktuKurang60: 0,
+    waktuKurang60Tercapai: 0,
     sampelWaktuTunggu: 0
   });
 }

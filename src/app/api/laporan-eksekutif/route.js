@@ -253,6 +253,16 @@ export async function GET(request) {
                     THEN 1 ELSE 0
                   END) AS identifikasi_tidak,
                   SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
+                  SUM(CASE
+                    WHEN waktu_tunggu_menit < 60
+                      AND EXISTS (
+                        SELECT 1 FROM log_imut_keterlambatan kehadiran
+                        WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                          AND kehadiran.tanggal = log_imut_pasien.tanggal
+                          AND CAST(kehadiran.is_terlambat AS INTEGER) = 0
+                      )
+                    THEN 1 ELSE 0
+                  END) AS waktu_kurang_60_tercapai,
                   SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
                   SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
                   COUNT(*) AS total_sampel,
@@ -289,6 +299,7 @@ export async function GET(request) {
         identifikasiYa: Number(imut.identifikasi_ya) || 0,
         identifikasiTidak: Number(imut.identifikasi_tidak) || 0,
         waktuKurang60: Number(imut.waktu_kurang_60) || 0,
+        waktuKurang60Tercapai: Number(imut.waktu_kurang_60_tercapai) || 0,
         waktuTepat60: Number(imut.waktu_tepat_60) || 0,
         waktuLebih60: Number(imut.waktu_lebih_60) || 0,
         sampelWaktuTunggu: sampleCount

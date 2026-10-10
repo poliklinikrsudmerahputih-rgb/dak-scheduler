@@ -1007,7 +1007,8 @@ export default function ViewJadwalPublic() {
     tipe: "bulanan",
     bulan: String(Number(tanggalLaporanImut.slice(5, 7))),
     tahun: String(Number(tanggalLaporanImut.slice(0, 4))),
-    tanggal_hari_ini: tanggalLaporanImut
+    tanggal_hari_ini: tanggalLaporanImut,
+    ruangan: ruanganShare || "POLIKLINIK"
   });
   const { data: dataImut, error: errorImut, isLoading: loadingImut } = useSWR(
     isModalImutOpen ? `/api/analisis-imut?${imutParams}` : null,
@@ -1057,14 +1058,6 @@ export default function ViewJadwalPublic() {
   const [modalRiwayatOpen, setModalRiwayatOpen] = useState(null);
   const [imutSaveNotice, setImutSaveNotice] = useState("");
 
-  useEffect(() => {
-    const room = getClientSessionRoom();
-    setSopSessionRoom(room);
-    if (room) {
-      setSopForm((current) => ({ ...current, ruangan: room }));
-    }
-  }, []);
-
   const handleCreateSopFromPublicModal = async (event) => {
     event.preventDefault();
     setSopSubmitError("");
@@ -1077,9 +1070,6 @@ export default function ViewJadwalPublic() {
         body: JSON.stringify(sopForm)
       });
       const result = await response.json();
-      if (response.status === 401) {
-        throw new Error("Silakan login untuk membuat nomor SOP.");
-      }
       if (!response.ok || result.success !== true || !result.data?.nomor_sop) {
         throw new Error(result.error || "Nomor SOP tidak berhasil dibuat.");
       }
@@ -1571,7 +1561,7 @@ export default function ViewJadwalPublic() {
             {errorImut && (
               <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
                 {errorImut.message.includes("status 401")
-                  ? "Capaian mutu hanya tersedia setelah Anda login."
+                  ? "Capaian mutu belum dapat dimuat."
                   : errorImut.message || "Capaian mutu belum dapat dimuat."}
               </div>
             )}
@@ -1772,11 +1762,6 @@ export default function ViewJadwalPublic() {
                 <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
                   Nomor urut SOP akan dibuatkan otomatis oleh sistem setelah Anda menyimpan form ini.
                 </p>
-                {!sopSessionRoom && (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    Login diperlukan untuk membuat SOP. Daftar dokumen tetap dapat dilihat secara publik.
-                  </p>
-                )}
                 <label className="block space-y-2 text-xs font-bold text-slate-600">
                   <span>Judul SOP</span>
                   <input
@@ -1794,7 +1779,6 @@ export default function ViewJadwalPublic() {
                     required
                     value={sopForm.klinik}
                     onChange={(event) => setSopForm((current) => ({ ...current, klinik: event.target.value }))}
-                    disabled={!sopSessionRoom}
                     className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100 disabled:bg-slate-100"
                   >
                     <option value="" disabled>Pilih klinik</option>
@@ -1802,7 +1786,7 @@ export default function ViewJadwalPublic() {
                       <option key={klinik} value={klinik}>{klinik}</option>
                     ))}
                   </select>
-                  <span className="block font-medium text-slate-400">Data SOP tetap tersimpan pada ruangan akun Anda.</span>
+                  <span className="block font-medium text-slate-400">Data SOP tersimpan pada ruangan {sopSessionRoom || "POLIKLINIK"}.</span>
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block space-y-2 text-xs font-bold text-slate-600">
@@ -1842,7 +1826,7 @@ export default function ViewJadwalPublic() {
                 <div className="flex justify-end">
                   <button
                     type="submit"
-                    disabled={sopSubmitting || !sopSessionRoom}
+                    disabled={sopSubmitting}
                     className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {sopSubmitting && <Loader2 size={16} className="animate-spin" />}
@@ -1885,7 +1869,12 @@ export default function ViewJadwalPublic() {
               </button>
               <button
                 type="button"
-                onClick={() => setIsModalSopOpen(true)}
+                onClick={() => {
+                  const room = getClientSessionRoom() || "POLIKLINIK";
+                  setSopSessionRoom(room);
+                  setSopForm((current) => ({ ...current, ruangan: room }));
+                  setIsModalSopOpen(true);
+                }}
                 className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
                 aria-haspopup="dialog"
                 aria-expanded={isModalSopOpen}

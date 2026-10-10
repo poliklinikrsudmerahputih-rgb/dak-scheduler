@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
@@ -154,9 +155,9 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const ruangan = await getSopRuangan();
+    const ruangan = await getSopRuangan(true);
     if (!ruangan) {
-      return NextResponse.json({ error: "Sesi tidak ditemukan atau tidak valid." }, { status: 401 });
+      return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
 
     let body;
@@ -164,6 +165,11 @@ export async function POST(request) {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Format data tidak valid." }, { status: 400 });
+    }
+
+    const hasSession = Boolean((await cookies()).get("session_dak_pro"));
+    if (!hasSession && body?.judul_sop === undefined) {
+      return NextResponse.json({ error: "Pembuatan SOP publik harus menggunakan generator nomor." }, { status: 403 });
     }
 
     if (body?.judul_sop !== undefined) {

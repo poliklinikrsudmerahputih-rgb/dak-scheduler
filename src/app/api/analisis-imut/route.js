@@ -32,17 +32,18 @@ function createInsight(rows) {
 export async function GET(request) {
   try {
     const session = (await cookies()).get("session_dak_pro");
-    if (!session) return NextResponse.json({ error: "Sesi tidak ditemukan." }, { status: 401 });
-
-    let sessionData;
-    try {
-      sessionData = JSON.parse(session.value);
-    } catch {
-      return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
-    }
-    const ruangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
-
     const { searchParams } = new URL(request.url);
+    let ruangan = "POLIKLINIK";
+    if (session) {
+      let sessionData;
+      try {
+        sessionData = JSON.parse(session.value);
+      } catch {
+        return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+      }
+      ruangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+    }
+
     const bulan = Number(searchParams.get("bulan"));
     const tahun = Number(searchParams.get("tahun"));
     const tanggalHariIni = String(searchParams.get("tanggal_hari_ini") || "");
@@ -167,6 +168,16 @@ export async function GET(request) {
                   THEN 1 ELSE 0
                 END) AS identifikasi_tidak,
                 SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
+                SUM(CASE
+                  WHEN waktu_tunggu_menit < 60
+                    AND EXISTS (
+                      SELECT 1 FROM log_imut_keterlambatan kehadiran
+                      WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                        AND kehadiran.tanggal = log_imut_pasien.tanggal
+                        AND CAST(kehadiran.is_terlambat AS INTEGER) = 0
+                    )
+                  THEN 1 ELSE 0
+                END) AS waktu_kurang_60_tercapai,
                 SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
                 SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
                 COUNT(*) AS total_sampel,
@@ -338,6 +349,7 @@ export async function GET(request) {
         identifikasiYa: Number(patient.identifikasi_ya) || 0,
         identifikasiTidak: Number(patient.identifikasi_tidak) || 0,
         waktuKurang60: Number(patient.waktu_kurang_60) || 0,
+        waktuKurang60Tercapai: Number(patient.waktu_kurang_60_tercapai) || 0,
         waktuTepat60: Number(patient.waktu_tepat_60) || 0,
         waktuLebih60: Number(patient.waktu_lebih_60) || 0,
         sampelWaktuTunggu: sampleCount

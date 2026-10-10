@@ -36,14 +36,12 @@ export async function POST(request) {
   try {
     const cookieStore = await cookies();
     const session = cookieStore.get("session_dak_pro");
-    if (!session) {
-      return NextResponse.json({ success: false, error: "Sesi tidak ditemukan." }, { status: 401 });
-    }
-
-    let sessionRuangan;
+    let sessionRuangan = "POLIKLINIK";
     try {
-      const sessionData = JSON.parse(session.value);
-      sessionRuangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+      if (session) {
+        const sessionData = JSON.parse(session.value);
+        sessionRuangan = String(sessionData?.ruangan || "POLIKLINIK").trim().toUpperCase();
+      }
     } catch {
       return NextResponse.json({ success: false, error: "Sesi tidak valid." }, { status: 401 });
     }

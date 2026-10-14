@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import AIInsightEfektivitasSDM from "@/components/AIInsightEfektivitasSDM";
+import AIExecutiveAdvisor from "@/components/AIExecutiveAdvisor";
 import CapacityLeaveRecommendation from "@/components/CapacityLeaveRecommendation";
 import AccreditationIndicatorReport from "@/components/AccreditationIndicatorReport";
 import {
@@ -262,7 +263,7 @@ function ModalMonitoringImut({ data, isLoading, error, onClose }) {
             <h2 id="monitoring-imut-title" className="text-lg font-black text-slate-950">Monitoring Kepatuhan Input</h2>
             <p className="mt-1 text-xs text-slate-500">Status input per dokter dan asisten terjadwal · {tanggalLaporan}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Tutup monitoring" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><X size={17} /></button>
+          <button type="button" onClick={onClose} aria-label="Tutup monitoring" suppressHydrationWarning={true} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><X size={17} /></button>
         </header>
         <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5">
           {isLoading && !data && <p className="text-sm text-slate-500">Memuat status input...</p>}
@@ -292,7 +293,7 @@ function ModalMonitoringImut({ data, isLoading, error, onClose }) {
                   </li>
                 ))}
               </ul>
-              <button type="button" onClick={copyReminder} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-xs font-black uppercase text-white hover:bg-red-800">
+              <button type="button" onClick={copyReminder} suppressHydrationWarning={true} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-4 text-xs font-black uppercase text-white hover:bg-red-800">
                 <Copy size={15} /> Salin Pesan Pengingat
               </button>
             </>
@@ -466,16 +467,16 @@ export default function AnalisisPage() {
           <p className="mt-2 text-sm text-slate-600">Ringkasan operasional, beban SDM, dan indikator mutu untuk pengambilan keputusan.</p>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
-          <button type="button" onClick={shareExecutiveLink} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-teal-900">
+          <button type="button" onClick={shareExecutiveLink} suppressHydrationWarning={true} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-teal-900">
             <Copy size={16} /> Bagikan Laporan Manajemen
           </button>
-          <button type="button" onClick={exportCsv} disabled={!data} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700 disabled:opacity-40">
+          <button type="button" onClick={exportCsv} disabled={!data} suppressHydrationWarning={true} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700 disabled:opacity-40">
             <Download size={16} /> CSV
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-800 px-3 text-sm font-bold text-white hover:bg-slate-900">
+          <button type="button" onClick={() => window.print()} suppressHydrationWarning={true} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-800 px-3 text-sm font-bold text-white hover:bg-slate-900">
             <FileText size={16} /> Cetak
           </button>
-          <button type="button" onClick={() => { void mutate(); void mutateImut(); }} aria-label="Muat ulang laporan" title="Muat ulang" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:text-teal-700">
+          <button type="button" onClick={() => { void mutate(); void mutateImut(); }} aria-label="Muat ulang laporan" title="Muat ulang" suppressHydrationWarning={true} className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:text-teal-700">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -486,7 +487,7 @@ export default function AnalisisPage() {
       <section className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4 print:hidden">
         <label className="grid gap-1 text-xs font-bold text-slate-600">
           Jenis periode
-          <select value={periodType} onChange={(event) => setPeriodType(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
+          <select value={periodType} onChange={(event) => setPeriodType(event.target.value)} suppressHydrationWarning={true} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
             <option value="harian">Harian</option>
             <option value="bulanan">Bulanan</option>
             <option value="triwulan">Triwulan</option>
@@ -494,17 +495,17 @@ export default function AnalisisPage() {
           </select>
         </label>
         {periodType === "harian" && <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih tanggal
-          <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
+          <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} suppressHydrationWarning={true} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
         </label>}
         {periodType === "bulanan" && <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih bulan &amp; tahun
-          <input type="month" value={`${shareYear}-${String(shareMonth).padStart(2, "0")}`} onChange={(event) => {
+          <input type="month" value={`${shareYear}-${String(shareMonth).padStart(2, "0")}`} suppressHydrationWarning={true} onChange={(event) => {
             const [year, month] = event.target.value.split("-").map(Number);
             if (year && month) { setShareYear(year); setShareMonth(month); }
           }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
         </label>}
         {periodType === "triwulan" && <>
           <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih triwulan
-            <select value={shareQuarter} onChange={(event) => setShareQuarter(Number(event.target.value))} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800">
+            <select value={shareQuarter} onChange={(event) => setShareQuarter(Number(event.target.value))} suppressHydrationWarning={true} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800">
               <option value={1}>Triwulan 1 (Jan–Mar)</option>
               <option value={2}>Triwulan 2 (Apr–Jun)</option>
               <option value={3}>Triwulan 3 (Jul–Sep)</option>
@@ -512,21 +513,21 @@ export default function AnalisisPage() {
             </select>
           </label>
           <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih tahun
-            <input type="number" min="2000" max="9999" value={shareYear} onChange={(event) => {
+            <input type="number" min="2000" max="9999" value={shareYear} suppressHydrationWarning={true} onChange={(event) => {
               const year = Number(event.target.value);
               if (Number.isInteger(year) && year >= 2000 && year <= 9999) setShareYear(year);
             }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
           </label>
         </>}
         {periodType === "tahunan" && <label className="grid gap-1 text-xs font-bold text-slate-600">Pilih tahun
-          <input type="number" min="2000" max="9999" value={shareYear} onChange={(event) => {
+          <input type="number" min="2000" max="9999" value={shareYear} suppressHydrationWarning={true} onChange={(event) => {
             const year = Number(event.target.value);
             if (Number.isInteger(year) && year >= 2000 && year <= 9999) setShareYear(year);
           }} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800" />
         </label>}
         <label className="grid gap-1 text-xs font-bold text-slate-600">
           Poliklinik
-          <select value={clinic} onChange={(event) => setClinic(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
+          <select value={clinic} onChange={(event) => setClinic(event.target.value)} suppressHydrationWarning={true} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-700">
             <option value="all">Semua poliklinik</option>
             {(data?.filters?.clinics || []).map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
@@ -548,6 +549,7 @@ export default function AnalisisPage() {
             key={id}
             type="button"
             role="tab"
+            suppressHydrationWarning={true}
             aria-selected={activeTab === id}
             onClick={() => {
               setActiveTab(id);
@@ -562,6 +564,7 @@ export default function AnalisisPage() {
 
       {data && activeTab === "summary" && (
         <section role="tabpanel" className="space-y-4">
+          <AIExecutiveAdvisor range={range} clinic={clinic} operationalSummary={summary} />
           <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 ${isLoading ? "opacity-60" : ""}`}>
             <Kpi icon={Users} label="Total kunjungan pasien" value={numberFormat.format(summary.totalPatients)} note="Total pasien terdata dalam periode" />
             <Kpi icon={Clock3} label="Kepatuhan waktu praktik" value={summary.punctuality === null ? "—" : `${summary.punctuality}%`} note={`${summary.onTime} tepat waktu · ${summary.late} terlambat`} tone="blue" />
@@ -670,8 +673,8 @@ export default function AnalisisPage() {
               <p className="mt-1 text-xs text-slate-500">Rekap per poliklinik pada periode bersama: {periodeLabel}.</p>
             </div>
             <div className="flex flex-wrap gap-2 print:hidden">
-              <button type="button" onClick={() => { setShowMonitoringImut(true); void mutateMonitoring(); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-3 text-xs font-bold text-white hover:bg-red-800"><AlertCircle size={16} /> Cek Status Input Hari Ini</button>
-              <button type="button" onClick={() => void mutateImut()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700"><RefreshCw size={15} /> Muat Ulang IMUT</button>
+              <button type="button" onClick={() => { setShowMonitoringImut(true); void mutateMonitoring(); }} suppressHydrationWarning={true} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-3 text-xs font-bold text-white hover:bg-red-800"><AlertCircle size={16} /> Cek Status Input Hari Ini</button>
+              <button type="button" onClick={() => void mutateImut()} suppressHydrationWarning={true} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:border-teal-600 hover:text-teal-700"><RefreshCw size={15} /> Muat Ulang IMUT</button>
             </div>
           </div>
 

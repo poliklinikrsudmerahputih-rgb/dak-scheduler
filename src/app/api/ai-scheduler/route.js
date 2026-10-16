@@ -118,7 +118,7 @@ export async function POST(request) {
   }
 
   const systemPrompt = `Anda adalah asisten penyusun draft jadwal SDM rumah sakit.
-Susun pola penugasan per hari dalam JSON valid dengan format:
+Susun pola penugasan per hari dalam satu objek json valid dengan format:
 {"assignments":[{"weekday":"SENIN","person":"P1","symbol":"SIMBOL"}],"summary":"ringkasan singkat"}
 
 KETENTUAN WAJIB:
@@ -146,7 +146,10 @@ KETENTUAN WAJIB:
         model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Buat pola draft untuk ${payload.periode}. Data input:\n${JSON.stringify(payload)}` },
+          {
+            role: "user",
+            content: `Buat pola draft untuk ${payload.periode}. Keluarkan hanya satu objek json valid sesuai format instruksi. Data input:\n${JSON.stringify(payload)}`,
+          },
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,

@@ -390,16 +390,24 @@ Gunakan bahasa Indonesia yang jelas, ringkas, dan berbentuk poin. Jangan tampilk
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama3-70b-8192",
-        messages: [{ role: "system", content: systemPrompt }],
-        temperature: 0.35,
+        model: "openai/gpt-oss-120b",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Buat analisis sesuai arahan dan data untuk tab ${activeTab}.` },
+        ],
+        temperature: 0.6,
+        max_completion_tokens: 2048,
       }),
       signal: AbortSignal.timeout(45000),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      console.error("Groq AI Advisor request gagal:", response.status, result.error?.message || "Unknown error");
+      const providerMessage = typeof result.error?.message === "string"
+        ? result.error.message.replaceAll(apiKey, "[redacted]").slice(0, 500)
+        : "";
+      console.error("Groq AI Advisor request gagal:", response.status, providerMessage || "Unknown error");
       const errorByStatus = {
+        400: `Permintaan analisis ditolak oleh Groq${providerMessage ? `: ${providerMessage}` : ". Periksa konfigurasi model dan parameter permintaan."}`,
         401: "API key Groq tidak valid atau sudah dicabut. Perbarui GROQ_API_KEY pada environment server, lalu restart aplikasi.",
         403: "Akun Groq tidak memiliki akses ke model AI yang dipilih.",
         404: "Model AI tidak ditemukan. Pastikan model yang dipakai tersedia pada akun Groq.",

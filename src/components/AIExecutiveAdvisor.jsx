@@ -42,6 +42,7 @@ export default function AIExecutiveAdvisor({
   shareYear,
   shareQuarter,
   selectedDate,
+  reportPayload,
 }) {
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
@@ -95,15 +96,31 @@ export default function AIExecutiveAdvisor({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          start: range.start,
-          end: range.end,
-          periode: periodType,
-          bulan: periodType === "bulanan" ? shareMonth : null,
-          tahun: periodType === "tahunan" || periodType === "triwulan" || periodType === "bulanan" ? shareYear : null,
-          triwulan: periodType === "triwulan" ? shareQuarter : null,
-          tanggal: periodType === "harian" ? selectedDate : null,
-          poli: clinic,
           activeTab,
+          fullReportPayload: {
+            ...reportPayload,
+            kinerjaPelayanan: {
+              ...reportPayload.kinerjaPelayanan,
+              waktuTunggu: {
+                rataRataMenit: data?.metrics?.averageWaitMinutes ?? reportPayload.kinerjaPelayanan?.waktuTunggu?.rataRataMenit ?? null,
+                sampel: data?.metrics?.sampleCounts?.imut ?? reportPayload.kinerjaPelayanan?.waktuTunggu?.sampel ?? null,
+              },
+            },
+            timeMotionStudy: {
+              skorNasaTlx: data?.metrics?.averageTlxScore ?? null,
+              sampelNasaTlx: data?.metrics?.sampleCounts?.nasaTlx ?? null,
+              asesmenPerawatMenit: data?.metrics?.averageAssessmentMinutes ?? null,
+              sampelAsesmen: data?.metrics?.sampleCounts?.assessment ?? null,
+              pemeriksaanDokterMenit: data?.metrics?.averageExaminationMinutes ?? null,
+              edukasiPerawatMenit: data?.metrics?.averageEducationMinutes ?? null,
+              sampelEdukasi: data?.metrics?.sampleCounts?.education ?? null,
+              tindakanPerawatMenit: data?.metrics?.averageActionMinutes ?? null,
+              sampelTindakan: data?.metrics?.sampleCounts?.action ?? null,
+              jumlahKejadianObservasi: data?.metrics?.sampleCounts?.observations ?? null,
+              totalShiftTerjadwal: data?.metrics?.scheduledShifts ?? null,
+              metrikPeriode: data?.metrics ?? null,
+            },
+          },
         }),
       });
       const result = await response.json();

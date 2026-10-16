@@ -30,7 +30,7 @@ Route API bersifat dinamis (`force-dynamic`) agar data tidak disajikan dari cach
 4. API memvalidasi rentang waktu dan klinik, lalu menjalankan query untuk sumber data operasional.
 5. API mengembalikan agregat yang dikonsumsi diagram dan KPI.
 
-Panel AI Advisor tampil pada ketiga tab: **Ringkasan Manajemen**, **Operasional & SDM**, dan **Laporan Mutu (IMUT)**. Saat meminta analisis, halaman mengirim konteks tab serta filter periode dan poliklinik. Endpoint `/api/ai-advisor` menerima rentang eksplisit (`start`, `end`) atau parameter periode (`periode`, `bulan`, `tahun`, `triwulan`, `tanggal`) dan poliklinik (`poli`/`clinic`). Semua metrik laporan memakai rentang tersebut; data historis di luar periode tidak dipakai sebagai fallback. Kartu metrik Time-Motion tetap tersedia, tetapi tabel **Riwayat Penelitian Time-Motion** telah dihapus.
+Panel AI Advisor tampil pada ketiga tab: **Ringkasan Manajemen**, **Operasional & SDM**, dan **Laporan Mutu (IMUT)**. SWR GET untuk kartu metrik AI tetap menggunakan filter periode dan poliklinik. Saat meminta analisis, halaman mengirim konteks tab dan bundel agregat laporan yang telah berhasil dimuat dari analytics, laporan eksekutif, status kelengkapan input, dan metrik Advisor. Endpoint POST tidak mengulang query laporan ke Turso; nilai kosong dinormalisasi menjadi “Data tidak tersedia” sebelum menyusun prompt. Payload mengutamakan agregat dan tidak mengirim nama individu. Kartu metrik Time-Motion tetap tersedia, tetapi tabel **Riwayat Penelitian Time-Motion** telah dihapus.
 
 Parameter query:
 

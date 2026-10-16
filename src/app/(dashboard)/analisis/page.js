@@ -161,6 +161,128 @@ function ReportCharts({ data }) {
   );
 }
 
+function numericValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function createAiReportPayload({ period, clinic, range, data, imutData, monitoringData, totalShifts }) {
+  const summary = data?.summary || {};
+  const imutSummary = imutData?.summary || {};
+  const rekap = Array.isArray(imutData?.rekap) ? imutData.rekap : [];
+  const indicators = Array.isArray(imutData?.indikatorMutu) ? imutData.indikatorMutu : [];
+  const doctorCompliance = Array.isArray(imutData?.doctorCompliance) ? imutData.doctorCompliance : [];
+  const staffWorkload = Array.isArray(data?.staffWorkload) ? data.staffWorkload : [];
+  const doctorWorkload = Array.isArray(data?.doctorWorkload) ? data.doctorWorkload : [];
+  const scheduleAssignments = Array.isArray(data?.scheduleAssignments) ? data.scheduleAssignments : [];
+  const pendingInputs = Array.isArray(monitoringData?.belumInputHariIni)
+    ? monitoringData.belumInputHariIni
+    : [];
+  const totalWaitSamples = rekap.reduce((sum, row) => sum + (Number(row.sampelWaktuTunggu) || 0), 0);
+  const totalWaitMinutes = rekap.reduce(
+    (sum, row) => sum + (Number(row.rataRataWaktuTunggu) || 0) * (Number(row.sampelWaktuTunggu) || 0),
+    0,
+  );
+
+  return {
+    periode: period || "Data tidak tersedia",
+    rentangTanggal: range?.start && range?.end ? { mulai: range.start, selesai: range.end } : "Data tidak tersedia",
+    poliklinik: clinic && clinic !== "all" ? clinic : "Semua poliklinik",
+    kinerjaPelayanan: {
+      totalKunjungan: numericValue(summary.totalPatients),
+      trenKunjungan: Array.isArray(data?.trend) ? data.trend : [],
+      kunjunganPerPoliklinik: Array.isArray(data?.clinicVisits) ? data.clinicVisits : [],
+      bebanKunjunganDokter: doctorWorkload.map((row) => ({
+        poliklinik: row.clinic || "Data tidak tersedia",
+        kunjungan: numericValue(row.pasien),
+        sesiTerjadwal: numericValue(row.sesi),
+      })),
+      totalDokterDalamCakupan: numericValue(summary.totalDoctors),
+      waktuTunggu: Array.isArray(rekap)
+        ? {
+            rataRataMenit: totalWaitSamples ? totalWaitMinutes / totalWaitSamples : null,
+            sampel: totalWaitSamples,
+          }
+        : "Data tidak tersedia",
+    },
+    sdmDanBebanKerja: {
+      totalSdm: numericValue(summary.totalStaff),
+      totalShiftTerjadwal: numericValue(totalShifts),
+      distribusiBebanShift: staffWorkload.map((row) => numericValue(row.shifts)).filter((value) => value !== null),
+      jumlahPenugasanSDM: scheduleAssignments.length,
+      distribusiProfesi: Array.isArray(data?.professionMetrics)
+        ? data.professionMetrics.map((row) => ({
+            profesi: row.jabatan || "Data tidak tersedia",
+            jumlahSdm: numericValue(row.totalSdmAktif),
+            dokterDitangani: numericValue(row.totalDokterDitangani),
+            rataRataSkorNasaTlx: numericValue(row.rataRataSkorNasaTlx),
+            rasioKepadatan: numericValue(row.rasioKepadatan),
+          }))
+        : [],
+      cutiDanKetidakhadiran: {
+        jumlahSDMAbsen: numericValue(summary.absentStaff),
+        persentaseAbsen: numericValue(summary.absenceRate),
+        cutiDisetujuiDanCatatanDokter: numericValue(summary.approvedLeaves),
+        rincianJenisCuti: Array.isArray(data?.leaveTypes)
+          ? data.leaveTypes.map((row) => ({ jenis: row.name, jumlah: numericValue(row.value) }))
+          : [],
+      },
+      kehadiranSDM: {
+        totalCatatan: numericValue(summary.attendanceCount),
+        tepatWaktu: numericValue(summary.attendanceOnTime),
+        lainnya: Math.max(0, (Number(summary.attendanceCount) || 0) - (Number(summary.attendanceOnTime) || 0)),
+      },
+    },
+    timeMotionStudy: "Metrik asesmen, edukasi, tindakan, NASA-TLX, dan waktu tunggu terlampir pada metrik Advisor.",
+    kepatuhanDokter: {
+      kehadiranTepatWaktu: numericValue(imutSummary.onTime),
+      kehadiranTerlambat: numericValue(imutSummary.late),
+      totalCatatanPraktik: numericValue(imutSummary.totalSesiPraktik),
+      persentaseKepatuhan: numericValue(imutSummary.punctuality),
+      cakupanMulaiPraktikPersen: numericValue(summary.practiceCoverage),
+      waktuRataRataKedatangan: imutSummary.rataRataKedatangan || "Data tidak tersedia",
+      jumlahDokterDenganCatatan: doctorCompliance.length,
+      keterlambatanTerparahMenit: numericValue(imutSummary.keterlambatanTerparah?.menit),
+    },
+    indikatorMutu: {
+      indikatorAgregat: indicators,
+      rekapPerPoliklinik: rekap.map((row) => ({
+        poliklinik: row.klinik || "Data tidak tersedia",
+        kunjungan: numericValue(row.kunjungan),
+        rataRataWaktuTungguMenit: numericValue(row.rataRataWaktuTunggu),
+        sampelWaktuTunggu: numericValue(row.sampelWaktuTunggu),
+        kehadiranTepatWaktu: numericValue(row.tepatWaktu),
+        kehadiranTerlambat: numericValue(row.terlambat),
+        identifikasiYa: numericValue(row.identifikasiYa),
+        identifikasiTidak: numericValue(row.identifikasiTidak),
+        waktuKurang60Menit: numericValue(row.waktuKurang60),
+        waktuTepat60Menit: numericValue(row.waktuTepat60),
+        waktuLebih60Menit: numericValue(row.waktuLebih60),
+        capaianIndikator: row.indikatorMutu || [],
+      })),
+      indikatorLaporanEksekutif: Array.isArray(imutData?.indikatorMutu) ? imutData.indikatorMutu : [],
+      insight: imutData?.aiInsight || "Data tidak tersedia",
+      kepatuhanInputHariIni: {
+        dokterTerjadwal: numericValue(monitoringData?.jumlahDokterTerjadwal),
+        jumlahDokterDenganInputBelumLengkap: pendingInputs.length,
+        poliBelumInput: Array.isArray(monitoringData?.poliBelumInputHariIni)
+          ? monitoringData.poliBelumInputHariIni
+          : [],
+        jumlahTunggakanPerJenis: pendingInputs.reduce((counts, item) => {
+          for (const tunggakan of Array.isArray(item.tunggakan) ? item.tunggakan : []) {
+            counts[tunggakan] = (counts[tunggakan] || 0) + 1;
+          }
+          return counts;
+        }, {}),
+      },
+    },
+    operasionalLain: {
+      ringkasan: Array.isArray(data?.insights) ? data.insights : [],
+      petaKepadatanJadwal: Array.isArray(data?.heatmap) ? data.heatmap : [],
+    },
+  };
+}
+
 function ComplianceSection({ data, loading = false, error }) {
   const summary = data?.summary || {};
   const worstDelay = summary.keterlambatanTerparah;
@@ -425,6 +547,15 @@ export default function AnalisisPage() {
       : periodType === "triwulan"
         ? `Triwulan ${shareQuarter}/${shareYear}`
         : String(shareYear);
+  const fullReportPayload = useMemo(() => createAiReportPayload({
+    period: periodeLabel,
+    clinic,
+    range,
+    data,
+    imutData,
+    monitoringData,
+    totalShifts,
+  }), [periodeLabel, clinic, range, data, imutData, monitoringData, totalShifts]);
 
   const shareExecutiveLink = async () => {
     const params = new URLSearchParams({ tipe: periodType });
@@ -574,6 +705,7 @@ export default function AnalisisPage() {
             shareYear={shareYear}
             shareQuarter={shareQuarter}
             selectedDate={selectedDate}
+            reportPayload={fullReportPayload}
           />
           <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 ${isLoading ? "opacity-60" : ""}`}>
             <Kpi icon={Users} label="Total kunjungan pasien" value={numberFormat.format(summary.totalPatients)} note="Total pasien terdata dalam periode" />
@@ -619,6 +751,7 @@ export default function AnalisisPage() {
             shareYear={shareYear}
             shareQuarter={shareQuarter}
             selectedDate={selectedDate}
+            reportPayload={fullReportPayload}
           />
           <ComplianceSection data={imutData} loading={imutLoading} error={imutError} />
           <AIInsightEfektivitasSDM professionMetrics={data.professionMetrics} />
@@ -697,6 +830,7 @@ export default function AnalisisPage() {
             shareYear={shareYear}
             shareQuarter={shareQuarter}
             selectedDate={selectedDate}
+            reportPayload={fullReportPayload}
           />
           <ComplianceSection data={imutData} loading={imutLoading} error={imutError} />
           <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">

@@ -339,10 +339,11 @@ export async function POST(request) {
   if (!activeTab) {
     return NextResponse.json({ success: false, error: "Konteks tab analisis tidak valid." }, { status: 400 });
   }
-  if (!body.fullReportPayload || typeof body.fullReportPayload !== "object" || Array.isArray(body.fullReportPayload)) {
+  const submittedReport = body.fullReportPayload ?? body.reportPayload ?? body.report;
+  if (!submittedReport || typeof submittedReport !== "object" || Array.isArray(submittedReport)) {
     return NextResponse.json({ success: false, error: "Data laporan lengkap tidak tersedia untuk dianalisis." }, { status: 400 });
   }
-  const fullReportPayload = sanitizeReportValue(body.fullReportPayload);
+  const fullReportPayload = sanitizeReportValue(submittedReport);
   const serializedReport = JSON.stringify(fullReportPayload);
   if (serializedReport.length > 60000) {
     return NextResponse.json({ success: false, error: "Data laporan terlalu besar untuk dianalisis sekaligus." }, { status: 413 });

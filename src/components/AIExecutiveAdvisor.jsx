@@ -92,35 +92,40 @@ export default function AIExecutiveAdvisor({
     setGenerationError("");
     setAiResult("");
     try {
+      const reportMetrics = {
+        ...(reportPayload || {}),
+        kinerjaPelayanan: {
+          ...(reportPayload?.kinerjaPelayanan || {}),
+          waktuTunggu: {
+            rataRataMenit: data?.metrics?.averageWaitMinutes
+              ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.rataRataMenit
+              ?? null,
+            sampel: data?.metrics?.sampleCounts?.imut
+              ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.sampel
+              ?? null,
+          },
+        },
+        timeMotionStudy: {
+          skorNasaTlx: data?.metrics?.averageTlxScore ?? null,
+          sampelNasaTlx: data?.metrics?.sampleCounts?.nasaTlx ?? null,
+          asesmenPerawatMenit: data?.metrics?.averageAssessmentMinutes ?? null,
+          sampelAsesmen: data?.metrics?.sampleCounts?.assessment ?? null,
+          pemeriksaanDokterMenit: data?.metrics?.averageExaminationMinutes ?? null,
+          edukasiPerawatMenit: data?.metrics?.averageEducationMinutes ?? null,
+          sampelEdukasi: data?.metrics?.sampleCounts?.education ?? null,
+          tindakanPerawatMenit: data?.metrics?.averageActionMinutes ?? null,
+          sampelTindakan: data?.metrics?.sampleCounts?.action ?? null,
+          jumlahKejadianObservasi: data?.metrics?.sampleCounts?.observations ?? null,
+          totalShiftTerjadwal: data?.metrics?.scheduledShifts ?? null,
+        },
+      };
       const response = await fetch(metricsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           activeTab,
-          fullReportPayload: {
-            ...reportPayload,
-            kinerjaPelayanan: {
-              ...reportPayload.kinerjaPelayanan,
-              waktuTunggu: {
-                rataRataMenit: data?.metrics?.averageWaitMinutes ?? reportPayload.kinerjaPelayanan?.waktuTunggu?.rataRataMenit ?? null,
-                sampel: data?.metrics?.sampleCounts?.imut ?? reportPayload.kinerjaPelayanan?.waktuTunggu?.sampel ?? null,
-              },
-            },
-            timeMotionStudy: {
-              skorNasaTlx: data?.metrics?.averageTlxScore ?? null,
-              sampelNasaTlx: data?.metrics?.sampleCounts?.nasaTlx ?? null,
-              asesmenPerawatMenit: data?.metrics?.averageAssessmentMinutes ?? null,
-              sampelAsesmen: data?.metrics?.sampleCounts?.assessment ?? null,
-              pemeriksaanDokterMenit: data?.metrics?.averageExaminationMinutes ?? null,
-              edukasiPerawatMenit: data?.metrics?.averageEducationMinutes ?? null,
-              sampelEdukasi: data?.metrics?.sampleCounts?.education ?? null,
-              tindakanPerawatMenit: data?.metrics?.averageActionMinutes ?? null,
-              sampelTindakan: data?.metrics?.sampleCounts?.action ?? null,
-              jumlahKejadianObservasi: data?.metrics?.sampleCounts?.observations ?? null,
-              totalShiftTerjadwal: data?.metrics?.scheduledShifts ?? null,
-              metrikPeriode: data?.metrics ?? null,
-            },
-          },
+          fullReportPayload: reportMetrics,
+          reportPayload: reportMetrics,
         }),
       });
       const result = await response.json();

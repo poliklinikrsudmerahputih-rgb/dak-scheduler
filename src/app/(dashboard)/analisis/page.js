@@ -564,7 +564,17 @@ export default function AnalisisPage() {
 
       {data && activeTab === "summary" && (
         <section role="tabpanel" className="space-y-4">
-          <AIExecutiveAdvisor range={range} clinic={clinic} operationalSummary={summary} />
+          <AIExecutiveAdvisor
+            range={range}
+            clinic={clinic}
+            operationalSummary={summary}
+            activeTab="Ringkasan Manajemen"
+            periodType={periodType}
+            shareMonth={shareMonth}
+            shareYear={shareYear}
+            shareQuarter={shareQuarter}
+            selectedDate={selectedDate}
+          />
           <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 ${isLoading ? "opacity-60" : ""}`}>
             <Kpi icon={Users} label="Total kunjungan pasien" value={numberFormat.format(summary.totalPatients)} note="Total pasien terdata dalam periode" />
             <Kpi icon={Clock3} label="Kepatuhan waktu praktik" value={summary.punctuality === null ? "—" : `${summary.punctuality}%`} note={`${summary.onTime} tepat waktu · ${summary.late} terlambat`} tone="blue" />
@@ -599,6 +609,17 @@ export default function AnalisisPage() {
 
       {data && activeTab === "operations" && (
         <section role="tabpanel" className="space-y-4">
+          <AIExecutiveAdvisor
+            range={range}
+            clinic={clinic}
+            operationalSummary={summary}
+            activeTab="Operasional & SDM"
+            periodType={periodType}
+            shareMonth={shareMonth}
+            shareYear={shareYear}
+            shareQuarter={shareQuarter}
+            selectedDate={selectedDate}
+          />
           <ComplianceSection data={imutData} loading={imutLoading} error={imutError} />
           <AIInsightEfektivitasSDM professionMetrics={data.professionMetrics} />
           <CapacityLeaveRecommendation
@@ -666,6 +687,17 @@ export default function AnalisisPage() {
 
       {activeTab === "imut" && (
         <section role="tabpanel" className="space-y-4">
+          <AIExecutiveAdvisor
+            range={range}
+            clinic={clinic}
+            operationalSummary={summary}
+            activeTab="Laporan Mutu (IMUT)"
+            periodType={periodType}
+            shareMonth={shareMonth}
+            shareYear={shareYear}
+            shareQuarter={shareQuarter}
+            selectedDate={selectedDate}
+          />
           <ComplianceSection data={imutData} loading={imutLoading} error={imutError} />
           <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div>

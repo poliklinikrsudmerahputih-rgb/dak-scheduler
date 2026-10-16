@@ -32,70 +32,17 @@ function Metric({ label, value, suffix = "", note = "" }) {
   );
 }
 
-function HistoricalTimeMotion({ history }) {
-  const metrics = [
-    { key: "averageAssessmentMinutes", countKey: "assessment", label: "Asesmen perawat" },
-    { key: "averageEducationMinutes", countKey: "education", label: "Edukasi perawat" },
-    { key: "averageActionMinutes", countKey: "action", label: "Tindakan perawat" },
-  ];
-  const totalSamples = metrics.reduce(
-    (total, metric) => total + Number(history?.sampleCounts?.[metric.countKey] || 0),
-    0,
-  );
-
-  return (
-    <section className="rounded-xl border border-blue-200 bg-white p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Riwayat Penelitian Time-Motion</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Data arsip yang tetap dapat digunakan AI bila periode laporan tidak memiliki sampel.
-          </p>
-        </div>
-        <p className="text-[10px] font-bold text-slate-500">
-          {history?.firstDate && history?.lastDate
-            ? `${history.firstDate} – ${history.lastDate}`
-            : "Belum ada rentang historis"}
-        </p>
-      </div>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[480px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2">Aktivitas</th>
-              <th className="px-3 py-2">Rata-rata durasi</th>
-              <th className="px-3 py-2">Jumlah sampel</th>
-              <th className="px-3 py-2">Status AI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {metrics.map((metric) => {
-              const samples = Number(history?.sampleCounts?.[metric.countKey] || 0);
-              const average = Number(history?.[metric.key]);
-              return (
-                <tr key={metric.key} className="border-b border-slate-100 last:border-0">
-                  <th scope="row" className="px-3 py-3 font-bold text-slate-800">{metric.label}</th>
-                  <td className="px-3 py-3 font-black text-slate-900">
-                    {samples && Number.isFinite(average) ? `${average.toLocaleString("id-ID", { maximumFractionDigits: 2 })} menit` : "—"}
-                  </td>
-                  <td className="px-3 py-3 text-slate-700">{samples.toLocaleString("id-ID")}</td>
-                  <td className="px-3 py-3 text-slate-600">{samples ? "Tersedia untuk analisis" : "Belum ada data"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {totalSamples === 0 && (
-        <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-          Data historis Time-Motion tidak ditemukan. AI tidak akan menganggap nilai kosong sebagai durasi 0 menit.
-        </p>
-      )}
-    </section>
-  );
-}
-
-export default function AIExecutiveAdvisor({ range, clinic = "all", operationalSummary }) {
+export default function AIExecutiveAdvisor({
+  range,
+  clinic = "all",
+  operationalSummary,
+  activeTab,
+  periodType,
+  shareMonth,
+  shareYear,
+  shareQuarter,
+  selectedDate,
+}) {
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiResult, setAiResult] = useState("");
@@ -103,14 +50,27 @@ export default function AIExecutiveAdvisor({ range, clinic = "all", operationalS
 
   const metricsUrl = useMemo(() => {
     if (!range?.start || !range?.end) return null;
-    const params = new URLSearchParams({ start: range.start, end: range.end });
+    const params = new URLSearchParams({
+      start: range.start,
+      end: range.end,
+      periode: periodType,
+      poli: clinic,
+    });
+    if (periodType === "harian") {
+      params.set("tanggal", selectedDate);
+    } else if (periodType === "bulanan") {
+      params.set("bulan", String(shareMonth));
+      params.set("tahun", String(shareYear));
+    } else if (periodType === "triwulan") {
+      params.set("triwulan", String(shareQuarter));
+      params.set("tahun", String(shareYear));
+    } else if (periodType === "tahunan") {
+      params.set("tahun", String(shareYear));
+    }
     if (clinic && clinic.toLowerCase() !== "all") params.set("clinic", clinic);
     return `/api/ai-advisor?${params.toString()}`;
-  }, [range?.start, range?.end, clinic]);
+  }, [range?.start, range?.end, clinic, periodType, shareMonth, shareYear, shareQuarter, selectedDate]);
   const { data, error, isLoading } = useSWR(metricsUrl, fetcher, { revalidateOnFocus: false });
-  const historyRange = data?.metrics?.history?.firstDate && data?.metrics?.history?.lastDate
-    ? `${data.metrics.history.firstDate}–${data.metrics.history.lastDate}`
-    : "rentang historis";
   const metricValue = (key, sampleKey) => {
     if (data?.metrics?.sampleCounts?.[sampleKey] > 0) {
       return {
@@ -118,13 +78,7 @@ export default function AIExecutiveAdvisor({ range, clinic = "all", operationalS
         note: `${data.metrics.sampleCounts[sampleKey]} sampel pada periode terpilih`,
       };
     }
-    if (data?.metrics?.history?.sampleCounts?.[sampleKey] > 0) {
-      return {
-        value: data.metrics.history[key],
-        note: `Periode terpilih kosong; historis ${data.metrics.history.sampleCounts[sampleKey]} sampel (${historyRange})`,
-      };
-    }
-    return { value: "—", note: "Data tidak tersedia pada periode atau riwayat" };
+    return { value: "—", note: "Tidak ada sampel pada periode terpilih" };
   };
 
   useEffect(() => {
@@ -137,7 +91,21 @@ export default function AIExecutiveAdvisor({ range, clinic = "all", operationalS
     setGenerationError("");
     setAiResult("");
     try {
-      const response = await fetch(metricsUrl, { method: "POST" });
+      const response = await fetch(metricsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: range.start,
+          end: range.end,
+          periode: periodType,
+          bulan: periodType === "bulanan" ? shareMonth : null,
+          tahun: periodType === "tahunan" || periodType === "triwulan" || periodType === "bulanan" ? shareYear : null,
+          triwulan: periodType === "triwulan" ? shareQuarter : null,
+          tanggal: periodType === "harian" ? selectedDate : null,
+          poli: clinic,
+          activeTab,
+        }),
+      });
       const result = await response.json();
       if (response.status === 401) {
         router.push("/login");
@@ -199,7 +167,6 @@ export default function AIExecutiveAdvisor({ range, clinic = "all", operationalS
                 : "Tidak ada catatan praktik pada periode ini"}
             />
           </div>
-          <HistoricalTimeMotion history={data.metrics.history} />
           </div>
         ) : (
           <p className="rounded-lg bg-white p-3 text-sm text-slate-500">Pilih rentang tanggal yang valid untuk memuat metrik AI.</p>

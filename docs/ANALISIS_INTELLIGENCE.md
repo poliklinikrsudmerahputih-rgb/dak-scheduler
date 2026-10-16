@@ -16,6 +16,8 @@ Visualisasi memakai Recharts yang sudah tersedia sebagai dependensi aplikasi (`r
 | --- | --- |
 | `src/app/(dashboard)/analisis/page.js` | Halaman interaktif, filter, KPI, diagram, wawasan, CSV, dan cetak. |
 | `src/app/api/analytics/route.js` | Validasi sesi dan rentang tanggal, query agregasi Turso, perhitungan metrik, dan respons JSON. |
+| `src/components/AIExecutiveAdvisor.jsx` | Kartu metrik AI, pemuatan SWR, dan pengiriman permintaan analisis sesuai tab aktif. |
+| `src/app/api/ai-advisor/route.js` | Agregasi Advisor dengan filter periode/poliklinik dan pembuatan analisis kontekstual melalui Groq. |
 | `src/app/(dashboard)/layout.js` | Menambahkan tautan sidebar **Analisis & Intelligence** ke `/analisis`. |
 
 Route API bersifat dinamis (`force-dynamic`) agar data tidak disajikan dari cache halaman statis.
@@ -27,6 +29,8 @@ Route API bersifat dinamis (`force-dynamic`) agar data tidak disajikan dari cach
 3. Nilai `ruangan` diambil dari sesi, dinormalisasi dengan trim dan huruf kapital. Nilai dari query string tidak dapat mengganti ruangan sesi.
 4. API memvalidasi rentang waktu dan klinik, lalu menjalankan query untuk sumber data operasional.
 5. API mengembalikan agregat yang dikonsumsi diagram dan KPI.
+
+Panel AI Advisor tampil pada ketiga tab: **Ringkasan Manajemen**, **Operasional & SDM**, dan **Laporan Mutu (IMUT)**. Saat meminta analisis, halaman mengirim konteks tab serta filter periode dan poliklinik. Endpoint `/api/ai-advisor` menerima rentang eksplisit (`start`, `end`) atau parameter periode (`periode`, `bulan`, `tahun`, `triwulan`, `tanggal`) dan poliklinik (`poli`/`clinic`). Semua metrik laporan memakai rentang tersebut; data historis di luar periode tidak dipakai sebagai fallback. Kartu metrik Time-Motion tetap tersedia, tetapi tabel **Riwayat Penelitian Time-Motion** telah dihapus.
 
 Parameter query:
 

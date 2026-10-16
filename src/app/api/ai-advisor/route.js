@@ -48,113 +48,69 @@ function number(value) {
   return Number.isFinite(result) ? result : 0;
 }
 
-async function safeQuery(name, sql, args) {
-  try {
-    const result = await turso.execute({ sql, args });
-    return result.rows[0] || {};
-  } catch (error) {
-    console.warn(`AI Advisor: tabel/metrik ${name} tidak tersedia; memakai nilai 0.`, error.message);
-    return {};
-  }
+async function executeMetricQuery(sql, args) {
+  const result = await turso.execute({ sql, args });
+  return result.rows[0] || {};
+}
+
+function staffClinicFilter(alias, clinic) {
+  return clinic
+    ? {
+        sql: ` AND instr(',' || REPLACE(REPLACE(UPPER(COALESCE(${alias}.daftar_klinik, '')), ', ', ','), ' ', '') || ',', ',' || REPLACE(UPPER(?), ' ', '') || ',') > 0`,
+        args: [clinic],
+      }
+    : { sql: "", args: [] };
 }
 
 async function getMetrics(ruangan, range, clinic) {
-  const clinicPredicate = clinic ? " AND UPPER(TRIM(l.klinik)) = ?" : "";
+  const staffClinic = staffClinicFilter("s", clinic);
+  const imutClinic = clinic ? " AND UPPER(TRIM(l.klinik)) = ?" : "";
+  const doctorClinic = clinic ? " AND UPPER(TRIM(d.klinik)) = ?" : "";
+  const patientClinic = clinic ? " AND UPPER(TRIM(p.klinik)) = ?" : "";
   const clinicArgs = clinic ? [clinic.toUpperCase()] : [];
-  const patientClinicPredicate = clinic ? " AND UPPER(TRIM(p.klinik)) = ?" : "";
-  const patientClinicArgs = clinic ? [clinic.toUpperCase()] : [];
   const queries = [
-    safeQuery(
-      "IMUT waktu tunggu",
-      `SELECT AVG(CASE WHEN date(l.tanggal) BETWEEN date(?) AND date(?)
-                       THEN CAST(l.waktu_tunggu_menit AS REAL) END) AS average,
-              COUNT(CASE WHEN date(l.tanggal) BETWEEN date(?) AND date(?)
-                         THEN l.waktu_tunggu_menit END) AS samples,
-              AVG(CAST(l.waktu_tunggu_menit AS REAL)) AS historical_average,
-              COUNT(l.waktu_tunggu_menit) AS historical_samples,
-              MIN(date(l.tanggal)) AS first_date,
-              MAX(date(l.tanggal)) AS last_date
+    executeMetricQuery(
+      `SELECT AVG(CAST(l.waktu_tunggu_menit AS REAL)) AS average,
+              COUNT(l.waktu_tunggu_menit) AS samples
        FROM log_imut_pasien l
        LEFT JOIN master_dokter d ON CAST(d.id AS TEXT) = CAST(l.dokter_id AS TEXT)
-       WHERE UPPER(TRIM(COALESCE(d.ruangan, 'POLIKLINIK'))) = ?${clinicPredicate}`,
-      [range.start, range.end, range.start, range.end, ruangan, ...clinicArgs],
+       WHERE UPPER(TRIM(COALESCE(d.ruangan, 'POLIKLINIK'))) = ?
+         AND date(l.tanggal) BETWEEN date(?) AND date(?)${imutClinic}`,
+      [ruangan, range.start, range.end, ...clinicArgs],
     ),
-    safeQuery(
-      "NASA-TLX",
-      `SELECT AVG(CASE WHEN date(n.tanggal_isi) BETWEEN date(?) AND date(?) THEN (
-                CAST(n.mental_demand AS REAL) +
-                CAST(n.physical_demand AS REAL) +
-                CAST(n.temporal_demand AS REAL) +
-                CAST(n.performance AS REAL) +
-                CAST(n.effort AS REAL) +
-                CAST(n.frustration AS REAL)
-              ) / 6.0 END) AS average,
-              COUNT(CASE WHEN date(n.tanggal_isi) BETWEEN date(?) AND date(?) THEN n.id END) AS samples,
-              AVG((
-                CAST(n.mental_demand AS REAL) +
-                CAST(n.physical_demand AS REAL) +
-                CAST(n.temporal_demand AS REAL) +
-                CAST(n.performance AS REAL) +
-                CAST(n.effort AS REAL) +
-                CAST(n.frustration AS REAL)
-              ) / 6.0) AS historical_average,
-              COUNT(n.id) AS historical_samples,
-              MIN(date(n.tanggal_isi)) AS first_date,
-              MAX(date(n.tanggal_isi)) AS last_date
+    executeMetricQuery(
+      `SELECT AVG((
+                CAST(n.mental_demand AS REAL) + CAST(n.physical_demand AS REAL) +
+                CAST(n.temporal_demand AS REAL) + CAST(n.performance AS REAL) +
+                CAST(n.effort AS REAL) + CAST(n.frustration AS REAL)
+              ) / 6.0) AS average,
+              COUNT(n.id) AS samples
        FROM log_nasa_tlx n
        JOIN sdm s ON CAST(s.id AS TEXT) = CAST(n.sdm_id AS TEXT)
-       WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?`,
-      [range.start, range.end, range.start, range.end, ruangan],
+       WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?
+         AND date(n.tanggal_isi) BETWEEN date(?) AND date(?)${staffClinic.sql}`,
+      [ruangan, range.start, range.end, ...staffClinic.args],
     ),
-    safeQuery(
-      "observasi Time-Motion",
-      `SELECT AVG(CASE
-                WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                 AND UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT')
-                THEN CAST(o.durasi_menit AS REAL)
-              END) AS assessment,
-              AVG(CASE
-                WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                 AND UPPER(TRIM(o.blok_kategori)) IN ('PEMERIKSAAN', 'PEMERIKSAAN DOKTER', 'EXAMINATION')
-                THEN CAST(o.durasi_menit AS REAL)
-              END) AS examination,
-              AVG(CASE
-                WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                 AND UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION')
-                THEN CAST(o.durasi_menit AS REAL)
-              END) AS education,
-              AVG(CASE
-                WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                 AND UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION')
-                THEN CAST(o.durasi_menit AS REAL)
-              END) AS action,
-              COUNT(CASE WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?) THEN o.id END) AS samples,
-              COUNT(CASE WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                           AND UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT') THEN o.id END) AS assessment_samples,
-              COUNT(CASE WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                           AND UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION') THEN o.id END) AS education_samples,
-              COUNT(CASE WHEN date(o.tanggal_input) BETWEEN date(?) AND date(?)
-                           AND UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION') THEN o.id END) AS action_samples,
-              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT') THEN CAST(o.durasi_menit AS REAL) END) AS historical_assessment,
-              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION') THEN CAST(o.durasi_menit AS REAL) END) AS historical_education,
-              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION') THEN CAST(o.durasi_menit AS REAL) END) AS historical_action,
-              COUNT(o.id) AS historical_samples,
-              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT') THEN o.id END) AS historical_assessment_samples,
-              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION') THEN o.id END) AS historical_education_samples,
-              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION') THEN o.id END) AS historical_action_samples,
-              MIN(date(o.tanggal_input)) AS first_date,
-              MAX(date(o.tanggal_input)) AS last_date
+    executeMetricQuery(
+      `SELECT AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT')
+                       THEN CAST(o.durasi_menit AS REAL) END) AS assessment,
+              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('PEMERIKSAAN', 'PEMERIKSAAN DOKTER', 'EXAMINATION')
+                       THEN CAST(o.durasi_menit AS REAL) END) AS examination,
+              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION')
+                       THEN CAST(o.durasi_menit AS REAL) END) AS education,
+              AVG(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION')
+                       THEN CAST(o.durasi_menit AS REAL) END) AS action,
+              COUNT(o.id) AS samples,
+              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('ASESMEN', 'ASSESSMENT') THEN o.id END) AS assessment_samples,
+              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('EDUKASI', 'EDUCATION') THEN o.id END) AS education_samples,
+              COUNT(CASE WHEN UPPER(TRIM(o.blok_kategori)) IN ('TINDAKAN', 'ACTION') THEN o.id END) AS action_samples
        FROM log_observasi_kerja o
        JOIN sdm s ON CAST(s.id AS TEXT) = CAST(o.sdm_id AS TEXT)
-       WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?`,
-      [
-        range.start, range.end, range.start, range.end, range.start, range.end, range.start, range.end,
-        range.start, range.end, range.start, range.end, range.start, range.end, range.start, range.end,
-        range.start, range.end, ruangan,
-      ],
+       WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?
+         AND date(o.tanggal_input) BETWEEN date(?) AND date(?)${staffClinic.sql}`,
+      [ruangan, range.start, range.end, ...staffClinic.args],
     ),
-    safeQuery(
-      "volume pasien",
+    executeMetricQuery(
       `SELECT COALESCE(SUM(CAST(p.jumlah AS INTEGER)), 0) AS total,
               COUNT(*) AS samples
        FROM jumlah_pasien_poli p
@@ -163,69 +119,75 @@ async function getMetrics(ruangan, range, clinic) {
         AND UPPER(TRIM(d.klinik)) = UPPER(TRIM(p.klinik))
        WHERE UPPER(TRIM(COALESCE(d.ruangan, 'POLIKLINIK'))) = ?
          AND printf('%04d-%02d-%02d', CAST(p.tahun AS INTEGER), CAST(p.bulan AS INTEGER), CAST(p.tanggal AS INTEGER))
-             BETWEEN ? AND ?${patientClinicPredicate}`,
-      [ruangan, range.start, range.end, ...patientClinicArgs],
+             BETWEEN ? AND ?${patientClinic}`,
+      [ruangan, range.start, range.end, ...clinicArgs],
     ),
-    safeQuery(
-      "cakupan SDM dan dokter",
+    executeMetricQuery(
       `SELECT
-         (SELECT COUNT(*) FROM sdm
-          WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)
-            AND COALESCE(is_aktif, 1) = 1
-            AND UPPER(COALESCE(status_kerja, '')) NOT IN ('RESIGN', 'NON_AKTIF')) AS active_staff,
-         (SELECT COUNT(*) FROM master_dokter
-          WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)) AS doctors`,
-      [ruangan, ruangan],
+         (SELECT COUNT(DISTINCT s.id)
+          FROM sdm s
+          JOIN jadwal_dinas j ON CAST(j.sdm_id AS TEXT) = CAST(s.id AS TEXT)
+          WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?
+            AND printf('%04d-%02d-%02d', CAST(j.tahun AS INTEGER), CAST(j.bulan AS INTEGER), CAST(j.tanggal AS INTEGER))
+                BETWEEN ? AND ?${staffClinic.sql}) AS scheduled_staff,
+         (SELECT COUNT(DISTINCT d.id)
+          FROM master_dokter d
+          JOIN indikator_mutu_praktik ip ON CAST(ip.dokter_id AS TEXT) = CAST(d.id AS TEXT)
+          WHERE UPPER(TRIM(COALESCE(ip.ruangan, ''))) = ?
+            AND date(ip.tanggal) BETWEEN date(?) AND date(?)${doctorClinic}) AS practice_doctors`,
+      [
+        ruangan, range.start, range.end, ...staffClinic.args,
+        ruangan, range.start, range.end, ...clinicArgs,
+      ],
     ),
-    safeQuery(
-      "jadwal dinas",
+    executeMetricQuery(
       `SELECT COUNT(j.id) AS samples
        FROM jadwal_dinas j
        JOIN sdm s ON CAST(s.id AS TEXT) = CAST(j.sdm_id AS TEXT)
        WHERE UPPER(TRIM(COALESCE(s.ruangan, ''))) = ?
          AND printf('%04d-%02d-%02d', CAST(j.tahun AS INTEGER), CAST(j.bulan AS INTEGER), CAST(j.tanggal AS INTEGER))
-             BETWEEN ? AND ?`,
-      [ruangan, range.start, range.end],
+             BETWEEN ? AND ?${staffClinic.sql}`,
+      [ruangan, range.start, range.end, ...staffClinic.args],
     ),
-    safeQuery(
-      "absensi",
+    executeMetricQuery(
       `SELECT COUNT(*) AS samples,
-              SUM(CASE WHEN UPPER(TRIM(status_kedisiplinan)) = 'TEPAT WAKTU' THEN 1 ELSE 0 END) AS on_time
-       FROM absensi
-       WHERE UPPER(TRIM(COALESCE(ruangan, ''))) = ?
-         AND date(tanggal) BETWEEN date(?) AND date(?)`,
-      [ruangan, range.start, range.end],
+              SUM(CASE WHEN UPPER(TRIM(a.status_kedisiplinan)) = 'TEPAT WAKTU' THEN 1 ELSE 0 END) AS on_time
+       FROM absensi a
+       JOIN sdm s ON CAST(s.id AS TEXT) = CAST(a.sdm_id AS TEXT)
+       WHERE UPPER(TRIM(COALESCE(a.ruangan, ''))) = ?
+         AND date(a.tanggal) BETWEEN date(?) AND date(?)${staffClinic.sql}`,
+      [ruangan, range.start, range.end, ...staffClinic.args],
     ),
-    safeQuery(
-      "cuti SDM",
-      `SELECT COUNT(*) AS samples
-       FROM cuti_sdm
-       WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)
-         AND UPPER(TRIM(COALESCE(status_acc, ''))) = 'DISETUJUI'
-         AND date(tgl_mulai) <= date(?) AND date(tgl_selesai) >= date(?)`,
-      [ruangan, range.end, range.start],
+    executeMetricQuery(
+      `SELECT COUNT(DISTINCT c.id) AS samples
+       FROM cuti_sdm c
+       LEFT JOIN sdm s ON UPPER(TRIM(s.nama)) = UPPER(TRIM(c.nama_sdm))
+       WHERE (c.ruangan IS NULL OR TRIM(c.ruangan) = '' OR UPPER(TRIM(c.ruangan)) = ?)
+         AND UPPER(TRIM(COALESCE(c.status_acc, ''))) = 'DISETUJUI'
+         AND date(c.tgl_mulai) <= date(?) AND date(c.tgl_selesai) >= date(?)
+         ${staffClinic.sql}`,
+      [ruangan, range.end, range.start, ...staffClinic.args],
     ),
-    safeQuery(
-      "cuti dokter",
-      `SELECT COUNT(*) AS samples
-       FROM cuti_dokter
-       WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)
-         AND date(tgl_mulai) <= date(?) AND date(tgl_selesai) >= date(?)`,
-      [ruangan, range.end, range.start],
+    executeMetricQuery(
+      `SELECT COUNT(DISTINCT c.id) AS samples
+       FROM cuti_dokter c
+       LEFT JOIN master_dokter d ON UPPER(TRIM(d.nama_dokter)) = UPPER(TRIM(c.nama_dokter))
+       WHERE (c.ruangan IS NULL OR TRIM(c.ruangan) = '' OR UPPER(TRIM(c.ruangan)) = ?)
+         AND date(c.tgl_mulai) <= date(?) AND date(c.tgl_selesai) >= date(?)${doctorClinic}`,
+      [ruangan, range.end, range.start, ...clinicArgs],
     ),
-    safeQuery(
-      "kepatuhan praktik dokter",
+    executeMetricQuery(
       `SELECT COUNT(*) AS samples,
-              COUNT(jam_mulai_aktual) AS practice_starts
-       FROM indikator_mutu_praktik
-       WHERE UPPER(TRIM(COALESCE(ruangan, ''))) = ?
-         AND date(tanggal) BETWEEN date(?) AND date(?)`,
-      [ruangan, range.start, range.end],
+              COUNT(ip.jam_mulai_aktual) AS practice_starts
+       FROM indikator_mutu_praktik ip
+       LEFT JOIN master_dokter d ON CAST(d.id AS TEXT) = CAST(ip.dokter_id AS TEXT)
+       WHERE UPPER(TRIM(COALESCE(ip.ruangan, ''))) = ?
+         AND date(ip.tanggal) BETWEEN date(?) AND date(?)${doctorClinic}`,
+      [ruangan, range.start, range.end, ...clinicArgs],
     ),
   ];
 
-  const settled = await Promise.allSettled(queries);
-  const rows = settled.map((result) => result.status === "fulfilled" ? result.value : {});
+  const rows = await Promise.all(queries);
   const [imut = {}, tlx = {}, observation = {}, patients = {}, staffing = {}, schedule = {}, attendance = {}, staffLeave = {}, doctorLeave = {}, practice = {}] = rows;
   return {
     averageWaitMinutes: number(imut.average),
@@ -236,8 +198,8 @@ async function getMetrics(ruangan, range, clinic) {
     averageActionMinutes: number(observation.action),
     totalPatients: number(patients.total),
     patientSamples: number(patients.samples),
-    activeStaff: number(staffing.active_staff),
-    doctors: number(staffing.doctors),
+    activeStaff: number(staffing.scheduled_staff),
+    doctors: number(staffing.practice_doctors),
     scheduledShifts: number(schedule.samples),
     attendanceRecords: number(attendance.samples),
     onTimeAttendance: number(attendance.on_time),
@@ -254,49 +216,84 @@ async function getMetrics(ruangan, range, clinic) {
       attendance: number(attendance.samples),
       schedules: number(schedule.samples),
     },
-    history: {
-      averageWaitMinutes: number(imut.historical_average),
-      averageTlxScore: number(tlx.historical_average),
-      averageAssessmentMinutes: number(observation.historical_assessment),
-      averageEducationMinutes: number(observation.historical_education),
-      averageActionMinutes: number(observation.historical_action),
-      sampleCounts: {
-        imut: number(imut.historical_samples),
-        nasaTlx: number(tlx.historical_samples),
-        observations: number(observation.historical_samples),
-        assessment: number(observation.historical_assessment_samples),
-        education: number(observation.historical_education_samples),
-        action: number(observation.historical_action_samples),
-      },
-      firstDate: [
-        imut.first_date,
-        tlx.first_date,
-        observation.first_date,
-      ].filter(Boolean).sort()[0] || null,
-      lastDate: [
-        imut.last_date,
-        tlx.last_date,
-        observation.last_date,
-      ].filter(Boolean).sort().at(-1) || null,
-    },
   };
 }
 
-function valueOrHistory(metrics, valueKey, countKey) {
-  if (metrics.sampleCounts[countKey] > 0) return metrics[valueKey];
-  if (metrics.history.sampleCounts[countKey] > 0) return metrics.history[valueKey];
-  return 0;
-}
-
-async function getRequestScope(request) {
+async function getRequestScope(request, body = {}) {
   const ruangan = await getSessionRuangan();
   if (!ruangan) return { error: "Unauthorized", status: 401 };
-  const params = new URL(request.url).searchParams;
-  const range = getRange(params.get("start"), params.get("end"));
+  const params = request.nextUrl.searchParams;
+  const read = (...keys) => {
+    for (const key of keys) {
+      const value = body[key] ?? params.get(key);
+      if (value !== null && value !== undefined && String(value).trim() !== "") return String(value).trim();
+    }
+    return "";
+  };
+  const periodType = read("periode", "period", "tipe");
+  const month = read("bulan", "month");
+  const year = read("tahun", "year");
+  const quarter = read("triwulan", "quarter");
+  let start = read("start");
+  let end = read("end");
+  if (periodType) {
+    const numericYear = Number(year);
+    if (periodType === "harian") {
+      start = read("tanggal");
+      end = start;
+    } else if (periodType === "bulanan") {
+      const numericMonth = Number(month);
+      if (!Number.isInteger(numericYear) || numericYear < 2000 || numericYear > 9999
+        || !Number.isInteger(numericMonth) || numericMonth < 1 || numericMonth > 12) {
+        return { error: "Filter bulan/tahun tidak valid.", status: 400 };
+      }
+      start = `${numericYear}-${String(numericMonth).padStart(2, "0")}-01`;
+      end = `${numericYear}-${String(numericMonth).padStart(2, "0")}-${String(new Date(numericYear, numericMonth, 0).getDate()).padStart(2, "0")}`;
+    } else if (periodType === "triwulan") {
+      const numericQuarter = Number(quarter);
+      if (!Number.isInteger(numericYear) || numericYear < 2000 || numericYear > 9999
+        || !Number.isInteger(numericQuarter) || numericQuarter < 1 || numericQuarter > 4) {
+        return { error: "Filter triwulan/tahun tidak valid.", status: 400 };
+      }
+      const firstMonth = (numericQuarter - 1) * 3 + 1;
+      const lastMonth = firstMonth + 2;
+      start = `${numericYear}-${String(firstMonth).padStart(2, "0")}-01`;
+      end = `${numericYear}-${String(lastMonth).padStart(2, "0")}-${String(new Date(numericYear, lastMonth, 0).getDate()).padStart(2, "0")}`;
+    } else if (periodType === "tahunan") {
+      if (!Number.isInteger(numericYear) || numericYear < 2000 || numericYear > 9999) {
+        return { error: "Filter tahun tidak valid.", status: 400 };
+      }
+      start = `${numericYear}-01-01`;
+      end = `${numericYear}-12-31`;
+    }
+  }
+  const range = start || end ? getRange(start, end) : getRange("", "");
   if (!range) return { error: "Rentang tanggal tidak valid (maksimal 366 hari).", status: 400 };
-  const clinic = String(params.get("clinic") || "").trim();
+  if (periodType && !["harian", "bulanan", "triwulan", "tahunan"].includes(periodType)) {
+    return { error: "Jenis periode tidak valid.", status: 400 };
+  }
+  const requestedClinic = read("poli", "clinic");
+  const clinic = ["all", "semua", "semua poliklinik"].includes(requestedClinic.toLowerCase())
+    ? ""
+    : requestedClinic;
   if (clinic.length > 120) return { error: "Filter poliklinik tidak valid.", status: 400 };
-  return { ruangan, range, clinic };
+  return { ruangan, range, clinic, periodType, month, year, quarter };
+}
+
+function getPeriodLabel(scope) {
+  const year = Number(scope.year);
+  const month = Number(scope.month);
+  if (scope.periodType === "bulanan" && month >= 1 && month <= 12 && Number.isInteger(year)) {
+    const monthName = new Intl.DateTimeFormat("id-ID", { month: "long", timeZone: "UTC" })
+      .format(new Date(Date.UTC(year, month - 1, 1)));
+    return `${monthName} ${year}`;
+  }
+  if (scope.periodType === "triwulan" && Number(scope.quarter) >= 1 && Number(scope.quarter) <= 4) {
+    return `Triwulan ${scope.quarter} ${scope.year}`;
+  }
+  if (scope.periodType === "tahunan" && Number.isInteger(year)) return String(year);
+  if (scope.periodType === "harian") return scope.range.start;
+  return `${scope.range.start} sampai ${scope.range.end}`;
 }
 
 export async function GET(request) {
@@ -304,20 +301,41 @@ export async function GET(request) {
   if (scope.error) {
     return NextResponse.json({ success: false, error: scope.error }, { status: scope.status });
   }
-  const metrics = await getMetrics(scope.ruangan, scope.range, scope.clinic);
+  let metrics;
+  try {
+    metrics = await getMetrics(scope.ruangan, scope.range, scope.clinic);
+  } catch (error) {
+    console.error("AI Advisor gagal memuat metrik:", error);
+    return NextResponse.json({ success: false, error: "Gagal memuat metrik analisis." }, { status: 500 });
+  }
   return NextResponse.json({
     success: true,
     ruangan: scope.ruangan,
     range: scope.range,
+    periode: scope.periodType,
     clinic: scope.clinic || "Semua poliklinik",
     metrics,
   });
 }
 
 export async function POST(request) {
-  const scope = await getRequestScope(request);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: "Isi permintaan analisis tidak valid." }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ success: false, error: "Isi permintaan analisis tidak valid." }, { status: 400 });
+  }
+  const scope = await getRequestScope(request, body);
   if (scope.error) {
     return NextResponse.json({ success: false, error: scope.error }, { status: scope.status });
+  }
+  const allowedTabs = ["Ringkasan Manajemen", "Operasional & SDM", "Laporan Mutu (IMUT)"];
+  const activeTab = allowedTabs.includes(body.activeTab) ? body.activeTab : null;
+  if (!activeTab) {
+    return NextResponse.json({ success: false, error: "Konteks tab analisis tidak valid." }, { status: 400 });
   }
 
   const apiKey = process.env.GROQ_API_KEY;
@@ -328,27 +346,31 @@ export async function POST(request) {
     );
   }
 
-  const metrics = await getMetrics(scope.ruangan, scope.range, scope.clinic);
-  const analysisMetrics = {
-    averageWaitMinutes: valueOrHistory(metrics, "averageWaitMinutes", "imut"),
-    averageTlxScore: valueOrHistory(metrics, "averageTlxScore", "nasaTlx"),
-    averageAssessmentMinutes: valueOrHistory(metrics, "averageAssessmentMinutes", "assessment"),
-    averageEducationMinutes: valueOrHistory(metrics, "averageEducationMinutes", "education"),
-    averageActionMinutes: valueOrHistory(metrics, "averageActionMinutes", "action"),
-  };
-  const historicalRange = metrics.history.firstDate && metrics.history.lastDate
-    ? `Data historis tersedia ${metrics.history.firstDate} sampai ${metrics.history.lastDate}`
-    : "Data historis tambahan tidak tersedia";
-  const systemPrompt = `Anda adalah AI Executive Advisor untuk manajemen rumah sakit. Analisis agregat operasional Instalasi Rawat Jalan ruangan ${scope.ruangan}, periode ${scope.range.start} sampai ${scope.range.end}, poliklinik ${scope.clinic || "semua"}.
+  let metrics;
+  try {
+    metrics = await getMetrics(scope.ruangan, scope.range, scope.clinic);
+  } catch (error) {
+    console.error("AI Advisor gagal memuat metrik:", error);
+    return NextResponse.json({ success: false, error: "Gagal memuat metrik analisis." }, { status: 500 });
+  }
+  const periodLabel = getPeriodLabel(scope);
+  const tabFocus = {
+    "Operasional & SDM": "Fokuskan analisis pada korelasi Skor NASA-TLX, jumlah shift, dan kehadiran dokter. Berikan strategi SDM operasional.",
+    "Laporan Mutu (IMUT)": "Fokuskan analisis pada indikator mutu: Waktu Tunggu, Asesmen, Edukasi, dan Tindakan. Berikan langkah klinis out-of-the-box.",
+    "Ringkasan Manajemen": "Berikan ringkasan analisis tingkat dewan direksi (Executive Summary) mencakup efisiensi waktu dan beban staf.",
+  }[activeTab];
+  const systemPrompt = `Anda adalah AI Executive Advisor untuk manajemen rumah sakit. Berikut adalah data untuk periode ${periodLabel} di ${scope.clinic || "Semua poliklinik"} (ruangan ${scope.ruangan}, ${scope.range.start} sampai ${scope.range.end}). Analisis hanya data dalam rentang dan poliklinik tersebut. Konteks tab aktif: ${activeTab}.
+
+ARAHAN KONTEKS TAB:
+${tabFocus}
 
 DATA TERSEDIA:
-- IMUT waktu tunggu: rata-rata ${analysisMetrics.averageWaitMinutes.toFixed(2)} menit dari ${metrics.sampleCounts.imut || metrics.history.sampleCounts.imut} sampel.
+- IMUT waktu tunggu: rata-rata ${metrics.averageWaitMinutes.toFixed(2)} menit dari ${metrics.sampleCounts.imut} sampel.
 - Volume pasien tercatat: ${metrics.totalPatients} pasien pada ${metrics.patientSamples} rekap.
-- Beban NASA-TLX: rata-rata ${analysisMetrics.averageTlxScore.toFixed(2)}/100 dari ${metrics.sampleCounts.nasaTlx || metrics.history.sampleCounts.nasaTlx} kuesioner.
-- Time-Motion perawat: asesmen ${analysisMetrics.averageAssessmentMinutes.toFixed(2)} menit, edukasi ${analysisMetrics.averageEducationMinutes.toFixed(2)} menit, tindakan ${analysisMetrics.averageActionMinutes.toFixed(2)} menit; ${metrics.sampleCounts.observations || metrics.history.sampleCounts.observations} kejadian.
-- ${historicalRange}. Bila sampel periode laporan kosong, nilai di atas memakai data historis dan bukan nilai periode terpilih.
-- Pemeriksaan dokter: ${metrics.averageExaminationMinutes.toFixed(2)} menit (0 berarti belum ada kategori pemeriksaan pada data yang terhubung).
-- Cakupan sumber daya: ${metrics.activeStaff} SDM aktif, ${metrics.doctors} dokter, ${metrics.scheduledShifts} shift terjadwal.
+- Beban NASA-TLX: rata-rata ${metrics.averageTlxScore.toFixed(2)}/100 dari ${metrics.sampleCounts.nasaTlx} kuesioner.
+- Time-Motion perawat: asesmen ${metrics.averageAssessmentMinutes.toFixed(2)} menit, edukasi ${metrics.averageEducationMinutes.toFixed(2)} menit, tindakan ${metrics.averageActionMinutes.toFixed(2)} menit; ${metrics.sampleCounts.observations} kejadian.
+- Pemeriksaan dokter: ${metrics.averageExaminationMinutes.toFixed(2)} menit.
+- Cakupan pada periode terpilih: ${metrics.activeStaff} SDM dengan shift, ${metrics.doctors} dokter dengan catatan praktik, ${metrics.scheduledShifts} shift terjadwal.
 - Absensi: ${metrics.onTimeAttendance} tepat waktu dari ${metrics.attendanceRecords} catatan.
 - Cuti pada periode: ${metrics.approvedStaffLeave} cuti SDM disetujui, ${metrics.doctorLeaveRecords} catatan cuti dokter.
 - Praktik dokter: ${metrics.practiceStarts} pencatatan mulai praktik.
@@ -357,7 +379,7 @@ TUGAS:
 1. Identifikasi paling banyak 3 temuan penting yang menghubungkan volume pasien, waktu tunggu, beban SDM, jadwal, mutu, dan ketidakhadiran bila datanya mendukung.
 2. Berikan tepat 3 langkah strategis yang konkret, realistis, terukur, dan dapat ditindaklanjuti.
 3. Bedakan fakta data dan hipotesis; jangan menyatakan korelasi sebagai sebab-akibat.
-4. Jika sampel suatu sumber 0 atau nilainya fallback 0, nyatakan sebagai data tidak tersedia, bukan kondisi operasional normal.
+4. Jika sampel suatu sumber 0, nyatakan sebagai data tidak tersedia, bukan kondisi operasional normal. Jangan menggunakan atau mengasumsikan data di luar rentang periode dan poliklinik yang dipilih.
 Gunakan bahasa Indonesia yang jelas, ringkas, dan berbentuk poin. Jangan tampilkan atau menebak identitas pasien maupun pegawai.`;
 
   try {
@@ -368,7 +390,7 @@ Gunakan bahasa Indonesia yang jelas, ringkas, dan berbentuk poin. Jangan tampilk
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-oss-120b",
+        model: "llama3-70b-8192",
         messages: [{ role: "system", content: systemPrompt }],
         temperature: 0.35,
       }),
@@ -400,7 +422,7 @@ Gunakan bahasa Indonesia yang jelas, ringkas, dan berbentuk poin. Jangan tampilk
         { status: 502 },
       );
     }
-    return NextResponse.json({ success: true, analysis, range: scope.range, metrics: { ...metrics, analysis: analysisMetrics } });
+    return NextResponse.json({ success: true, analysis, range: scope.range, activeTab, metrics });
   } catch (error) {
     console.error("Groq AI Advisor gagal diakses:", error);
     return NextResponse.json(

@@ -300,6 +300,40 @@ function sanitizeReportValue(value, depth = 0) {
   return "Data tidak tersedia";
 }
 
+function compactReportForPrompt(report, aggressive = false) {
+  const compact = { ...report };
+  const service = { ...(compact.kinerjaPelayanan || {}) };
+  const trend = Array.isArray(service.trenKunjungan) ? service.trenKunjungan : [];
+
+  if (trend.length > (aggressive ? 0 : 45)) {
+    const monthlyTotals = new Map();
+    for (const row of trend) {
+      const date = String(row?.tanggal || row?.label || "");
+      const month = /^\d{4}-\d{2}/.test(date) ? date.slice(0, 7) : "Periode";
+      monthlyTotals.set(month, (monthlyTotals.get(month) || 0) + (Number(row?.pasien) || 0));
+    }
+    service.trenKunjungan = [...monthlyTotals.entries()].map(([bulan, kunjungan]) => ({ bulan, kunjungan }));
+    service.catatanTren = `Tren harian ${trend.length} titik diringkas menjadi ${service.trenKunjungan.length} total bulanan.`;
+  }
+  compact.kinerjaPelayanan = service;
+
+  const quality = { ...(compact.indikatorMutu || {}) };
+  if (Array.isArray(quality.rekapPerPoliklinik)) {
+    const clinicRows = quality.rekapPerPoliklinik.map(({ capaianIndikator, ...clinic }) => clinic);
+    quality.rekapPerPoliklinik = aggressive ? clinicRows.slice(0, 12) : clinicRows;
+    if (aggressive && clinicRows.length > 12) {
+      quality.catatanRekap = `${clinicRows.length - 12} poliklinik lainnya tidak dirinci; metrik agregat tetap disertakan.`;
+    }
+  }
+  compact.indikatorMutu = quality;
+  if (aggressive) {
+    const operations = { ...(compact.operasionalLain || {}) };
+    if (Array.isArray(operations.ringkasan)) operations.ringkasan = operations.ringkasan.slice(0, 8);
+    compact.operasionalLain = operations;
+  }
+  return compact;
+}
+
 export async function GET(request) {
   const scope = await getRequestScope(request);
   if (scope.error) {
@@ -344,8 +378,8 @@ export async function POST(request) {
     return NextResponse.json({ success: false, error: "Data laporan lengkap tidak tersedia untuk dianalisis." }, { status: 400 });
   }
   const fullReportPayload = sanitizeReportValue(submittedReport);
-  const serializedReport = JSON.stringify(fullReportPayload);
-  if (serializedReport.length > 60000) {
+  const serializedReport = JSON.stringify(compactReportForPrompt(fullReportPayload));
+  if (serializedReport.length > 30000) {
     return NextResponse.json({ success: false, error: "Data laporan terlalu besar untuk dianalisis sekaligus." }, { status: 413 });
   }
 
@@ -362,14 +396,14 @@ export async function POST(request) {
     "Laporan Mutu (IMUT)": "Fokuskan analisis pada indikator mutu: Waktu Tunggu, Asesmen, Edukasi, dan Tindakan. Berikan langkah klinis out-of-the-box.",
     "Ringkasan Manajemen": "Berikan ringkasan analisis tingkat dewan direksi (Executive Summary) mencakup efisiensi waktu dan beban staf.",
   }[activeTab];
-  const systemPrompt = `Anda adalah AI Executive Advisor, Konsultan Manajemen Mutu dan Operasional Rumah Sakit.
+  const createSystemPrompt = (report) => `Anda adalah AI Executive Advisor, Konsultan Manajemen Mutu dan Operasional Rumah Sakit.
 Berikut adalah laporan kinerja, kepatuhan, dan mutu Instalasi Rawat Jalan RSUD Merah Putih secara utuh untuk periode "${fullReportPayload.periode || "Data tidak tersedia"}" di "${fullReportPayload.poliklinik || "Data tidak tersedia"}" (ruangan sesi: ${ruangan}). Analisis sesuai konteks tab: ${activeTab}.
 
 ARAHAN KONTEKS TAB:
 ${tabFocus}
 
 DATA LAPORAN LENGKAP (JSON):
-${serializedReport}
+${report}
 
 TUGAS:
 1. Lakukan analisis silang atas seluruh komponen laporan: volume/tren dan distribusi kunjungan, waktu tunggu, indikator mutu IMUT, kepatuhan/kehadiran praktik dokter, NASA-TLX, Time-Motion, beban shift dan profesi, kehadiran SDM, cuti, kepatuhan input, serta ringkasan/heatmap operasional.
@@ -380,7 +414,14 @@ TUGAS:
 Gunakan bahasa Indonesia profesional, terstruktur dengan temuan, analisis silang, dan rekomendasi.`;
 
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    let response;
+    let result = {};
+    const reports = [serializedReport];
+    const condensedReport = JSON.stringify(compactReportForPrompt(fullReportPayload, true));
+    if (condensedReport !== serializedReport && condensedReport.length <= 12000) reports.push(condensedReport);
+
+    for (const report of reports) {
+      response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -389,7 +430,7 @@ Gunakan bahasa Indonesia profesional, terstruktur dengan temuan, analisis silang
       body: JSON.stringify({
         model: "openai/gpt-oss-120b",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: createSystemPrompt(report) },
           { role: "user", content: `Buat analisis sesuai arahan dan data untuk tab ${activeTab}.` },
         ],
         temperature: 0.6,
@@ -397,7 +438,9 @@ Gunakan bahasa Indonesia profesional, terstruktur dengan temuan, analisis silang
       }),
       signal: AbortSignal.timeout(45000),
     });
-    const result = await response.json().catch(() => ({}));
+      result = await response.json().catch(() => ({}));
+      if (response.status !== 413) break;
+    }
     if (!response.ok) {
       const providerMessage = typeof result.error?.message === "string"
         ? result.error.message.replaceAll(apiKey, "[redacted]").slice(0, 500)
@@ -408,6 +451,7 @@ Gunakan bahasa Indonesia profesional, terstruktur dengan temuan, analisis silang
         401: "API key Groq tidak valid atau sudah dicabut. Perbarui GROQ_API_KEY pada environment server, lalu restart aplikasi.",
         403: "Akun Groq tidak memiliki akses ke model AI yang dipilih.",
         404: "Model AI tidak ditemukan. Pastikan model yang dipakai tersedia pada akun Groq.",
+        413: "Groq menolak ukuran konteks laporan. Tren harian sudah diringkas; kurangi rentang laporan atau pecah analisis menjadi periode lebih pendek.",
         429: "Batas penggunaan Groq tercapai. Periksa kuota atau coba kembali nanti.",
       };
       return NextResponse.json(

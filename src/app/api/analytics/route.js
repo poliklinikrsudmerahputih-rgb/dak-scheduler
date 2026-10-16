@@ -306,12 +306,13 @@ export async function GET(request) {
         }
       }
     }
-    const doctorWorkload = visibleDoctors.map((doctor) => ({
+    const doctorWorkloadAll = visibleDoctors.map((doctor) => ({
       name: doctor.nama_dokter,
       clinic: doctor.klinik,
       pasien: visitByDoctor.get(`${normalize(doctor.nama_dokter)}|${normalize(doctor.klinik)}`) || 0,
       sesi: expectedByDoctor.get(Number(doctor.id)) || 0
-    })).sort((first, second) => second.pasien - first.pasien).slice(0, 10);
+    })).sort((first, second) => second.pasien - first.pasien);
+    const doctorWorkload = doctorWorkloadAll.slice(0, 10);
 
     const staffWorkloadMap = new Map();
     for (const row of scheduleResult.rows || []) {
@@ -412,6 +413,7 @@ export async function GET(request) {
       },
       trend,
       doctorWorkload,
+      doctorWorkloadAll,
       staffWorkload,
       scheduleAssignments,
       professionMetrics,

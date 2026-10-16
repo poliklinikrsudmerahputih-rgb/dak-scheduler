@@ -8,13 +8,17 @@ import { cookies } from "next/headers";
  * Fungsi Utama: Menyimpan (Insert) atau Memperbarui (Update) Jadwal Dokter
  * Dilengkapi dengan pendeteksi Ruangan otomatis berdasarkan Sesi Login
  */
+function normalizeDoctorSymbol(value) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
 export async function simpanDokter(formData) {
   const id = formData.get("id"); 
   const nama_dokter = formData.get("nama_dokter");
   const klinik = formData.get("klinik");
   const hari = formData.get("hari");
   const jam = formData.get("jam");
-  const simbol = formData.get("simbol");
+  const simbol = normalizeDoctorSymbol(formData.get("simbol"));
   const keterangan_simbol = formData.get("keterangan_simbol") || '';
   
   // --- PENANGKAPAN DATA BOBOT JASPEL DARI FORM ---
@@ -87,7 +91,7 @@ export async function hapusDokter(id) {
  * pada ruangan pengguna yang sedang login.
  */
 export async function simpanDeskripsiSimbol(simbol, keterangan) {
-  const simbolBersih = String(simbol || "").trim();
+  const simbolBersih = normalizeDoctorSymbol(simbol);
   const deskripsi = String(keterangan || "").trim();
   if (!simbolBersih) return { success: false, error: "Simbol tidak valid." };
 

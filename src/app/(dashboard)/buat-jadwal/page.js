@@ -1,9 +1,35 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
 import { Save, Loader2, FileText, AlertTriangle, Undo2, Redo2, Settings, X, Plus, Trash2, ArrowUp, ArrowDown, Users, Sparkles } from "lucide-react";
 import { id } from "date-fns/locale";
+
+const statusAbsensi = ["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"];
+const namaHariLengkap = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+const normalizeScheduleLabel = value => String(value || "").trim().toLocaleUpperCase("id-ID");
+
+function doctorWorksOnDate(doctor, day, month, year) {
+  const weekday = namaHariLengkap[getDay(new Date(year, month - 1, day))].toLocaleUpperCase("id-ID");
+  return String(doctor.jadwal_hari || "")
+    .split(/[,;/|&]+|\s+dan\s+/i)
+    .map(value => value.trim().toLocaleUpperCase("id-ID"))
+    .includes(weekday);
+}
+
+function doctorLeaveMatches(doctor, leave, date) {
+  if (normalizeScheduleLabel(leave.jenis_cuti) === "TP") return false;
+  if (date < String(leave.tgl_mulai || "") || date > String(leave.tgl_selesai || "")) return false;
+  const doctorName = normalizeScheduleLabel(doctor.nama_dokter);
+  const doctorSymbol = normalizeScheduleLabel(doctor.simbol_praktik);
+  const doctorClinic = normalizeScheduleLabel(doctor.klinik);
+  const leaveName = normalizeScheduleLabel(leave.nama_dokter);
+  const leaveSymbol = normalizeScheduleLabel(leave.simbol);
+  const leaveClinic = normalizeScheduleLabel(leave.klinik);
+  return leaveName === doctorName || (
+    leaveSymbol && leaveSymbol === doctorSymbol && (!leaveClinic || leaveClinic === doctorClinic)
+  );
+}
 
 export default function BuatJadwal() {
   // --- 1. STATE & HYDRATION ---
@@ -13,14 +39,18 @@ export default function BuatJadwal() {
   const [daftarSDM, setDaftarSDM] = useState([]);
   const [dataCutiSDM, setDataCutiSDM] = useState([]); 
   const [dataMasterDokter, setDataMasterDokter] = useState([]);
+  const [dataCutiDokter, setDataCutiDokter] = useState([]);
+  const [bebanDokter, setBebanDokter] = useState([]);
   const [isiJadwal, setIsiJadwal] = useState({});
   const [kelompokJadwal, setKelompokJadwal] = useState([]);
   const [anggotaKelompok, setAnggotaKelompok] = useState({});
   const [loading, setLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [generatingSchedule, setGeneratingSchedule] = useState(false);
+  const [approvingDraft, setApprovingDraft] = useState(false);
   const [scheduleGenerationError, setScheduleGenerationError] = useState("");
   const [scheduleGenerationReport, setScheduleGenerationReport] = useState(null);
+  const [scheduleGenerationDraft, setScheduleGenerationDraft] = useState(null);
 
   // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -49,9 +79,14 @@ export default function BuatJadwal() {
   });
 
   // --- 2. DATA MASTER ---
-  const urutanProfesi = { "Bidan": 1, "Psikologi Klinis": 2, "Perawat": 3, "Terapis Gigi": 4, "Fisioterapis": 5, "Admin": 6 };
-  const statusAbsensi = ["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"];
-  const namaHariLengkap = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const urutanProfesi = useMemo(() => ({
+    "Bidan": 1,
+    "Psikologi Klinis": 2,
+    "Perawat": 3,
+    "Terapis Gigi": 4,
+    "Fisioterapis": 5,
+    "Admin": 6,
+  }), []);
   const namaHariSingkat = ["M", "SN", "SL", "R", "K", "J", "S"];
   const daftarBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
   const hariLibur2026 = ["2026-01-01", "2026-01-16", "2026-02-16", "2026-02-17", "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-03-23", "2026-03-24", "2026-04-03", "2026-04-05", "2026-05-01", "2026-05-14", "2026-05-15", "2026-05-27", "2026-05-28", "2026-03-31", "2026-06-01", "2026-06-16", "2026-08-17", "2026-08-25", "2026-12-24", "2026-12-25"];
@@ -65,15 +100,39 @@ export default function BuatJadwal() {
 
   useEffect(() => {
     if (!hasMounted) return;
+    let active = true;
     async function fetchData() {
       setLoading(true);
       setScheduleGenerationReport(null);
+      setScheduleGenerationDraft(null);
       setScheduleGenerationError("");
+      setDataCutiDokter([]);
+      setBebanDokter([]);
       try {
+        const previousMonthDate = new Date(tahun, bulan - 2, 1);
+        const analyticsParams = new URLSearchParams({
+          tipe: "bulanan",
+          bulan: String(previousMonthDate.getMonth() + 1),
+          tahun: String(previousMonthDate.getFullYear()),
+          clinic: "all",
+        });
+        Promise.all([
+          fetch("/api/cuti-dokter", { signal: AbortSignal.timeout(15000) }).catch(() => null),
+          fetch(`/api/analytics?${analyticsParams}`, { signal: AbortSignal.timeout(15000) }).catch(() => null),
+        ]).then(async ([resCutiDokter, resAnalytics]) => {
+          const dCutiDokter = resCutiDokter ? await resCutiDokter.json().catch(() => []) : [];
+          const dAnalytics = resAnalytics ? await resAnalytics.json().catch(() => ({})) : {};
+          if (!active) return;
+          setDataCutiDokter(Array.isArray(dCutiDokter) ? dCutiDokter : []);
+          setBebanDokter(Array.isArray(dAnalytics?.doctorWorkloadAll)
+            ? dAnalytics.doctorWorkloadAll
+            : Array.isArray(dAnalytics?.doctorWorkload) ? dAnalytics.doctorWorkload : []);
+        }).catch(error => console.error("Gagal memuat konteks rekomendasi dokter:", error));
+
         const [resSDM, resDkt, resJadwal, resCuti] = await Promise.all([
           fetch("/api/sdm"), fetch("/api/dokter"),
           fetch(`/api/jadwal?bulan=${bulan}&tahun=${tahun}&ruangan=${header.ruangan}`),
-          fetch("/api/cuti-sdm")
+          fetch("/api/cuti-sdm"),
         ]);
         const dSDM = await resSDM.json();
         const dDkt = await resDkt.json();
@@ -213,7 +272,8 @@ export default function BuatJadwal() {
       finally { setLoading(false); }
     }
     fetchData();
-  }, [bulan, tahun, hasMounted, header.ruangan]);
+    return () => { active = false; };
+  }, [bulan, tahun, hasMounted, header.ruangan, urutanProfesi]);
 
   // --- 4. LOGIKA HELPER & UNDO/REDO ---
   const updateIsiJadwal = (newIsiJadwal) => {
@@ -291,22 +351,158 @@ export default function BuatJadwal() {
     anggota: daftarSDM.filter(person => String(anggotaKelompok[String(person.id)]) === group.id),
   })).filter(group => group.anggota.length > 0);
 
-  const getAutoCutiValue = (namaSdm, tgl) => {
-    const targetDate = format(new Date(tahun, bulan - 1, tgl), "yyyy-MM-dd");
-    const foundCuti = dataCutiSDM.find(c => c.nama_sdm === namaSdm && c.status_acc === "Disetujui" && targetDate >= c.tgl_mulai && targetDate <= c.tgl_selesai);
-    return foundCuti ? foundCuti.jenis_cuti : null;
+  const approvedStaffLeaveByPersonDay = useMemo(() => {
+    const leaveByPersonDay = new Map();
+    for (const leave of dataCutiSDM) {
+      if (normalizeScheduleLabel(leave.status_acc) !== "DISETUJUI") continue;
+      const personName = normalizeScheduleLabel(leave.nama_sdm);
+      for (let day = 1; day <= jumlahHari; day++) {
+        const date = format(new Date(tahun, bulan - 1, day), "yyyy-MM-dd");
+        if (date >= String(leave.tgl_mulai || "") && date <= String(leave.tgl_selesai || "")) {
+          leaveByPersonDay.set(`${personName}|${day}`, leave.jenis_cuti);
+        }
+      }
+    }
+    return leaveByPersonDay;
+  }, [dataCutiSDM, bulan, tahun, jumlahHari]);
+
+  const getAutoCutiValue = (namaSdm, day) =>
+    approvedStaffLeaveByPersonDay.get(`${normalizeScheduleLabel(namaSdm)}|${day}`) || null;
+
+  const doctorContextByDay = useMemo(() => {
+    const contextByDay = new Map();
+    for (let day = 1; day <= jumlahHari; day++) {
+      const date = format(new Date(tahun, bulan - 1, day), "yyyy-MM-dd");
+      const scheduledDoctors = dataMasterDokter.filter(doctor => doctorWorksOnDate(doctor, day, bulan, tahun));
+      const doctorsBySymbol = new Map();
+      for (const doctor of scheduledDoctors) {
+        const symbol = normalizeScheduleLabel(doctor.simbol_praktik);
+        if (!symbol) continue;
+        const doctors = doctorsBySymbol.get(symbol) || [];
+        doctors.push(doctor);
+        doctorsBySymbol.set(symbol, doctors);
+      }
+
+      const unavailableSymbols = new Set();
+      const absentDoctorsBySymbol = new Map();
+      const absentDoctorIds = new Set();
+      for (const [symbol, doctors] of doctorsBySymbol) {
+        const absentDoctors = doctors.filter(doctor =>
+          dataCutiDokter.some(leave => doctorLeaveMatches(doctor, leave, date)),
+        );
+        absentDoctors.forEach(doctor => absentDoctorIds.add(String(doctor.id)));
+        if (absentDoctors.length) absentDoctorsBySymbol.set(symbol, absentDoctors);
+        if (absentDoctors.length === doctors.length) unavailableSymbols.add(symbol);
+      }
+
+      contextByDay.set(day, { doctorsBySymbol, unavailableSymbols, absentDoctorsBySymbol, absentDoctorIds, scheduledDoctors });
+    }
+    return contextByDay;
+  }, [dataMasterDokter, dataCutiDokter, bulan, tahun, jumlahHari]);
+
+  const getDoctorLeaveRecord = (doctor, day) => {
+    const symbol = normalizeScheduleLabel(doctor.simbol_praktik);
+    return doctorContextByDay.get(day)?.absentDoctorsBySymbol.get(symbol)
+      ?.find(item => String(item.id) === String(doctor.id)) || null;
   };
 
-  const getSimbolHarian = (tgl, currentVal) => {
-    const dayIndex = (hariPertama + tgl - 1) % 7;
-    const hariTarget = namaHariLengkap[dayIndex];
-    const simbolSesuaiHari = dataMasterDokter.filter(d => {
-      const days = String(d.jadwal_hari || "").split(/[,;/|&]+|\s+dan\s+/i).map(day => day.trim().toLocaleUpperCase("id-ID"));
-      return days.includes(hariTarget.toLocaleUpperCase("id-ID")) && d.simbol_praktik;
-    }).map(d => d.simbol_praktik);
-    const uniqueSimbols = [...new Set([...simbolSesuaiHari, currentVal])];
-    return uniqueSimbols.filter(s => s && !statusAbsensi.includes(s));
+  const isDoctorSymbolUnavailable = (symbol, day) =>
+    doctorContextByDay.get(day)?.unavailableSymbols.has(normalizeScheduleLabel(symbol)) || false;
+
+  const getScheduleSymbol = (personId, day) => {
+    const symbol = isiJadwal[`${personId}-${day}`] || "";
+    return symbol && !isDoctorSymbolUnavailable(symbol, day) ? symbol : "";
   };
+
+  const removeUnavailableDoctorAssignments = schedule => Object.fromEntries(
+    Object.entries(schedule).filter(([key, symbol]) => {
+      if (!symbol || statusAbsensi.includes(normalizeScheduleLabel(symbol))) return true;
+      const day = Number(key.slice(key.lastIndexOf("-") + 1));
+      return !Number.isInteger(day) || !isDoctorSymbolUnavailable(symbol, day);
+    }),
+  );
+
+  const symbolAssistantCountsByDay = useMemo(() => {
+    const counts = new Map();
+    const staffById = new Map(daftarSDM.map(person => [String(person.id), person]));
+    for (const [key, symbol] of Object.entries(isiJadwal)) {
+      const separator = key.lastIndexOf("-");
+      const personId = key.slice(0, separator);
+      const day = Number(key.slice(separator + 1));
+      const person = staffById.get(personId);
+      if (!person || !Number.isInteger(day)) continue;
+      if (approvedStaffLeaveByPersonDay.has(`${normalizeScheduleLabel(person.nama)}|${day}`)) continue;
+      if (!symbol || statusAbsensi.includes(normalizeScheduleLabel(symbol))) continue;
+      if (doctorContextByDay.get(day)?.unavailableSymbols.has(normalizeScheduleLabel(symbol))) continue;
+      const countKey = `${day}|${normalizeScheduleLabel(symbol)}`;
+      counts.set(countKey, (counts.get(countKey) || 0) + 1);
+    }
+    return counts;
+  }, [isiJadwal, daftarSDM, approvedStaffLeaveByPersonDay, doctorContextByDay]);
+
+  const doctorLeaveImpacts = useMemo(() => {
+    const staffById = new Map(daftarSDM.map(person => [String(person.id), person]));
+    const workloadByDoctor = new Map(bebanDokter.map(item => [
+      `${normalizeScheduleLabel(item.name)}|${normalizeScheduleLabel(item.clinic)}`,
+      Number(item.pasien) || 0,
+    ]));
+
+    return Object.entries(isiJadwal).flatMap(([key, symbol]) => {
+      if (!symbol || statusAbsensi.includes(normalizeScheduleLabel(symbol))) return [];
+      const separator = key.lastIndexOf("-");
+      const personId = key.slice(0, separator);
+      const day = Number(key.slice(separator + 1));
+      const dayContext = doctorContextByDay.get(day);
+      const normalizedSymbol = normalizeScheduleLabel(symbol);
+      if (!Number.isInteger(day) || !dayContext?.unavailableSymbols.has(normalizedSymbol)) return [];
+
+      const person = staffById.get(personId);
+      if (!person || approvedStaffLeaveByPersonDay.has(`${normalizeScheduleLabel(person.nama)}|${day}`)) return [];
+      const absentDoctors = dayContext.absentDoctorsBySymbol.get(normalizedSymbol) || [];
+      const clinic = normalizeScheduleLabel(absentDoctors[0]?.klinik);
+      const candidates = dayContext.scheduledDoctors
+        .filter(doctor => normalizeScheduleLabel(doctor.klinik) === clinic)
+        .filter(doctor => !dayContext.absentDoctorIds.has(String(doctor.id)))
+        .map(doctor => {
+          const doctorSymbol = normalizeScheduleLabel(doctor.simbol_praktik);
+          const assistants = symbolAssistantCountsByDay.get(`${day}|${doctorSymbol}`) || 0;
+          const patients = workloadByDoctor.get(`${normalizeScheduleLabel(doctor.nama_dokter)}|${clinic}`) || 0;
+          return {
+            name: doctor.nama_dokter,
+            symbol: doctor.simbol_praktik,
+            clinic: doctor.klinik,
+            patients,
+            assistants,
+            loadPerAssistant: patients / Math.max(assistants, 1),
+          };
+        })
+        .sort((first, second) => second.loadPerAssistant - first.loadPerAssistant || second.patients - first.patients);
+
+      return [{
+        key,
+        personId,
+        day,
+        personName: person.nama || `SDM ${personId}`,
+        symbol,
+        absentDoctors: absentDoctors.map(doctor => doctor.nama_dokter),
+        recommendation: candidates[0] || null,
+      }];
+    });
+  }, [isiJadwal, daftarSDM, bebanDokter, doctorContextByDay, approvedStaffLeaveByPersonDay, symbolAssistantCountsByDay]);
+
+  const getSimbolHarian = (day, currentVal) => {
+    const dayContext = doctorContextByDay.get(day);
+    const symbols = [...(dayContext?.doctorsBySymbol.keys() || [])]
+      .filter(symbol => !dayContext?.unavailableSymbols.has(symbol));
+    const currentSymbol = normalizeScheduleLabel(currentVal);
+    if (currentSymbol && !dayContext?.unavailableSymbols.has(currentSymbol) && !symbols.includes(currentSymbol)) {
+      symbols.push(currentSymbol);
+    }
+    return symbols.filter(symbol => !statusAbsensi.includes(symbol));
+  };
+
+  const getSymbolAssistantCount = (symbol, day) =>
+    symbolAssistantCountsByDay.get(`${day}|${normalizeScheduleLabel(symbol)}`) || 0;
 
   const handleGenerateSchedule = async () => {
     if (generatingSchedule || loading) return;
@@ -318,6 +514,7 @@ export default function BuatJadwal() {
     setGeneratingSchedule(true);
     setScheduleGenerationError("");
     setScheduleGenerationReport(null);
+    setScheduleGenerationDraft(null);
     try {
       const previousDate = new Date(tahun, bulan - 2, 1);
       const previousMonth = previousDate.getMonth() + 1;
@@ -365,10 +562,9 @@ export default function BuatJadwal() {
         const weekday = namaHariLengkap[weekdayIndex].toLocaleUpperCase("id-ID");
         const symbols = [...new Set(dataMasterDokter
           .filter(doctor => {
-            const doctorDays = String(doctor.jadwal_hari || "")
-              .split(/[,;/|&]+|\s+dan\s+/i)
-              .map(value => value.trim().toLocaleUpperCase("id-ID"));
-            return doctorDays.includes(weekday) && doctor.simbol_praktik;
+            return doctorWorksOnDate(doctor, day, bulan, tahun)
+              && doctor.simbol_praktik
+              && !getDoctorLeaveRecord(doctor, day);
           })
           .map(doctor => String(doctor.simbol_praktik).trim())
           .filter(Boolean))];
@@ -403,8 +599,25 @@ export default function BuatJadwal() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           periode: `${daftarBulan[bulan - 1]} ${tahun}`,
-          people: people.map(({ code, role }) => ({ code, role })),
-          weekdays: [...symbolsByWeekday].map(([weekday, symbols]) => ({ weekday, symbols: [...symbols] })),
+          bulan,
+          tahun,
+          ruangan: header.ruangan,
+          people: people.map(person => ({
+            sdmId: person.id,
+            code: person.code,
+            role: person.role,
+            leaveDays: targetDays
+              .filter(day => getAutoCutiValue(person.name, day.day))
+              .map(day => day.day),
+          })),
+          weekdays: [...symbolsByWeekday].map(([weekday, symbols]) => ({
+            weekday,
+            symbols: [...symbols],
+            days: targetDays.filter(day => day.weekday === weekday && day.symbols.length > 0).map(day => day.day),
+            calendar: targetDays
+              .filter(day => day.weekday === weekday && day.symbols.length > 0)
+              .map(day => ({ day: day.day, symbols: day.symbols })),
+          })),
           previousPatterns,
         }),
       });
@@ -415,29 +628,45 @@ export default function BuatJadwal() {
       if (!Array.isArray(result.assignments)) {
         throw new Error("Format hasil draft dari Groq tidak valid.");
       }
-      const hasInvalidDateSymbol = result.assignments.some(assignment =>
-        targetDays
-          .filter(day => day.weekday === assignment.weekday && day.symbols.length > 0)
-          .some(day => !day.symbols.some(symbol =>
-            symbol.toLocaleUpperCase("id-ID") === String(assignment.symbol || "").toLocaleUpperCase("id-ID"),
-          )),
-      );
+      if (result.assignments.length === 0) {
+        throw new Error("AI belum menghasilkan penugasan. Coba hasilkan draft kembali.");
+      }
+      const hasInvalidDateSymbol = result.assignments.some(assignment => {
+        const targetDates = Number.isInteger(Number(assignment.day))
+          ? targetDays.filter(day => day.day === Number(assignment.day))
+          : targetDays.filter(day => day.weekday === assignment.weekday && day.symbols.length > 0);
+        return targetDates.some(day =>
+          day.weekday !== assignment.weekday
+            || !day.symbols.some(symbol =>
+              symbol.toLocaleUpperCase("id-ID") === String(assignment.symbol || "").toLocaleUpperCase("id-ID"),
+            ),
+        );
+      });
       if (hasInvalidDateSymbol) {
         throw new Error("Draft ditolak karena memuat simbol yang tidak praktik pada salah satu tanggal target.");
       }
 
-      const codeToId = new Map(people.map(person => [person.code, person.id]));
+      const codeToPerson = new Map(people.map(person => [person.code, person]));
       const assignmentsByWeekday = new Map();
+      const assignmentsByDate = new Map();
       result.assignments.forEach(assignment => {
         const assignments = assignmentsByWeekday.get(assignment.weekday) || [];
         assignments.push(assignment);
         assignmentsByWeekday.set(assignment.weekday, assignments);
+        if (Number.isInteger(Number(assignment.day))) {
+          const dateAssignments = assignmentsByDate.get(Number(assignment.day)) || [];
+          dateAssignments.push(assignment);
+          assignmentsByDate.set(Number(assignment.day), dateAssignments);
+        }
       });
 
-      const nextSchedule = { ...isiJadwal };
+      const nextSchedule = removeUnavailableDoctorAssignments({ ...isiJadwal });
+      const clearedDoctorLeaveCount = Object.keys(isiJadwal).length - Object.keys(nextSchedule).length;
       let assignedCount = 0;
       let skippedOnLeave = 0;
       let clearedNoPracticeCount = 0;
+      const draftAssignments = [];
+      const clearedKeys = [];
       targetDays.forEach(({ day, symbols }) => {
         if (symbols.length > 0) return;
         daftarSDM.forEach(person => {
@@ -445,15 +674,18 @@ export default function BuatJadwal() {
           const current = nextSchedule[key];
           if (current && !statusAbsensi.includes(String(current).toLocaleUpperCase("id-ID"))) {
             delete nextSchedule[key];
+            clearedKeys.push(key);
             clearedNoPracticeCount++;
           }
         });
       });
       targetDays.forEach(({ day, weekday, symbols }) => {
         if (symbols.length === 0) return;
-        for (const assignment of assignmentsByWeekday.get(weekday) || []) {
-          const personId = codeToId.get(assignment.person);
-          const person = daftarSDM.find(item => String(item.id) === personId);
+        const dailyAssignments = assignmentsByDate.get(day) || assignmentsByWeekday.get(weekday) || [];
+        for (const assignment of dailyAssignments) {
+          const matchedPerson = codeToPerson.get(assignment.person);
+          const personId = matchedPerson?.id;
+          const person = daftarSDM.find(item => String(item.id) === String(personId));
           if (!person || !symbols.some(symbol => symbol.toLocaleUpperCase("id-ID") === assignment.symbol.toLocaleUpperCase("id-ID"))) continue;
           const key = `${personId}-${day}`;
           if (nextSchedule[key]) continue;
@@ -462,11 +694,17 @@ export default function BuatJadwal() {
             continue;
           }
           nextSchedule[key] = assignment.symbol;
+          draftAssignments.push({
+            personId: String(personId),
+            day,
+            weekday: namaHariLengkap[getDay(new Date(tahun, bulan - 1, day))],
+            nama: person.nama,
+            jabatan: person.jabatan || "Tidak diketahui",
+            symbol: assignment.symbol,
+          });
           assignedCount++;
         }
       });
-
-      if (assignedCount > 0 || clearedNoPracticeCount > 0) updateIsiJadwal(nextSchedule);
 
       const coverage = new Map();
       targetDays.forEach(({ day, symbols }) => {
@@ -485,9 +723,28 @@ export default function BuatJadwal() {
         });
       });
 
+      const scheduledPeople = new Set(draftAssignments.map(assignment => assignment.personId));
+      daftarSDM.forEach(person => {
+        for (let day = 1; day <= jumlahHari; day++) {
+          const value = nextSchedule[`${person.id}-${day}`];
+          if (value && !statusAbsensi.includes(String(value).toLocaleUpperCase("id-ID"))) {
+            scheduledPeople.add(String(person.id));
+            break;
+          }
+        }
+      });
+      const unassignedPeople = daftarSDM
+        .filter(person => !scheduledPeople.has(String(person.id)))
+        .map(person => person.nama);
+
+      setScheduleGenerationDraft({ assignments: draftAssignments, clearedKeys });
       setScheduleGenerationReport({
         assignedCount,
+        coveredPeopleCount: scheduledPeople.size,
+        totalPeopleCount: daftarSDM.length,
+        unassignedPeople,
         skippedOnLeave,
+        clearedDoctorLeaveCount,
         clearedNoPracticeCount,
         noPracticeDays: targetDays.filter(day => day.symbols.length === 0).map(day => day.day),
         coverage: [...coverage.values()].sort((a, b) => a.symbol.localeCompare(b.symbol, "id")),
@@ -500,12 +757,102 @@ export default function BuatJadwal() {
     }
   };
 
+  const handleResetSchedule = async () => {
+    if (loading || generatingSchedule || approvingDraft) return;
+    const confirmed = window.confirm(
+      `Kosongkan seluruh jadwal manual ${daftarBulan[bulan - 1]} ${tahun} untuk ${header.ruangan}? Tindakan ini langsung menghapus jadwal bulan tersebut dari database.`,
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    setScheduleGenerationError("");
+    try {
+      const response = await fetch("/api/jadwal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bulan, tahun, ruangan: header.ruangan, dataJadwal: {} }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result?.error || "Jadwal gagal dikosongkan.");
+      }
+
+      updateIsiJadwal({});
+      setScheduleGenerationDraft(null);
+      setScheduleGenerationReport(null);
+    } catch (error) {
+      setScheduleGenerationError(error instanceof Error ? error.message : "Jadwal gagal dikosongkan.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApproveDraft = async () => {
+    if (approvingDraft || !scheduleGenerationReport || !scheduleGenerationDraft) return;
+    if (scheduleGenerationDraft.assignments.length === 0 && scheduleGenerationDraft.clearedKeys.length === 0) {
+      setScheduleGenerationError("Draft tidak memiliki perubahan untuk diterapkan.");
+      return;
+    }
+
+    setApprovingDraft(true);
+    setScheduleGenerationError("");
+    try {
+      const approvedSchedule = { ...isiJadwal };
+      const scheduleWithoutAbsentDoctors = removeUnavailableDoctorAssignments(approvedSchedule);
+      Object.keys(approvedSchedule).forEach(key => delete approvedSchedule[key]);
+      Object.assign(approvedSchedule, scheduleWithoutAbsentDoctors);
+      scheduleGenerationDraft.clearedKeys.forEach(key => {
+        const current = approvedSchedule[key];
+        if (current && !statusAbsensi.includes(String(current).toLocaleUpperCase("id-ID"))) {
+          delete approvedSchedule[key];
+        }
+      });
+
+      let appliedCount = 0;
+      scheduleGenerationDraft.assignments.forEach(assignment => {
+        const key = `${assignment.personId}-${assignment.day}`;
+        if (approvedSchedule[key] || getAutoCutiValue(assignment.nama, assignment.day)) return;
+        approvedSchedule[key] = assignment.symbol;
+        appliedCount++;
+      });
+
+      const response = await fetch("/api/jadwal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bulan,
+          tahun,
+          ruangan: header.ruangan,
+          dataJadwal: approvedSchedule,
+          custom_judul: header.judul_bebas,
+          source: "ai-draft",
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result?.error || "Draft AI gagal disimpan ke database.");
+      }
+
+      updateIsiJadwal(approvedSchedule);
+      setScheduleGenerationReport((current) => ({
+        ...(current || {}),
+        approved: true,
+        approvedCount: appliedCount,
+      }));
+    } catch (error) {
+      setScheduleGenerationError(error instanceof Error ? error.message : "Gagal menyimpan draft AI ke database.");
+    } finally {
+      setApprovingDraft(false);
+    }
+  };
+
   const getKeteranganSimbolTerkelompok = (anggota = null) => {
     const simbolTerpakai = anggota ? new Set() : null;
     if (anggota) {
       anggota.forEach(person => {
         for (let tgl = 1; tgl <= jumlahHari; tgl++) {
-          const simbol = getAutoCutiValue(person.nama, tgl) || isiJadwal[`${person.id}-${tgl}`];
+          const simbol = getAutoCutiValue(person.nama, tgl) || getScheduleSymbol(person.id, tgl);
           if (simbol) simbolTerpakai.add(String(simbol).trim().toLocaleUpperCase());
         }
       });
@@ -536,7 +883,7 @@ export default function BuatJadwal() {
   const hitungTotalMasuk = (tgl, kategori, anggota = daftarSDM) => {
     let total = 0;
     anggota.forEach(sdm => {
-      const val = getAutoCutiValue(sdm.nama, tgl) || isiJadwal[`${sdm.id}-${tgl}`];
+      const val = getAutoCutiValue(sdm.nama, tgl) || getScheduleSymbol(sdm.id, tgl);
       if (val && !statusAbsensi.includes(val)) {
         const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
         if (kategori === "perawat" && isPerawat) total++;
@@ -555,7 +902,7 @@ export default function BuatJadwal() {
       for (let tgl = 1; tgl <= jumlahHari; tgl++) {
         if (noPracticeDays.has(tgl)) continue;
         const autoVal = getAutoCutiValue(sdm.nama, tgl);
-        const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`];
+        const currentVal = autoVal || getScheduleSymbol(sdm.id, tgl);
         if (!currentVal) missingCount++;
       }
     });
@@ -565,13 +912,29 @@ export default function BuatJadwal() {
       if (!lanjut) return;
     }
 
+    if (doctorLeaveImpacts.length > 0) {
+      const lanjutDenganPenyesuaian = window.confirm(
+        `${doctorLeaveImpacts.length} penugasan dokter berhalangan akan dikosongkan dari jadwal yang disimpan. Lanjutkan?`,
+      );
+      if (!lanjutDenganPenyesuaian) return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/jadwal", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bulan, tahun, ruangan: header.ruangan, dataJadwal: isiJadwal, custom_judul: header.judul_bebas })
+        body: JSON.stringify({
+          bulan,
+          tahun,
+          ruangan: header.ruangan,
+          dataJadwal: removeUnavailableDoctorAssignments(isiJadwal),
+          custom_judul: header.judul_bebas,
+        })
       });
-      if (res.ok) alert("✅ Jadwal Berhasil Disimpan!");
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) throw new Error(result.error || "Jadwal gagal disimpan.");
+      updateIsiJadwal(removeUnavailableDoctorAssignments(isiJadwal));
+      alert("✅ Jadwal Berhasil Disimpan!");
     } catch (e) { alert("❌ Koneksi Gagal."); }
     finally { setLoading(false); }
   };
@@ -849,29 +1212,101 @@ export default function BuatJadwal() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="font-black text-slate-900 flex items-center gap-2"><Sparkles size={18} className="text-violet-600" /> Draft Jadwal dengan Groq</h2>
-              <p className="text-xs text-slate-600 mt-1">Pola mengambil hari kerja yang sama dari kemunculan terakhir bulan sebelumnya. Hasil divalidasi, tidak menimpa sel terisi, dan belum disimpan.</p>
+              <p className="text-xs text-slate-600 mt-1">AI mempertimbangkan pola kerja, cuti yang disetujui, dan riwayat simbol enam bulan terakhir. Tinjau draft sebelum menerapkannya.</p>
             </div>
-            <button
-              onClick={handleGenerateSchedule}
-              disabled={generatingSchedule || loading}
-              className="bg-violet-700 text-white px-5 py-3 rounded-xl font-bold text-xs flex items-center gap-2 justify-center hover:bg-violet-800 disabled:opacity-50"
-            >
-              {generatingSchedule ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {generatingSchedule ? "Menyusun Draft..." : "✨ Hasilkan Jadwal AI"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleGenerateSchedule}
+                disabled={generatingSchedule || loading}
+                className="bg-violet-700 text-white px-5 py-3 rounded-xl font-bold text-xs flex items-center gap-2 justify-center hover:bg-violet-800 disabled:opacity-50"
+              >
+                {generatingSchedule ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                {generatingSchedule ? "Menyusun Draft..." : "✨ Hasilkan Jadwal AI"}
+              </button>
+              <button
+                type="button"
+                onClick={handleResetSchedule}
+                disabled={loading || generatingSchedule || approvingDraft}
+                className="bg-red-700 text-white px-4 py-3 rounded-xl font-bold text-xs flex items-center gap-2 justify-center hover:bg-red-800 disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                {loading ? "Mengosongkan..." : "Kosongkan Bulan"}
+              </button>
+            </div>
           </div>
           {scheduleGenerationError && <p role="alert" className="mt-3 text-sm font-semibold text-red-700">{scheduleGenerationError}</p>}
           {scheduleGenerationReport && (
             <div className="mt-4 border-t pt-4 text-sm text-slate-700 space-y-3">
               <p className="font-semibold">
-                Draft menambahkan {scheduleGenerationReport.assignedCount} sel
-                {scheduleGenerationReport.clearedNoPracticeCount > 0 && ` dan mengosongkan ${scheduleGenerationReport.clearedNoPracticeCount} sel pada hari tanpa praktik`}
+                Draft berisi {scheduleGenerationReport.assignedCount} usulan penugasan
+                {scheduleGenerationReport.clearedNoPracticeCount > 0 && ` dan akan mengosongkan ${scheduleGenerationReport.clearedNoPracticeCount} sel pada hari tanpa praktik`}
+                {scheduleGenerationReport.clearedDoctorLeaveCount > 0 && `; ${scheduleGenerationReport.clearedDoctorLeaveCount} penugasan dokter cuti akan dihapus`}
                 {scheduleGenerationReport.skippedOnLeave > 0 && `; ${scheduleGenerationReport.skippedOnLeave} penugasan dilewati karena cuti disetujui`}.
               </p>
               {scheduleGenerationReport.summary && <p>{scheduleGenerationReport.summary}</p>}
+              <p className={scheduleGenerationReport.unassignedPeople.length ? "text-amber-800" : "text-emerald-700"}>
+                SDM yang terjadwal setelah draft: {scheduleGenerationReport.coveredPeopleCount}/{scheduleGenerationReport.totalPeopleCount}.
+                {scheduleGenerationReport.unassignedPeople.length > 0 && ` Belum tercakup: ${scheduleGenerationReport.unassignedPeople.join(", ")}.`}
+              </p>
               {scheduleGenerationReport.noPracticeDays.length > 0 && (
                 <p className="text-amber-800">Tidak ada dokter praktik (dibiarkan kosong): tanggal {scheduleGenerationReport.noPracticeDays.join(", ")}.</p>
               )}
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-wide mb-2">Pratinjau Penugasan</h3>
+              {doctorLeaveImpacts.length > 0 && (
+                <section role="alert" className="mt-4 border border-amber-300 bg-amber-50 p-4 rounded-xl text-sm text-amber-950">
+                  <h3 className="font-black">Penugasan terdampak dokter berhalangan</h3>
+                  <ul className="mt-2 space-y-2">
+                    {doctorLeaveImpacts.slice(0, 12).map(impact => (
+                      <li key={impact.key} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border-t border-amber-200 pt-2">
+                        <span>
+                          Tanggal {impact.day}: {impact.personName} ({impact.symbol}) untuk {impact.absentDoctors.join(", ")}.
+                          {impact.recommendation
+                            ? ` Saran: ${impact.recommendation.name} (${impact.recommendation.symbol}), ${impact.recommendation.patients} pasien periode sebelumnya dan ${impact.recommendation.assistants} asisten terjadwal.`
+                            : " Belum ada dokter pengganti yang praktik di klinik yang sama pada tanggal ini."}
+                        </span>
+                        {impact.recommendation && (
+                          <button
+                            type="button"
+                            onClick={() => updateIsiJadwal({ ...isiJadwal, [impact.key]: impact.recommendation.symbol })}
+                            className="shrink-0 bg-amber-800 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-amber-900"
+                          >
+                            Terapkan Saran
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {doctorLeaveImpacts.length > 12 && <p className="mt-2 text-xs">Masih ada {doctorLeaveImpacts.length - 12} penugasan terdampak lainnya.</p>}
+                </section>
+              )}
+                {scheduleGenerationDraft?.assignments.length ? (
+                  <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+                    <table className="w-full min-w-[560px] border-collapse text-left text-xs">
+                      <thead className="sticky top-0 bg-slate-800 text-white">
+                        <tr>
+                          <th className="p-2">Tanggal</th>
+                          <th className="p-2">Nama SDM</th>
+                          <th className="p-2">Jabatan</th>
+                          <th className="p-2">Simbol</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scheduleGenerationDraft.assignments.map((assignment, index) => (
+                          <tr key={`${assignment.personId}-${assignment.day}-${index}`} className="border-t border-slate-200 odd:bg-white even:bg-slate-50">
+                            <td className="whitespace-nowrap p-2">{assignment.day} {assignment.weekday}</td>
+                            <td className="p-2 font-semibold">{assignment.nama}</td>
+                            <td className="p-2">{assignment.jabatan}</td>
+                            <td className="p-2 font-bold">{assignment.symbol}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-amber-800">Belum ada penugasan baru untuk diterapkan.</p>
+                )}
+              </div>
               <div>
                 <h3 className="font-black text-xs uppercase tracking-wide mb-2">Cakupan Simbol Praktik</h3>
                 <div className="flex flex-wrap gap-2">
@@ -882,6 +1317,21 @@ export default function BuatJadwal() {
                     </span>
                   ))}
                 </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleApproveDraft}
+                  disabled={approvingDraft || scheduleGenerationReport.approved || !scheduleGenerationDraft}
+                  className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {approvingDraft ? "Menyimpan..." : scheduleGenerationReport.approved ? "Sudah Disetujui" : "Setujui & Terapkan Draft"}
+                </button>
+                {scheduleGenerationReport.approved && (
+                  <span role="status" className="text-xs font-bold text-emerald-700">
+                    Draft tersimpan; {scheduleGenerationReport.approvedCount} penugasan baru diterapkan ke tabel.
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -968,7 +1418,7 @@ export default function BuatJadwal() {
                             {Array.from({ length: jumlahHari }).map((_, i) => {
                               const tgl = i + 1;
                               const autoVal = getAutoCutiValue(sdm.nama, tgl);
-                              const currentVal = autoVal || isiJadwal[`${sdm.id}-${tgl}`] || "";
+                              const currentVal = autoVal || getScheduleSymbol(sdm.id, tgl) || "";
                               if (currentVal) rekap[currentVal] = (rekap[currentVal] || 0) + 1;
 
                               const targetDateObj = new Date(tahun, bulan - 1, tgl);
@@ -992,7 +1442,9 @@ export default function BuatJadwal() {
                                     <div className="relative inline-block group">
                                       <select
                                         value={currentVal}
-                                        title={currentVal}
+                                        title={currentVal
+                                          ? `${currentVal}: dipakai ${getSymbolAssistantCount(currentVal, tgl)} SDM pada tanggal ${tgl}`
+                                          : "Pilih simbol dokter"}
                                         disabled={!!autoVal}
                                         onChange={e => {
                                           const key = `${sdm.id}-${tgl}`;
@@ -1012,7 +1464,14 @@ export default function BuatJadwal() {
                                           {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
                                         </optgroup>
                                         <optgroup label="DOKTER (CERDAS)">
-                                          {getSimbolHarian(tgl, currentVal).map(s => <option key={s} value={s}>{s}</option>)}
+                                          {getSimbolHarian(tgl, currentVal).map(s => {
+                                            const assistantCount = getSymbolAssistantCount(s, tgl);
+                                            return (
+                                              <option key={s} value={s} title={`Dipakai ${assistantCount} SDM pada tanggal ${tgl}`}>
+                                                {s}
+                                              </option>
+                                            );
+                                          })}
                                           <option value="M">M</option>
                                           <option value="T">T</option>
                                         </optgroup>

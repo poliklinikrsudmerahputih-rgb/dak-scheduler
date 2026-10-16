@@ -5,6 +5,10 @@ import { cookies } from "next/headers";
 // Memaksa Next.js mengambil data secara real-time (Bypass Cache)
 export const dynamic = "force-dynamic";
 
+function normalizeDoctorSymbol(value) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
 // ====================================================================
 // FUNGSI GET (Master Dokter + Fitur AI Deteksi Simbol Kembar + Bobot Jaspel)
 // ====================================================================
@@ -86,8 +90,13 @@ export async function GET(request) {
       args: sqlArgs 
     });
 
+    const rows = (result.rows || []).map((row) => ({
+      ...row,
+      simbol_praktik: normalizeDoctorSymbol(row.simbol_praktik),
+    }));
+
     // 4. KEMBALIKAN DATA KE FRONTEND
-    return NextResponse.json(result.rows || []);
+    return NextResponse.json(rows);
     
   } catch (error) {
     console.error("Gagal mengambil data master dokter:", error);

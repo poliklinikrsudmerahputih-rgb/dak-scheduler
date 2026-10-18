@@ -71,6 +71,7 @@ export default function LoginPage() {
               <div className="relative">
                 <User className="absolute left-4 top-4 text-slate-300" size={18} />
                 <input 
+                  suppressHydrationWarning
                   required 
                   name="username"
                   type="text" 
@@ -85,6 +86,7 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock className="absolute left-4 top-4 text-slate-300" size={18} />
                 <input 
+                  suppressHydrationWarning
                   required 
                   name="password"
                   type="password" 
@@ -95,6 +97,7 @@ export default function LoginPage() {
             </div>
 
             <button 
+              suppressHydrationWarning
               disabled={loading} 
               type="submit" 
               className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"

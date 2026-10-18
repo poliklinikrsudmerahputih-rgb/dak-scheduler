@@ -33,6 +33,23 @@ const indicatorDefinitions = [
   }
 ];
 
+export function calculateTargetPIC(populasi) {
+  if (populasi >= 640) return 128;
+  if (populasi >= 320 && populasi <= 639) return Math.ceil(populasi * 0.20);
+  if (populasi >= 64 && populasi <= 319) return 64;
+  return populasi;
+}
+
+export function calculateTargetValidator(populasi) {
+  if (populasi >= 480) return 48;
+  if (populasi >= 161 && populasi <= 480) return Math.ceil(populasi * 0.10);
+  if (populasi >= 17 && populasi <= 160) {
+    const tenPercent = Math.ceil(populasi * 0.10);
+    return tenPercent > 16 ? tenPercent : 16;
+  }
+  return populasi;
+}
+
 export function buildImutIndicators(counts = {}) {
   const normalizedCounts = Object.fromEntries([
     "tepatWaktu",

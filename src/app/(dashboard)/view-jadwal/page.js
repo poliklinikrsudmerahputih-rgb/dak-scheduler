@@ -5,6 +5,7 @@ import Image from "next/image";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
+import { calculateTargetPIC, calculateTargetValidator } from "@/lib/imut-indicators";
 import { 
   Search, Camera, Clock, X,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
@@ -1015,6 +1016,8 @@ export default function ViewJadwalPublic() {
     fetchJSONWithTimeout,
     { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 60000 }
   );
+  const totalKunjunganImut = (Array.isArray(dataImut?.rekap) ? dataImut.rekap : [])
+    .reduce((total, row) => total + (Number(row.kunjungan) || 0), 0);
   const { data: dataSop, error: errorSop, isLoading: loadingSop, mutate: mutateSop } = useSWR(
     "/api/sop",
     fetchJSONWithTimeout,
@@ -1536,7 +1539,7 @@ export default function ViewJadwalPublic() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h2 id="modal-capaian-inm-title" className="text-lg font-black text-slate-900 sm:text-xl">
-                  Capaian Indikator Nasional Mutu (INM) - Instalasi Rawat Jalan
+                  Laporan Indikator Mutu Rawat Jalan
                 </h2>
                 <p className="mt-1 text-xs font-semibold text-slate-500">
                   Periode {format(parseISO(`${tanggalLaporanImut.slice(0, 7)}-01`), "MMMM yyyy", { locale: id })}
@@ -1607,6 +1610,55 @@ export default function ViewJadwalPublic() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {dataImut && (
+              <section aria-labelledby="ringkasan-perhitungan-imut" className="mt-4 rounded-lg border border-blue-200 bg-blue-50/70 p-4 sm:p-5">
+                <h3 id="ringkasan-perhitungan-imut" className="text-sm font-black text-slate-900">
+                  Ringkasan Perhitungan dan Target Sampel
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Capaian dihitung dengan rumus Numerator ÷ Denominator × 100. Target sampel ditentukan dari total kunjungan pasien pada periode laporan.
+                </p>
+                <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-blue-100 bg-white p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Populasi · Kunjungan Pasien</dt>
+                    <dd className="mt-1 text-lg font-black text-slate-900">{totalKunjunganImut.toLocaleString("id-ID")}</dd>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-white p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Pengumpulan Data · PIC</dt>
+                    <dd className="mt-1 text-lg font-black text-slate-900">{calculateTargetPIC(totalKunjunganImut).toLocaleString("id-ID")} sampel</dd>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-white p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Validasi · Kepala Ruang / Koordinator</dt>
+                    <dd className="mt-1 text-lg font-black text-slate-900">{calculateTargetValidator(totalKunjunganImut).toLocaleString("id-ID")} sampel</dd>
+                  </div>
+                </dl>
+                <div className="mt-4 space-y-2">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-slate-700">Rincian Numerator, Denominator, dan Rumus</h4>
+                  {(dataImut.indikatorMutu || []).map((indikator) => {
+                    const numerator = Number(indikator.numerator) || 0;
+                    const denominator = Number(indikator.denominator) || 0;
+                    const capaian = indikator.capaian === null || indikator.capaian === undefined
+                      ? null
+                      : Number(indikator.capaian);
+                    return (
+                      <dl key={indikator.key} className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs sm:grid-cols-[minmax(0,1.2fr)_minmax(5rem,0.6fr)_minmax(5rem,0.6fr)_minmax(0,1.5fr)] sm:items-center">
+                        <dt className="font-bold text-slate-800">{indikator.nama}</dt>
+                        <div><dt className="inline text-slate-500">Numerator: </dt><dd className="inline font-semibold text-slate-800">{numerator.toLocaleString("id-ID")}</dd></div>
+                        <div><dt className="inline text-slate-500">Denominator: </dt><dd className="inline font-semibold text-slate-800">{denominator.toLocaleString("id-ID")}</dd></div>
+                        <div>
+                          <dt className="inline text-slate-500">Rumus: </dt>
+                          <dd className="inline font-semibold text-slate-800">
+                            {denominator > 0 && capaian !== null && Number.isFinite(capaian)
+                              ? `${numerator.toLocaleString("id-ID")} ÷ ${denominator.toLocaleString("id-ID")} × 100 = ${capaian.toLocaleString("id-ID", { maximumFractionDigits: 1 })}%`
+                              : "Belum dapat dihitung (belum ada sampling)"}
+                          </dd>
+                        </div>
+                      </dl>
+                    );
+                  })}
+                </div>
+              </section>
             )}
             <p className="mt-4 text-[10px] leading-4 text-slate-500">
               Capaian ditampilkan dari rekap sampling indikator mutu bulan berjalan. Data diperbarui otomatis setiap menit.

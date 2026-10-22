@@ -15,9 +15,11 @@
     "docx": "^9.8.1",
     "file-saver": "^2.0.5",
     "lucide-react": "^0.575.0",
+    "mammoth": "^1.13.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-dropzone": "^20.1.4",
     "recharts": "^3.10.1",
     "swr": "^2.5.1"
   },

@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link"; 
 import { useRouter } from "next/navigation"; 
 import { 
-  Users, Stethoscope, Calendar, PlaneTakeoff, Timer,
+  Users, Stethoscope, Calendar, PlaneTakeoff, Timer, Sparkles,
   LayoutDashboard, Menu, X, Code, Cpu, LogOut, TrendingUp, BrainCircuit, BookOpen
 } from "lucide-react";
 
@@ -39,6 +39,7 @@ export default function DashboardLayout({ children }) {
     { name: "Cuti SDM", icon: <PlaneTakeoff size={20}/>, href: "/cuti-sdm" },
     { name: "Cuti Dokter", icon: <PlaneTakeoff size={20}/>, href: "/cuti-dokter" },
     { name: "Manajemen SOP", icon: <BookOpen size={20}/>, href: "/manajemen-sop" },
+    { name: "SPO Generator AI", icon: <Sparkles size={20}/>, href: "/spo-generator" },
     { name: "Observasi & TLX", icon: <Timer size={20}/>, href: "/observasi-kerja" },
   ];
 

@@ -67,3 +67,29 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ error: "Gagal menyimpan perubahan SPO ke Turso." }, { status: 500 });
   }
 }
+
+export async function DELETE(_request, { params }) {
+  try {
+    const ruangan = await getSopRuangan();
+    if (!ruangan) {
+      return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+    }
+    const { id } = await params;
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) {
+      return NextResponse.json({ error: "ID arsip SPO tidak valid." }, { status: 400 });
+    }
+
+    await ensureSpoGeneratorStorage();
+    const result = await turso.execute({
+      sql: "DELETE FROM spo_generator_documents WHERE id = ? AND UPPER(TRIM(ruangan)) = ?",
+      args: [id, ruangan],
+    });
+    if (result.rowsAffected === 0) {
+      return NextResponse.json({ error: "Arsip SPO tidak ditemukan di ruangan Anda." }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("SPO Generator document delete failed:", error);
+    return NextResponse.json({ error: "Gagal menghapus SPO dari arsip Turso." }, { status: 500 });
+  }
+}

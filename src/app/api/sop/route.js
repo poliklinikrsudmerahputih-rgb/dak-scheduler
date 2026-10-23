@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
-import { daftarKlinikSop, kodeKlinikSop } from "@/lib/sop-constants";
+import { daftarKlinikArsipSop } from "@/lib/sop-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,23 @@ async function getSopColumns(client = turso) {
   return new Set((result.rows || []).map((column) => String(column.name)));
 }
 
+function compareSopNumbers(left, right) {
+  const parseNumber = (value) => String(value || "").match(/^IRJA\/(?:[A-Z]{3}\/)?(\d+)\/(\d{4})$/i);
+  const leftMatch = parseNumber(left.no_sop);
+  const rightMatch = parseNumber(right.no_sop);
+
+  if (leftMatch && rightMatch) {
+    const yearDifference = Number(rightMatch[2]) - Number(leftMatch[2]);
+    if (yearDifference) return yearDifference;
+    const sequenceDifference = Number(leftMatch[1]) - Number(rightMatch[1]);
+    if (sequenceDifference) return sequenceDifference;
+  }
+  return String(left.no_sop || "").localeCompare(String(right.no_sop || ""), "id", {
+    numeric: true,
+    sensitivity: "base",
+  }) || Number(left.id) - Number(right.id);
+}
+
 async function createGeneratedSop(body, ruangan, columns) {
   const judul_sop = typeof body?.judul_sop === "string" ? body.judul_sop.trim() : "";
   const requestedRuangan = typeof body?.ruangan === "string"
@@ -50,7 +67,7 @@ async function createGeneratedSop(body, ruangan, columns) {
   if (!requestedRuangan || requestedRuangan !== ruangan) {
     return { error: "Ruangan SOP harus sesuai dengan ruangan pada sesi Anda.", status: 403 };
   }
-  if (!daftarKlinikSop.includes(klinik)) {
+  if (!daftarKlinikArsipSop.includes(klinik)) {
     return { error: "Klinik SOP harus dipilih dari daftar yang tersedia.", status: 400 };
   }
   if (tanggal_pembuatan && !isValidDate(tanggal_pembuatan)) {
@@ -67,22 +84,21 @@ async function createGeneratedSop(body, ruangan, columns) {
   const tahun = tanggal_pembuatan
     ? tanggal_pembuatan.slice(0, 4)
     : String(new Date().getFullYear());
-  const kodeKlinik = kodeKlinikSop[klinik];
   const transaction = await turso.transaction("write");
   try {
     const existing = await transaction.execute({
       sql: `SELECT no_sop FROM sop
-            WHERE UPPER(TRIM(ruangan)) = ? AND no_sop LIKE ?`,
-      args: [ruangan, `IRJA/${kodeKlinik}/%/${tahun}`],
+            WHERE UPPER(TRIM(ruangan)) = ?`,
+      args: [ruangan],
     });
 
     const nomorUrutTerakhir = existing.rows.reduce((max, row) => {
       const match = String(row.no_sop || "").match(
-        new RegExp(`^IRJA/${kodeKlinik}/(\\d+)/${tahun}$`)
+        new RegExp(`^IRJA/(?:[A-Z]{3}/)?(\\d+)/${tahun}$`, "i")
       );
       return match ? Math.max(max, Number(match[1])) : max;
     }, 0);
-    const nomor_sop = `IRJA/${kodeKlinik}/${String(nomorUrutTerakhir + 1).padStart(3, "0")}/${tahun}`;
+    const nomor_sop = `IRJA/${String(nomorUrutTerakhir + 1).padStart(3, "0")}/${tahun}`;
 
     const insertColumns = ["no_sop", "judul_prosedur", "link_gdrive", "ruangan"];
     const insertArgs = [nomor_sop, judul_sop, link.value, ruangan];
@@ -143,7 +159,7 @@ export async function GET() {
             ORDER BY no_sop COLLATE NOCASE ASC, id ASC`,
       args: [ruangan],
     });
-    return NextResponse.json(result.rows || []);
+    return NextResponse.json([...(result.rows || [])].sort(compareSopNumbers));
   } catch (error) {
     console.error("API SOP Error:", error);
     return NextResponse.json(

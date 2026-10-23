@@ -21,6 +21,12 @@ export const daftarKlinikSop = [
   "Terapi Okupasi",
 ];
 
+export const daftarKlinikArsipSop = [
+  ...daftarKlinikSop,
+  "Unit Hemodialisa",
+  "Pokja",
+];
+
 export const kodeKlinikSop = {
   "Poliklinik Dalam": "PDL",
   Gigi: "GIG",

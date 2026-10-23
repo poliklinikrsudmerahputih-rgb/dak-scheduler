@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { useRouter } from "next/navigation";
 import { AlertCircle, BookOpen, ExternalLink, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
-import { daftarKlinikSop } from "@/lib/sop-constants";
+import { daftarKlinikArsipSop } from "@/lib/sop-constants";
 
 const fetcher = async (url) => {
   const response = await fetch(url);
@@ -115,7 +115,7 @@ export default function ManajemenSopPage() {
     setForm({
       judul_sop: sop.judul_prosedur || sop.judul_sop || "",
       ruangan: activeRoom,
-      klinik: sop.klinik || daftarKlinikSop[0],
+      klinik: sop.klinik || daftarKlinikArsipSop[0],
       tanggal_pembuatan: sop.tanggal_pembuatan || "",
       tanggal_pengesahan: sop.tanggal_pengesahan || "",
       link_gdrive: sop.link_gdrive || "",
@@ -210,7 +210,7 @@ export default function ManajemenSopPage() {
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="" disabled>Pilih klinik</option>
-              {daftarKlinikSop.map((klinik) => (
+              {daftarKlinikArsipSop.map((klinik) => (
                 <option key={klinik} value={klinik}>{klinik}</option>
               ))}
             </select>

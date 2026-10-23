@@ -8,6 +8,36 @@ export const dynamic = "force-dynamic";
 const logoUrl = "https://i.ibb.co.com/0RMzZ5hS/Logo-Kabupaten-Magelang.png";
 const maxTextLength = 100_000;
 
+function findLabeledSourceValue(rawText, aliases) {
+  const normalizedAliases = aliases.map((alias) => alias.toLocaleLowerCase("id-ID"));
+  const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const cells = lines[index].split(/\s*\|\s*|\t+/).map((cell) => cell.trim()).filter(Boolean);
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+      const cell = cells[cellIndex].replace(/^[\s*#\-–—]+/, "").replace(/^\d+[.)]\s*/, "").trim();
+      const inlineMatch = cell.match(/^([^:：=]+?)\s*[:：=]\s*(.+)$/);
+      const inlineLabel = inlineMatch?.[1].replace(/^\d+[.)]\s*/, "").trim().toLocaleLowerCase("id-ID");
+      if (inlineMatch && normalizedAliases.includes(inlineLabel)) {
+        return inlineMatch[2].trim();
+      }
+
+      const label = cell.replace(/\s*[:：=]\s*$/, "").toLocaleLowerCase("id-ID");
+      if (!normalizedAliases.includes(label)) continue;
+      const adjacentValue = cells.slice(cellIndex + 1).join(" | ").trim();
+      if (adjacentValue) return adjacentValue;
+
+      const nextLine = lines[index + 1] || "";
+      const nextCell = nextLine.split(/\s*\|\s*|\t+/).map((value) => value.trim()).filter(Boolean)[0] || "";
+      const nextLabel = nextCell.replace(/^[\s*#\-–—]+/, "").replace(/^\d+[.)]\s*/, "").replace(/\s*[:：=]\s*$/, "").toLocaleLowerCase("id-ID");
+      if (nextCell && !normalizedAliases.includes(nextLabel)) {
+        return nextCell;
+      }
+    }
+  }
+  return "";
+}
+
 async function hasValidSession() {
   const sessionCookie = (await cookies()).get("session_dak_pro");
   if (!sessionCookie) return false;
@@ -98,7 +128,7 @@ export async function POST(request) {
 }`;
     const systemPrompt = action === "generate"
       ? `Anda adalah asisten penyusun rancangan SPO rumah sakit dalam Bahasa Indonesia. Buat rancangan yang jelas, aman, terukur, dan dapat ditinjau oleh tenaga kesehatan dari topik dan konteks yang diberikan. Kembalikan hanya JSON valid dengan struktur persis berikut:\n${schema}\n\nPertahankan judul yang diberikan. Susun prosedur berurutan dalam tahap berhuruf (A., B., C.) dan langkah bernomor. Jangan mengarang nomor dokumen, tanggal, jabatan, nama pejabat, NIP, nomor kebijakan, atau dasar hukum; biarkan kosong jika tidak diberikan. Isi unit_terkait dan dokumen_terkait dari konteks. Jika tidak disebut, beri saran umum yang relevan dengan topik/prosedur dan awali "Saran AI (perlu validasi): "; jangan mengklaim sebagai unit atau dokumen resmi yang berlaku. Tandai informasi klinis yang perlu validasi sebagai instruksi umum untuk ditetapkan tim berwenang. Bila informasi konteks terbatas, buat draft kerangka yang wajar dan tidak menambahkan tindakan klinis berisiko atau dosis.`
-      : `Anda adalah asisten ekstraksi dokumen SPO rumah sakit. Petakan isi teks sumber secara akurat ke satu objek JSON valid dengan struktur persis:\n${schema}\n\nPertahankan informasi dan urutan prosedur dari sumber. Kelompokkan langkah berdasarkan tahap jika ada. Baca seluruh isi tabel dan teks, termasuk sel yang berisi banyak baris. Untuk unit_terkait, cari juga label UNIT TERKAIT, UNIT KERJA, PELAKSANA, PETUGAS, dan INSTALASI. Untuk dokumen_terkait, cari juga label DOKUMEN TERKAIT, REFERENSI, FORMULIR, REKAMAN, dan DOKUMEN PENDUKUNG. Jika informasi ditemukan di sumber, pindahkan lengkap ke field terkait walau label lama berbeda. Bila suatu bagian tidak ada atau kosong, buat saran yang masuk akal hanya berdasarkan tugas/prosedur yang dijelaskan, awali nilainya dengan "Saran AI (perlu validasi): " dan jangan menyatakannya sebagai kebijakan resmi. Jangan menambahkan nama unit, dokumen resmi, peraturan, atau formulir yang spesifik seolah-olah sudah berlaku bila sumber tidak membuktikannya. Jangan menghilangkan isi yang tersedia dengan mengganti menggunakan saran. Tanggal gunakan format YYYY-MM-DD bila dapat dipastikan, selain itu pertahankan teks aslinya. Petakan blok pengesahan dengan teliti: jabatan yang mengesahkan ke "disahkan_oleh", nama orang yang menandatangani ke "pejabat_pengesah", dan nomor induk yang tertera ke "nip_pengesah". Cari identitas penandatangan yang berada di sel persetujuan, termasuk teks setelah baris kosong atau label Disahkan Oleh/Disetujui Oleh. Bila nama, jabatan, dan nomor induk tidak dapat dipastikan, biarkan kosong; jangan memindahkannya ke uraian prosedur. Balas hanya JSON, tanpa markdown.`;
+      : `Anda adalah asisten ekstraksi dokumen SPO rumah sakit. Petakan isi teks sumber secara akurat ke satu objek JSON valid dengan struktur persis:\n${schema}\n\nPertahankan informasi dan urutan prosedur dari sumber. Kelompokkan langkah berdasarkan tahap jika ada. Baca seluruh isi tabel dan teks, termasuk sel yang berisi banyak baris. Teks tabel mungkin ditulis sebagai beberapa sel yang dipisahkan tanda |, tab, atau baris baru: jika satu sel berisi label dan sel berikutnya berisi nilainya, gabungkan nilai sel berikutnya ke field yang sesuai. Untuk unit_terkait, wajib telusuri dan salin isi setelah label UNIT TERKAIT, UNIT KERJA, UNIT/UNIT PELAKSANA, PELAKSANA, PETUGAS, dan INSTALASI; label dapat berada di kolom pertama tabel dan nilainya di kolom sebelahnya. Untuk dokumen_terkait, wajib telusuri dan salin isi setelah label DOKUMEN TERKAIT, DOKUMEN PENDUKUNG, REFERENSI, FORMULIR, REKAMAN, dan CATATAN. Jangan mengosongkan atau mengganti nilai yang ada pada sumber dengan saran. Pertahankan daftar nilai sebagaimana tertulis, termasuk lebih dari satu unit atau dokumen. Saran bertanda "Saran AI (perlu validasi): " hanya boleh digunakan bila tidak ditemukan nilai maupun label beserta isinya di seluruh sumber; jangan membuat saran jika isi sumber tersedia. Jangan menambahkan nama unit, dokumen resmi, peraturan, atau formulir spesifik seolah-olah berlaku bila sumber tidak membuktikannya. Tanggal gunakan format YYYY-MM-DD bila dapat dipastikan, selain itu pertahankan teks aslinya. Petakan blok pengesahan dengan teliti: jabatan yang mengesahkan ke "disahkan_oleh", nama orang yang menandatangani ke "pejabat_pengesah", dan nomor induk yang tertera ke "nip_pengesah". Cari identitas penandatangan yang berada di sel persetujuan, termasuk teks setelah baris kosong atau label Disahkan Oleh/Disetujui Oleh. Bila nama, jabatan, dan nomor induk tidak dapat dipastikan, biarkan kosong; jangan memindahkannya ke uraian prosedur. Balas hanya JSON, tanpa markdown.`;
     const userPrompt = action === "generate"
       ? `Buat draft SPO dengan judul berikut: ${requestedTitle}\n\nKonteks, tujuan, dan arahan pengguna:\n${rawText || "(Tidak ada konteks tambahan)"}\n\nGunakan judul tersebut persis dan buat bagian pengertian, tujuan, kebijakan, unit terkait, dokumen terkait, serta uraian prosedur terstruktur.`
       : rawText;
@@ -168,6 +198,14 @@ export async function POST(request) {
           }))
         : [],
     };
+    const sourceUnit = findLabeledSourceValue(rawText, [
+      "UNIT TERKAIT", "UNIT KERJA", "UNIT PELAKSANA", "PELAKSANA", "PETUGAS", "INSTALASI",
+    ]);
+    const sourceDocuments = findLabeledSourceValue(rawText, [
+      "DOKUMEN TERKAIT", "DOKUMEN PENDUKUNG", "REFERENSI", "FORMULIR", "REKAMAN", "CATATAN",
+    ]);
+    if (sourceUnit) data.unit_terkait = sourceUnit;
+    if (sourceDocuments) data.dokumen_terkait = sourceDocuments;
     let documentId;
     try {
       documentId = await saveGeneratedSop({ ruangan, sourceType: action, data });

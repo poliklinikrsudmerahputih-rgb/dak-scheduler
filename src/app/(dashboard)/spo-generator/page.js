@@ -15,6 +15,7 @@ import {
   Copy,
   Download,
   FileText,
+  Hash,
   Highlighter,
   IndentDecrease,
   IndentIncrease,
@@ -28,6 +29,7 @@ import {
   Scissors,
   Sparkles,
   Strikethrough,
+  Trash2,
   Underline,
   Undo2,
   List,
@@ -47,6 +49,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
+import { daftarKlinikArsipSop } from "@/lib/sop-constants";
 
 const emptySop = {
   no_sop: "",
@@ -64,6 +67,18 @@ const emptySop = {
   dokumen_terkait: "",
   prosedur: [],
 };
+
+function getSessionRuangan() {
+  if (typeof document === "undefined") return "";
+  const cookie = document.cookie.split("; ").find((item) => item.startsWith("session_dak_pro="));
+  if (!cookie) return "";
+  try {
+    const session = JSON.parse(decodeURIComponent(cookie.slice("session_dak_pro=".length)));
+    return String(session?.ruangan || "").trim().toUpperCase();
+  } catch {
+    return "";
+  }
+}
 
 const border = { style: BorderStyle.SINGLE, size: 6, color: "000000" };
 const cellBorders = { top: border, bottom: border, left: border, right: border };
@@ -522,6 +537,8 @@ export default function SpoGeneratorPage() {
   const editorRef = useRef(null);
   const selectionRef = useRef(null);
   const [rawText, setRawText] = useState("");
+  const [uploadedSources, setUploadedSources] = useState([]);
+  const [batchResults, setBatchResults] = useState([]);
   const [newSopTitle, setNewSopTitle] = useState("");
   const [newSopContext, setNewSopContext] = useState("");
   const [sop, setSop] = useState(emptySop);
@@ -540,7 +557,13 @@ export default function SpoGeneratorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [savedDocuments, setSavedDocuments] = useState([]);
   const [activeDocumentId, setActiveDocumentId] = useState("");
+  const [deletingDocumentId, setDeletingDocumentId] = useState("");
   const [isLoadingSaved, setIsLoadingSaved] = useState(true);
+  const [managementSops, setManagementSops] = useState([]);
+  const [selectedManagementSopId, setSelectedManagementSopId] = useState("");
+  const [selectedClinic, setSelectedClinic] = useState(daftarKlinikArsipSop[0]);
+  const [isLoadingManagementSops, setIsLoadingManagementSops] = useState(true);
+  const [isNumbering, setIsNumbering] = useState(false);
   const [dateValues, setDateValues] = useState({
     tanggal_pembuatan: toDateInputValue(emptySop.tanggal_pembuatan),
     tanggal_pengesahan: toDateInputValue(emptySop.tanggal_pengesahan),
@@ -564,6 +587,24 @@ export default function SpoGeneratorPage() {
       setError(loadError.message || "Gagal memuat arsip SPO.");
     } finally {
       setIsLoadingSaved(false);
+    }
+  }, [router]);
+
+  const loadManagementSops = useCallback(async () => {
+    setIsLoadingManagementSops(true);
+    try {
+      const response = await fetch("/api/sop", { cache: "no-store" });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal memuat nomor dari Manajemen SOP.");
+      setManagementSops(Array.isArray(result) ? result : []);
+    } catch (loadError) {
+      setError(loadError.message || "Gagal memuat nomor dari Manajemen SOP.");
+    } finally {
+      setIsLoadingManagementSops(false);
     }
   }, [router]);
 
@@ -601,9 +642,47 @@ export default function SpoGeneratorPage() {
     }
   };
 
+  const deleteSavedDocument = async (document) => {
+    if (!window.confirm(`Hapus arsip “${document.judul_sop}” secara permanen?`)) return;
+    setError("");
+    setNotice("");
+    setDeletingDocumentId(document.id);
+    try {
+      const response = await fetch(`/api/spo-generator/saved/${encodeURIComponent(document.id)}`, {
+        method: "DELETE",
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal menghapus arsip SPO.");
+      if (activeDocumentId === document.id) {
+        setActiveDocumentId("");
+        setSop(emptySop);
+        setEditorHtml(createPreviewHtml(emptySop));
+        setDateValues({
+          tanggal_pembuatan: toDateInputValue(emptySop.tanggal_pembuatan),
+          tanggal_pengesahan: toDateInputValue(emptySop.tanggal_pengesahan),
+        });
+        setIsEditing(false);
+      }
+      await loadSavedDocuments();
+      setNotice(`Arsip “${document.judul_sop}” berhasil dihapus.`);
+    } catch (deleteError) {
+      setError(deleteError.message || "Gagal menghapus arsip SPO.");
+    } finally {
+      setDeletingDocumentId("");
+    }
+  };
+
   useEffect(() => {
     loadSavedDocuments();
   }, [loadSavedDocuments]);
+
+  useEffect(() => {
+    loadManagementSops();
+  }, [loadManagementSops]);
 
   const saveEditorSelection = () => {
     const selection = window.getSelection();
@@ -1028,40 +1107,50 @@ export default function SpoGeneratorPage() {
   const onDrop = useCallback(async (acceptedFiles, rejectedFiles) => {
     setError("");
     setNotice("");
+    setBatchResults([]);
+    setUploadedSources([]);
+    setRawText("");
     if (rejectedFiles.length) {
-      setError("Unggah berkas DOCX atau TXT dengan ukuran maksimal 10 MB.");
-      return;
+      setError("Sebagian berkas tidak diterima. Format yang didukung DOCX atau TXT, maksimal 10 MB per berkas dan 20 berkas.");
     }
-    const file = acceptedFiles[0];
-    if (!file) return;
-    try {
-      let text;
-      if (file.name.toLowerCase().endsWith(".docx")) {
-        const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
-        const parsedDocument = new DOMParser().parseFromString(result.value, "text/html");
-        text = [...parsedDocument.body.children].map((element) => {
-          if (element.nodeName.toLowerCase() === "table") {
-            return [...element.rows].map((row) => (
-              [...row.cells].map((cell) => cell.innerText.trim()).filter(Boolean).join(" | ")
-            )).filter(Boolean).join("\n");
-          }
-          return element.innerText.trim();
-        }).filter(Boolean).join("\n");
-      } else {
-        text = await file.text();
+    if (!acceptedFiles.length) return;
+
+    const sources = [];
+    for (const file of acceptedFiles) {
+      try {
+        let text;
+        if (file.name.toLowerCase().endsWith(".docx")) {
+          const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+          const parsedDocument = new DOMParser().parseFromString(result.value, "text/html");
+          text = [...parsedDocument.body.children].map((element) => {
+            if (element.nodeName.toLowerCase() === "table") {
+              return [...element.rows].map((row) => (
+                [...row.cells].map((cell) => cell.innerText.trim()).filter(Boolean).join(" | ")
+              )).filter(Boolean).join("\n");
+            }
+            return element.innerText.trim();
+          }).filter(Boolean).join("\n");
+        } else {
+          text = await file.text();
+        }
+        if (!text.trim()) throw new Error("Tidak ditemukan teks pada dokumen.");
+        sources.push({ name: file.name, text });
+      } catch (readError) {
+        sources.push({ name: file.name, text: "", error: readError.message || "Dokumen gagal dibaca." });
       }
-      if (!text.trim()) throw new Error("Tidak ditemukan teks pada dokumen yang diunggah.");
-      setRawText(text);
-      setNotice(`Teks dari ${file.name} berhasil diekstrak. Periksa teks lalu jalankan ekstraksi AI.`);
-    } catch (readError) {
-      setError(readError.message || "Dokumen gagal dibaca.");
     }
+
+    setUploadedSources(sources);
+    if (sources.length === 1 && sources[0].text) setRawText(sources[0].text);
+    const readableCount = sources.filter((source) => source.text).length;
+    setNotice(`${readableCount} dari ${sources.length} berkas siap diproses${sources.length > 1 ? " sebagai lembar kerja terpisah" : ""}.`);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     noClick: true,
-    multiple: false,
+    multiple: true,
+    maxFiles: 20,
     maxSize: 10 * 1024 * 1024,
     accept: {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
@@ -1072,32 +1161,82 @@ export default function SpoGeneratorPage() {
   const extractSop = async () => {
     setError("");
     setNotice("");
+    const sources = uploadedSources.length
+      ? uploadedSources.map((source) => ({
+          ...source,
+          text: uploadedSources.length === 1 ? rawText : source.text,
+        }))
+      : [{ name: "Teks manual", text: rawText }];
+    if (!sources.some((source) => source.text?.trim())) {
+      setError("Pilih minimal satu berkas yang dapat dibaca atau isi teks sumber.");
+      return;
+    }
+
     setIsExtracting(true);
+    const results = sources.map((source) => source.error
+      ? { fileName: source.name, status: "gagal", error: source.error }
+      : { fileName: source.name, status: "menunggu" });
+    setBatchResults(results);
+    const extractedDocuments = [];
     try {
-      const response = await fetch("/api/spo-generator", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawText }),
-      });
-      const result = await response.json();
-      if (response.status === 401) {
-        router.push("/login");
-        return;
+      for (const [resultIndex, source] of sources.entries()) {
+        if (!source.text?.trim()) continue;
+        results[resultIndex] = { fileName: source.name, status: "diproses" };
+        setBatchResults([...results]);
+        try {
+          const response = await fetch("/api/spo-generator", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rawText: source.text }),
+          });
+          const result = await response.json();
+          if (response.status === 401) {
+            router.push("/login");
+            return;
+          }
+          if (!response.ok) throw new Error(result.error || "Ekstraksi SOP gagal.");
+          const extractedSop = { ...emptySop, ...result.data };
+          const documentResult = {
+            fileName: source.name,
+            status: "selesai",
+            id: result.documentId,
+            title: extractedSop.judul_sop || "SPO tanpa judul",
+            data: extractedSop,
+          };
+          results[resultIndex] = documentResult;
+          extractedDocuments.push(documentResult);
+          setBatchResults([...results]);
+        } catch (extractError) {
+          results[resultIndex] = {
+            fileName: source.name,
+            status: "gagal",
+            error: extractError.message || "Ekstraksi SOP gagal.",
+          };
+          setBatchResults([...results]);
+        }
       }
-      if (!response.ok) throw new Error(result.error || "Ekstraksi SOP gagal.");
-      const extractedSop = { ...emptySop, ...result.data };
-      setSop(extractedSop);
-      setEditorHtml(createPreviewHtml(extractedSop));
-      setDateValues({
-        tanggal_pembuatan: toDateInputValue(extractedSop.tanggal_pembuatan),
-        tanggal_pengesahan: toDateInputValue(extractedSop.tanggal_pengesahan),
-      });
-      setActiveDocumentId(result.documentId || "");
-      setIsEditing(false);
-      await loadSavedDocuments();
-      setNotice("SPO berhasil diekstrak dan disimpan otomatis ke arsip. Silakan periksa dan edit preview.");
-    } catch (extractError) {
-      setError(extractError.message || "Ekstraksi SOP gagal.");
+
+      if (extractedDocuments.length) {
+        const firstDocument = extractedDocuments[0];
+        setSop(firstDocument.data);
+        setEditorHtml(createPreviewHtml(firstDocument.data));
+        setDateValues({
+          tanggal_pembuatan: toDateInputValue(firstDocument.data.tanggal_pembuatan),
+          tanggal_pengesahan: toDateInputValue(firstDocument.data.tanggal_pengesahan),
+        });
+        setActiveDocumentId(firstDocument.id || "");
+        setIsEditing(false);
+        await loadSavedDocuments();
+      }
+
+      const failedCount = results.filter((item) => item.status === "gagal").length;
+      if (extractedDocuments.length) {
+        setNotice(
+          `${extractedDocuments.length} lembar kerja berhasil dibuat dan disimpan${failedCount ? `; ${failedCount} berkas gagal diproses` : ""}. Pilih hasil di bawah untuk membuka lembar kerja.`
+        );
+      } else {
+        setError(results.find((item) => item.status === "gagal")?.error || "Ekstraksi SPO gagal.");
+      }
     } finally {
       setIsExtracting(false);
     }
@@ -1162,7 +1301,7 @@ export default function SpoGeneratorPage() {
     const table = editorRef.current?.querySelector("[data-spo-document]");
     if (!table) {
       setError("Tabel SPO tidak ditemukan untuk disimpan.");
-      return;
+      return false;
     }
     const titleRow = [...table.rows].find((row) => (
       row.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID") === "nama sop"
@@ -1180,9 +1319,17 @@ export default function SpoGeneratorPage() {
     const no_sop = noSopRow?.cells[1]?.textContent?.trim() || "";
     const tanggal_pembuatan = createdDateRow?.cells[1]?.textContent?.trim() || "";
     const tanggal_pengesahan = approvalDateRow?.cells[1]?.textContent?.trim() || "";
+    const readField = (labels) => {
+      const row = [...table.rows].find((item) => labels.includes(
+        item.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID")
+      ));
+      return row?.cells[1]?.innerText?.trim() || "";
+    };
+    const unit_terkait = readField(["unit terkait", "unit kerja", "unit pelaksana", "pelaksana", "petugas", "instalasi"]);
+    const dokumen_terkait = readField(["dokumen terkait", "dokumen pendukung", "referensi", "formulir", "rekaman", "catatan"]);
     if (!judul_sop) {
       setError("Isi Nama SOP sebelum menyimpan ke Turso.");
-      return;
+      return false;
     }
     setError("");
     setNotice("");
@@ -1199,17 +1346,34 @@ export default function SpoGeneratorPage() {
           judul_sop,
           no_sop,
           html_content,
-          data: { ...sop, judul_sop, no_sop, tanggal_pembuatan, tanggal_pengesahan },
+          data: {
+            ...sop,
+            judul_sop,
+            no_sop,
+            tanggal_pembuatan,
+            tanggal_pengesahan,
+            unit_terkait,
+            dokumen_terkait,
+          },
         }),
       });
       const result = await response.json();
       if (response.status === 401) {
         router.push("/login");
-        return;
+        return false;
       }
       if (!response.ok) throw new Error(result.error || "Gagal menyimpan SPO.");
       if (result.id) setActiveDocumentId(result.id);
-      setSop((current) => ({ ...current, judul_sop, no_sop, tanggal_pembuatan, tanggal_pengesahan }));
+      setSop((current) => ({
+        ...current,
+        judul_sop,
+        no_sop,
+        tanggal_pembuatan,
+        tanggal_pengesahan,
+        unit_terkait,
+        dokumen_terkait,
+      }));
+      setEditorHtml(html_content);
       setDateValues({
         tanggal_pembuatan: toDateInputValue(tanggal_pembuatan),
         tanggal_pengesahan: toDateInputValue(tanggal_pengesahan),
@@ -1217,10 +1381,104 @@ export default function SpoGeneratorPage() {
       setIsEditing(false);
       await loadSavedDocuments();
       setNotice("Perubahan SPO berhasil disimpan ke database Turso.");
+      return true;
     } catch (saveError) {
       setError(saveError.message || "Gagal menyimpan SPO ke Turso.");
+      return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const findNumberCell = () => {
+    const table = editorRef.current?.querySelector("[data-spo-document]");
+    const row = table && [...table.rows].find((item) => (
+      item.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID") === "no. sop"
+    ));
+    return row?.cells[1] || null;
+  };
+
+  const applyManagementNumber = async (number) => {
+    const cell = findNumberCell();
+    if (!cell) {
+      setError("Sel No. SOP tidak ditemukan pada tabel.");
+      return false;
+    }
+    cell.textContent = number;
+    setSop((current) => ({ ...current, no_sop: number }));
+    return saveCurrentSop();
+  };
+
+  const useSelectedManagementNumber = async () => {
+    const selected = managementSops.find((item) => String(item.id) === selectedManagementSopId);
+    if (!selected) {
+      setError("Pilih nomor dari Manajemen SOP terlebih dahulu.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setIsNumbering(true);
+    try {
+      const saved = await applyManagementNumber(String(selected.no_sop || ""));
+      if (saved) {
+        setNotice(`Nomor ${selected.no_sop} dari Manajemen SOP sudah dimasukkan ke tabel dan disimpan.`);
+      }
+    } finally {
+      setIsNumbering(false);
+    }
+  };
+
+  const registerNextManagementNumber = async () => {
+    const titleRow = [...(editorRef.current?.querySelector("[data-spo-document]")?.rows || [])]
+      .find((row) => row.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID") === "nama sop");
+    const judul_sop = titleRow?.cells[1]?.textContent?.trim() || "";
+    const ruangan = getSessionRuangan();
+    const currentNumber = findNumberCell()?.textContent?.trim() || "";
+    if (!judul_sop) {
+      setError("Isi Nama SOP pada tabel sebelum mengambil nomor otomatis.");
+      return;
+    }
+    if (!ruangan) {
+      setError("Ruangan sesi tidak ditemukan. Silakan masuk kembali.");
+      return;
+    }
+    if (currentNumber && !window.confirm(
+      `Tabel sudah memiliki nomor ${currentNumber}. Tetap buat entri baru dengan nomor berikutnya? Entri Manajemen SOP yang lama tidak dihapus.`
+    )) return;
+
+    setError("");
+    setNotice("");
+    setIsNumbering(true);
+    try {
+      const response = await fetch("/api/sop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judul_sop,
+          ruangan,
+          klinik: selectedClinic,
+          tanggal_pembuatan: dateValues.tanggal_pembuatan || sop.tanggal_pembuatan || "",
+          tanggal_pengesahan: dateValues.tanggal_pengesahan || sop.tanggal_pengesahan || "",
+        }),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal mengambil nomor berikutnya.");
+
+      const saved = await applyManagementNumber(String(result.data?.nomor_sop || ""));
+      await loadManagementSops();
+      if (saved) {
+        setNotice(`Nomor berikutnya ${result.data?.nomor_sop} berhasil dibuat di Manajemen SOP dan dimasukkan ke tabel.`);
+      } else {
+        setNotice(`Nomor ${result.data?.nomor_sop} sudah dibuat di Manajemen SOP, tetapi lembar kerja belum tersimpan. Tekan “Simpan perubahan” untuk mencoba lagi.`);
+      }
+    } catch (numberError) {
+      setError(numberError.message || "Gagal mengambil nomor berikutnya.");
+    } finally {
+      setIsNumbering(false);
     }
   };
 
@@ -1329,7 +1587,7 @@ export default function SpoGeneratorPage() {
           <p className="text-sm font-bold text-slate-700">
             {isDragActive ? "Lepaskan dokumen di sini" : "Seret berkas DOCX atau TXT ke area ini"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Maksimal 10 MB. Dokumen DOCX diekstrak menggunakan Mammoth.</p>
+          <p className="mt-1 text-xs text-slate-500">Pilih hingga 20 berkas, maksimal 10 MB per berkas. Setiap berkas dibuat menjadi lembar kerja terpisah.</p>
           <button
             type="button"
             onClick={open}
@@ -1338,30 +1596,78 @@ export default function SpoGeneratorPage() {
             Pilih berkas
           </button>
         </div>
-        <label className="block space-y-2">
-          <span className="text-xs font-bold text-slate-600">Teks sumber (dapat diperiksa atau ditempel manual)</span>
-          <textarea
-            value={rawText}
-            onChange={(event) => setRawText(event.target.value)}
-            rows={7}
-            maxLength={100000}
-            placeholder="Teks SOP lama akan tampil di sini setelah diunggah..."
-            className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          />
-          <span className="block text-right text-[10px] text-slate-400">{rawText.length.toLocaleString("id-ID")} / 100.000 karakter</span>
-        </label>
+        {uploadedSources.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-bold text-slate-700">Berkas terpilih ({uploadedSources.length})</p>
+            <ul className="space-y-1.5">
+              {uploadedSources.map((source, index) => (
+                <li key={`${source.name}-${index}`} className="flex flex-wrap items-start justify-between gap-2 text-xs">
+                  <span className="break-all font-medium text-slate-700">{source.name}</span>
+                  <span className={source.error ? "text-red-600" : "text-emerald-700"}>
+                    {source.error || "Siap diekstrak"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {uploadedSources.length <= 1 ? (
+          <label className="block space-y-2">
+            <span className="text-xs font-bold text-slate-600">Teks sumber (dapat diperiksa atau ditempel manual)</span>
+            <textarea
+              value={rawText}
+              onChange={(event) => setRawText(event.target.value)}
+              rows={7}
+              maxLength={100000}
+              placeholder="Teks SPO lama akan tampil di sini setelah diunggah..."
+              className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+            <span className="block text-right text-[10px] text-slate-400">{rawText.length.toLocaleString("id-ID")} / 100.000 karakter</span>
+          </label>
+        ) : (
+          <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
+            Isi setiap berkas akan diekstrak secara terpisah. Untuk mengubah teks salah satu berkas, unggah berkas itu sendiri atau tempel teksnya sebagai input tunggal.
+          </p>
+        )}
         <p className="text-xs leading-relaxed text-slate-500">
           AI memetakan unit kerja, dokumen terkait, dan tanda tangan dari SPO lama. Jika bagian tersebut tidak tercantum, AI dapat memberi saran bertanda “perlu validasi” berdasarkan prosedur; periksa sebelum digunakan.
         </p>
         <button
           type="button"
-          disabled={!rawText.trim() || isExtracting}
+          disabled={(!rawText.trim() && !uploadedSources.some((source) => source.text?.trim())) || isExtracting}
           onClick={extractSop}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-md shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isExtracting ? <Loader2 className="animate-spin" size={17} /> : <Sparkles size={17} />}
-          {isExtracting ? "Mengekstrak..." : "Ekstrak dengan AI"}
+          {isExtracting ? "Mengekstrak berkas..." : uploadedSources.length > 1 ? `Ekstrak ${uploadedSources.length} SPO dengan AI` : "Ekstrak dengan AI"}
         </button>
+        {batchResults.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-700">Hasil lembar kerja</p>
+            <ul className="space-y-2">
+              {batchResults.map((item, index) => (
+                <li key={`${item.fileName}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="break-all text-xs font-bold text-slate-800">{item.title || item.fileName}</p>
+                    <p className={`mt-0.5 text-[11px] ${item.status === "gagal" ? "text-red-600" : item.status === "selesai" ? "text-emerald-700" : "text-slate-500"}`}>
+                      {item.status === "gagal" ? item.error : item.status === "selesai" ? `Sumber: ${item.fileName}` : item.status === "diproses" ? "Sedang diproses..." : "Menunggu"}
+                    </p>
+                  </div>
+                  {item.status === "selesai" && (
+                    <button
+                      type="button"
+                      disabled={isExtracting}
+                      onClick={() => loadSavedDocument(item.id)}
+                      className="shrink-0 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      Buka lembar kerja
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
@@ -1401,6 +1707,38 @@ export default function SpoGeneratorPage() {
             ))}
           </select>
         </label>
+        {savedDocuments.length > 0 && (
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {savedDocuments.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="break-words text-xs font-bold text-slate-800">{item.judul_sop}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{item.no_sop || "Tanpa nomor"} · {item.source_type === "generate" ? "Draft AI" : item.source_type === "manual" ? "Edit manual" : "Ekstraksi"}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadSavedDocument(item.id)}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-50"
+                  >
+                    Buka
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteSavedDocument(item)}
+                    disabled={Boolean(deletingDocumentId)}
+                    aria-label={`Hapus arsip ${item.judul_sop}`}
+                    title="Hapus arsip"
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deletingDocumentId === item.id ? <Loader2 className="animate-spin" size={13} /> : <Trash2 size={13} />}
+                    Hapus
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {(error || notice) && (
@@ -1409,6 +1747,81 @@ export default function SpoGeneratorPage() {
           <span>{error || notice}</span>
         </div>
       )}
+
+      <section className="space-y-4 rounded-3xl border border-violet-100 bg-violet-50/60 p-5 shadow-sm sm:p-7">
+        <div className="flex items-center gap-3">
+          <Hash className="text-violet-700" size={20} />
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Penomoran Terintegrasi Manajemen SOP</h2>
+            <p className="mt-1 text-xs text-slate-600">Nomor berikutnya mengikuti urutan global di ruangan tanpa kode klinik. Pilihan klinik hanya menentukan kategori arsip Manajemen SOP.</p>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+          <select
+            value={selectedManagementSopId}
+            onChange={(event) => setSelectedManagementSopId(event.target.value)}
+            disabled={isLoadingManagementSops || !managementSops.length || isNumbering}
+            aria-label="Pilih nomor dari Manajemen SOP"
+            className="min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 disabled:bg-slate-100"
+          >
+            <option value="">
+              {isLoadingManagementSops
+                ? "Memuat nomor Manajemen SOP..."
+                : managementSops.length
+                  ? "Pilih nomor SOP yang sudah terdaftar"
+                  : "Belum ada nomor SOP di Manajemen SOP"}
+            </option>
+            {managementSops.map((item) => (
+              <option key={item.id} value={String(item.id)}>
+                {item.no_sop} · {item.judul_prosedur || item.judul_sop}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={loadManagementSops}
+            disabled={isLoadingManagementSops || isNumbering}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Muat ulang daftar nomor
+          </button>
+          <button
+            type="button"
+            onClick={useSelectedManagementNumber}
+            disabled={!selectedManagementSopId || isNumbering || isSaving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isNumbering ? <Loader2 className="animate-spin" size={15} /> : <Hash size={15} />}
+            Ambil nomor terpilih ke tabel
+          </button>
+        </div>
+        <div className="grid gap-3 rounded-2xl border border-violet-100 bg-white/80 p-4 md:grid-cols-[minmax(0,1fr)_auto]">
+          <label className="space-y-1.5 text-xs font-bold text-slate-600">
+            <span>Klinik tujuan arsip</span>
+            <select
+              value={selectedClinic}
+              onChange={(event) => setSelectedClinic(event.target.value)}
+              disabled={isNumbering}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800 disabled:bg-slate-100"
+            >
+              {daftarKlinikArsipSop.map((clinic) => (
+                <option key={clinic} value={clinic}>{clinic}</option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={registerNextManagementNumber}
+              disabled={isNumbering || isSaving}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            >
+              {isNumbering ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
+              Daftarkan ke arsip & ambil nomor berikutnya
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3">

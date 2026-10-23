@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
-import { daftarKlinikSop } from "@/lib/sop-constants";
+import { daftarKlinikArsipSop } from "@/lib/sop-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ function validateSop(body) {
   if (!judul_prosedur || judul_prosedur.length > 255) {
     return { error: "Judul prosedur wajib diisi dan maksimal 255 karakter." };
   }
-  if (!daftarKlinikSop.includes(klinik)) {
+  if (!daftarKlinikArsipSop.includes(klinik)) {
     return { error: "Klinik SOP harus dipilih dari daftar yang tersedia." };
   }
   const isValidDate = (value) => {

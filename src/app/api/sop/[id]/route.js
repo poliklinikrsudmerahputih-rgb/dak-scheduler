@@ -100,6 +100,21 @@ export async function PUT(request, { params }) {
       tanggal_pembuatan,
       tanggal_pengesahan,
     } = validated.value;
+    const duplicate = await turso.execute({
+      sql: `SELECT id FROM sop
+            WHERE UPPER(TRIM(ruangan)) = ?
+              AND UPPER(TRIM(no_sop)) = UPPER(TRIM(?))
+              AND id != ?
+            LIMIT 1`,
+      args: [ruangan, no_sop, id],
+    });
+    if (duplicate.rows.length > 0) {
+      return NextResponse.json(
+        { error: "Nomor SPO tersebut sudah digunakan di ruangan Anda." },
+        { status: 409 }
+      );
+    }
+
     const result = await turso.execute({
       sql: `UPDATE sop
             SET no_sop = ?, judul_prosedur = ?, link_gdrive = ?, klinik = ?,

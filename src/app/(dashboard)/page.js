@@ -762,7 +762,7 @@ export default function DashboardUtama() {
                           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
                             <p className="text-xs font-black text-amber-800">Belum lengkap:</p>
                             <p className="mt-1 text-xs font-medium text-amber-700">{missingFields.join(", ")}</p>
-                            <a href="/manajemen-sop" className="mt-2 inline-block text-xs font-bold text-blue-700 hover:underline">
+                            <a href="/spo-generator" className="mt-2 inline-block text-xs font-bold text-blue-700 hover:underline">
                               Lengkapi data SOP
                             </a>
                           </div>

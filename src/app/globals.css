@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --background: #f3f6fb;
+  --foreground: #17243a;
+  --brand-950: #0b1729;
+  --brand-900: #10233d;
+  --brand-700: #175c75;
+  --brand-600: #087e8b;
+  --brand-100: #dff4f2;
+  --surface: #ffffff;
+  --muted: #64748b;
 }
 
 @theme inline {
@@ -12,15 +20,146 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
+  min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #b9e8e5;
+  color: #10233d;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+select,
+textarea {
+  accent-color: var(--brand-600);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline-color: #0c8b97;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #17243a;
+  box-shadow: 0 0 0 1000px #f8fafc inset;
+  transition: background-color 9999s ease-out;
+}
+
+.dak-dashboard [class~="bg-blue-950"],
+.dak-dashboard [class~="bg-blue-900"],
+.dak-dashboard [class~="bg-blue-800"],
+.dak-dashboard [class~="bg-blue-700"],
+.dak-dashboard [class~="bg-blue-600"] {
+  background-color: var(--brand-600);
+}
+
+.dak-dashboard [class~="bg-blue-500"] {
+  background-color: #1596a0;
+}
+
+.dak-dashboard [class~="bg-blue-100"] {
+  background-color: #dff4f2;
+}
+
+.dak-dashboard [class~="bg-blue-50"] {
+  background-color: #effaf9;
+}
+
+.dak-dashboard [class~="text-blue-900"],
+.dak-dashboard [class~="text-blue-800"],
+.dak-dashboard [class~="text-blue-700"],
+.dak-dashboard [class~="text-blue-600"] {
+  color: #087e8b;
+}
+
+.dak-dashboard [class~="text-blue-500"],
+.dak-dashboard [class~="text-blue-400"] {
+  color: #1596a0;
+}
+
+.dak-dashboard [class~="text-blue-300"] {
+  color: #68c4c5;
+}
+
+.dak-dashboard [class~="border-blue-300"],
+.dak-dashboard [class~="border-blue-200"] {
+  border-color: #a7dedb;
+}
+
+.dak-dashboard [class~="border-blue-100"] {
+  border-color: #d4eeec;
+}
+
+.dak-dashboard [class~="hover:bg-blue-800"]:hover,
+.dak-dashboard [class~="hover:bg-blue-700"]:hover,
+.dak-dashboard [class~="hover:bg-blue-600"]:hover,
+.dak-dashboard [class~="hover:bg-blue-500"]:hover {
+  background-color: #066b78;
+}
+
+.dak-dashboard [class~="hover:bg-blue-100"]:hover {
+  background-color: #dff4f2;
+}
+
+.dak-dashboard [class~="hover:text-blue-700"]:hover,
+.dak-dashboard [class~="hover:text-blue-600"]:hover,
+.dak-dashboard [class~="hover:text-blue-500"]:hover {
+  color: #066b78;
+}
+
+.dak-dashboard [class~="focus:ring-blue-600"]:focus,
+.dak-dashboard [class~="focus:ring-blue-500"]:focus,
+.dak-dashboard [class~="focus:ring-blue-100"]:focus {
+  --tw-ring-color: rgb(8 126 139 / 0.2);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #cbd5e1;
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

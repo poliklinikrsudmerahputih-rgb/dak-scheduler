@@ -2,8 +2,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "DAK-SCHEDULER PRO | Daniel Ari Kristianto",
-  description: "Advanced Hospital Scheduling System",
+  title: "DAK-PRO | Sistem Manajemen Jadwal",
+  description: "DAK-PRO — sistem manajemen jadwal dan operasional",
 };
 
 export default function RootLayout({ children }) {

@@ -35,6 +35,9 @@ import {
   List,
   ListOrdered,
   Upload,
+  X,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   AlignmentType,
@@ -563,7 +566,34 @@ export default function SpoGeneratorPage() {
   const [selectedManagementSopId, setSelectedManagementSopId] = useState("");
   const [selectedClinic, setSelectedClinic] = useState(daftarKlinikArsipSop[0]);
   const [isLoadingManagementSops, setIsLoadingManagementSops] = useState(true);
+  const [openSections, setOpenSections] = useState({
+    create: false,
+    extract: false,
+    archive: false,
+    numbering: false,
+    registry: false,
+    editor: false,
+  });
+  const [managementSearch, setManagementSearch] = useState("");
+  const [editingManagementSop, setEditingManagementSop] = useState(null);
+  const [managementForm, setManagementForm] = useState({
+    no_sop: "",
+    judul_prosedur: "",
+    klinik: "",
+    tanggal_pembuatan: "",
+    tanggal_pengesahan: "",
+    link_gdrive: "",
+  });
+  const [isSavingManagementSop, setIsSavingManagementSop] = useState(false);
+  const [deletingManagementSopId, setDeletingManagementSopId] = useState(null);
   const [isNumbering, setIsNumbering] = useState(false);
+  const [aiSection, setAiSection] = useState("pengertian");
+  const [aiInstructions, setAiInstructions] = useState("");
+  const aiInstructionsRef = useRef(null);
+  const aiInstructionsSelectionRef = useRef({ start: 0, end: 0 });
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState(null);
   const [dateValues, setDateValues] = useState({
     tanggal_pembuatan: toDateInputValue(emptySop.tanggal_pembuatan),
     tanggal_pengesahan: toDateInputValue(emptySop.tanggal_pengesahan),
@@ -571,6 +601,13 @@ export default function SpoGeneratorPage() {
   const previewHtml = useMemo(() => createPreviewHtml(sop), [sop]);
   const [editorHtml, setEditorHtml] = useState(() => previewHtml);
   const historyRef = useRef({ undo: [], redo: [], lastRecorded: "", pending: false, timer: null });
+  const toggleSection = (section) => {
+    setOpenSections((current) => ({ ...current, [section]: !current[section] }));
+  };
+
+  const openSectionFromNavigation = (section) => {
+    setOpenSections((current) => ({ ...current, [section]: true }));
+  };
 
   const loadSavedDocuments = useCallback(async () => {
     setIsLoadingSaved(true);
@@ -608,6 +645,86 @@ export default function SpoGeneratorPage() {
     }
   }, [router]);
 
+  const startEditingManagementSop = (item) => {
+    setEditingManagementSop(item);
+    setManagementForm({
+      no_sop: item.no_sop || "",
+      judul_prosedur: item.judul_prosedur || item.judul_sop || "",
+      klinik: item.klinik || daftarKlinikArsipSop[0],
+      tanggal_pembuatan: toDateInputValue(item.tanggal_pembuatan),
+      tanggal_pengesahan: toDateInputValue(item.tanggal_pengesahan),
+      link_gdrive: item.link_gdrive || "",
+    });
+    setError("");
+    setNotice("");
+  };
+
+  const cancelEditingManagementSop = () => {
+    setEditingManagementSop(null);
+    setManagementForm({
+      no_sop: "",
+      judul_prosedur: "",
+      klinik: "",
+      tanggal_pembuatan: "",
+      tanggal_pengesahan: "",
+      link_gdrive: "",
+    });
+  };
+
+  const saveManagementSop = async (event) => {
+    event.preventDefault();
+    if (!editingManagementSop) return;
+    setError("");
+    setNotice("");
+    setIsSavingManagementSop(true);
+    try {
+      const response = await fetch(`/api/sop/${editingManagementSop.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...managementForm,
+        }),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal memperbarui data SOP.");
+      cancelEditingManagementSop();
+      setNotice("Data Manajemen SOP berhasil diperbarui.");
+      await loadManagementSops();
+    } catch (saveError) {
+      setError(saveError.message || "Gagal memperbarui data SOP.");
+    } finally {
+      setIsSavingManagementSop(false);
+    }
+  };
+
+  const deleteManagementSop = async (item) => {
+    if (!window.confirm(`Hapus data SOP ${item.no_sop} — "${item.judul_prosedur}"?`)) return;
+    setDeletingManagementSopId(item.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/sop/${item.id}`, { method: "DELETE" });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal menghapus data SOP.");
+      if (String(item.id) === selectedManagementSopId) setSelectedManagementSopId("");
+      if (editingManagementSop?.id === item.id) cancelEditingManagementSop();
+      setNotice("Data Manajemen SOP berhasil dihapus.");
+      await loadManagementSops();
+    } catch (deleteError) {
+      setError(deleteError.message || "Gagal menghapus data SOP.");
+    } finally {
+      setDeletingManagementSopId(null);
+    }
+  };
+
   useEffect(() => {
     setIsHydrated(true);
   }, []);
@@ -628,6 +745,7 @@ export default function SpoGeneratorPage() {
         ? sanitizeEditorHtml(result.document.html_content)
         : createPreviewHtml(savedSop);
       setSop(savedSop);
+      setOpenSections((current) => ({ ...current, editor: true }));
       setEditorHtml(savedHtml);
       setDateValues({
         tanggal_pembuatan: toDateInputValue(savedSop.tanggal_pembuatan),
@@ -1187,7 +1305,7 @@ export default function SpoGeneratorPage() {
           const response = await fetch("/api/spo-generator", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rawText: source.text }),
+            body: JSON.stringify({ rawText: source.text, klinik: selectedClinic }),
           });
           const result = await response.json();
           if (response.status === 401) {
@@ -1219,6 +1337,7 @@ export default function SpoGeneratorPage() {
       if (extractedDocuments.length) {
         const firstDocument = extractedDocuments[0];
         setSop(firstDocument.data);
+        setOpenSections((current) => ({ ...current, editor: true }));
         setEditorHtml(createPreviewHtml(firstDocument.data));
         setDateValues({
           tanggal_pembuatan: toDateInputValue(firstDocument.data.tanggal_pembuatan),
@@ -1227,6 +1346,7 @@ export default function SpoGeneratorPage() {
         setActiveDocumentId(firstDocument.id || "");
         setIsEditing(false);
         await loadSavedDocuments();
+        await loadManagementSops();
       }
 
       const failedCount = results.filter((item) => item.status === "gagal").length;
@@ -1255,6 +1375,7 @@ export default function SpoGeneratorPage() {
           action: "generate",
           judul_sop: newSopTitle,
           rawText: newSopContext,
+          klinik: selectedClinic,
         }),
       });
       const result = await response.json();
@@ -1265,6 +1386,7 @@ export default function SpoGeneratorPage() {
       if (!response.ok) throw new Error(result.error || "Pembuatan draft SPO gagal.");
       const generatedSop = { ...emptySop, ...result.data, judul_sop: result.data?.judul_sop || newSopTitle };
       setSop(generatedSop);
+      setOpenSections((current) => ({ ...current, editor: true }));
       setEditorHtml(createPreviewHtml(generatedSop));
       setDateValues({
         tanggal_pembuatan: toDateInputValue(generatedSop.tanggal_pembuatan),
@@ -1273,6 +1395,7 @@ export default function SpoGeneratorPage() {
       setActiveDocumentId(result.documentId || "");
       setIsEditing(false);
       await loadSavedDocuments();
+      await loadManagementSops();
       setNotice("Draft SPO berhasil dibuat dan disimpan otomatis ke arsip. Periksa dan sesuaikan seluruh isi sebelum digunakan.");
       editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (generateError) {
@@ -1295,6 +1418,142 @@ export default function SpoGeneratorPage() {
       recordEditorChange();
       saveEditorSelection();
     }
+  };
+
+  const readEditorSection = (section) => {
+    const table = editorRef.current?.querySelector("[data-spo-document]");
+    if (!table) return "";
+    if (section === "prosedur") {
+      return table.querySelector("[data-procedure-content]")?.innerText?.trim() || "";
+    }
+    const labels = {
+      judul_sop: "nama sop",
+      unit_terkait: "unit terkait",
+      dokumen_terkait: "dokumen terkait",
+    };
+    const label = labels[section] || section;
+    const row = [...table.rows].find((item) => (
+      item.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID") === label
+    ));
+    return row?.cells[1]?.innerText?.trim() || "";
+  };
+
+  const generateSectionSuggestion = async () => {
+    const judul_sop = readEditorSection("judul_sop") || sop.judul_sop;
+    if (!judul_sop) {
+      setError("Buat atau buka draft SPO terlebih dahulu sebelum meminta bantuan AI.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setAiFeedback(null);
+    setAiSuggestion(null);
+    setIsAiGenerating(true);
+    const sectionContext = [
+      `Judul SPO: ${judul_sop}`,
+      `Pengertian: ${readEditorSection("pengertian")}`,
+      `Tujuan: ${readEditorSection("tujuan")}`,
+      `Kebijakan: ${readEditorSection("kebijakan")}`,
+      `Unit kerja: ${readEditorSection("unit_terkait")}`,
+      `Dokumen terkait: ${readEditorSection("dokumen_terkait")}`,
+      `Uraian tugas/prosedur: ${readEditorSection("prosedur")}`,
+    ].join("\n\n");
+
+    try {
+      const response = await fetch("/api/spo-generator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assist-section",
+          section: aiSection,
+          judul_sop,
+          rawText: [sectionContext, aiInstructions.trim() ? `Arahan tambahan pengguna:\n${aiInstructions.trim()}` : ""]
+            .filter(Boolean)
+            .join("\n\n"),
+          currentContent: readEditorSection(aiSection),
+        }),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "AI gagal menyusun saran bagian SPO.");
+      setAiSuggestion({ section: aiSection, value: result.value });
+    } catch (aiError) {
+      setError(aiError.message || "AI gagal menyusun saran bagian SPO.");
+      setAiFeedback({ type: "error", text: aiError.message || "AI gagal menyusun saran bagian SPO." });
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  const applySectionSuggestion = () => {
+    if (!aiSuggestion) return;
+    const table = editorRef.current?.querySelector("[data-spo-document]");
+    if (!table) {
+      setError("Tabel SPO tidak ditemukan untuk menerapkan saran AI.");
+      return;
+    }
+
+    resetEditorHistory(editorRef.current.innerHTML);
+    if (aiSuggestion.section === "prosedur") {
+      const procedureCell = table.querySelector("[data-procedure-content]");
+      if (!procedureCell) {
+        setError("Bagian uraian prosedur tidak ditemukan pada tabel SPO.");
+        return;
+      }
+      procedureCell.replaceChildren();
+      aiSuggestion.value.forEach((stage, stageIndex) => {
+        const heading = document.createElement("p");
+        heading.dataset.stageHeading = "true";
+        heading.style.margin = "0 0 2px";
+        const label = document.createElement("strong");
+        const stageTitle = String(stage.tahap || "").trim();
+        label.textContent = stageTitle || `${stageLetter(stageIndex)}. Tahap`;
+        heading.append(label);
+
+        const list = document.createElement("ol");
+        configureListElement(list, "ol");
+        stage.langkah.forEach((step, stepIndex) => {
+          const item = document.createElement("li");
+          item.style.display = "list-item";
+          item.style.paddingLeft = "2px";
+          item.textContent = `${stepIndex + 1}. ${cleanStepNumber(step)}`;
+          list.append(item);
+        });
+        procedureCell.append(heading, list);
+      });
+      setSop((current) => ({ ...current, prosedur: aiSuggestion.value }));
+    } else {
+      const label = aiSuggestion.section === "unit_terkait"
+        ? "unit terkait"
+        : aiSuggestion.section === "dokumen_terkait"
+          ? "dokumen terkait"
+          : aiSuggestion.section;
+      const row = [...table.rows].find((item) => (
+        item.cells[0]?.textContent?.trim().toLocaleLowerCase("id-ID") === label
+      ));
+      if (!row?.cells[1]) {
+        setError(`Bagian ${label} tidak ditemukan pada tabel SPO.`);
+        return;
+      }
+      row.cells[1].replaceChildren();
+      String(aiSuggestion.value).split(/\r?\n/).filter((line) => line.trim()).forEach((line) => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = line;
+        row.cells[1].append(paragraph);
+      });
+      setSop((current) => ({ ...current, [aiSuggestion.section]: aiSuggestion.value }));
+    }
+
+    setEditorHtml(editorRef.current.innerHTML);
+    setIsEditing(true);
+    setAiSuggestion(null);
+    setAiFeedback({ type: "success", text: "Saran AI diterapkan ke tabel. Tinjau isinya, lalu simpan perubahan SPO." });
+    setNotice("Saran AI diterapkan ke tabel. Tinjau isinya, lalu simpan perubahan SPO.");
+    saveEditorSelection();
+    recordEditorChange();
   };
 
   const saveCurrentSop = async () => {
@@ -1327,6 +1586,21 @@ export default function SpoGeneratorPage() {
     };
     const unit_terkait = readField(["unit terkait", "unit kerja", "unit pelaksana", "pelaksana", "petugas", "instalasi"]);
     const dokumen_terkait = readField(["dokumen terkait", "dokumen pendukung", "referensi", "formulir", "rekaman", "catatan"]);
+    const pengertian = readField(["pengertian"]);
+    const tujuan = readField(["tujuan"]);
+    const kebijakan = readField(["kebijakan"]);
+    const prosedurCell = table.querySelector("[data-procedure-content]");
+    const prosedur = prosedurCell
+      ? [...prosedurCell.querySelectorAll("[data-stage-heading]")].map((heading) => {
+          const next = heading.nextElementSibling;
+          return {
+            tahap: heading.innerText.trim(),
+            langkah: next?.nodeName === "OL" || next?.nodeName === "UL"
+              ? [...next.children].map((step) => step.innerText.trim()).filter(Boolean)
+              : [],
+          };
+        })
+      : sop.prosedur;
     if (!judul_sop) {
       setError("Isi Nama SOP sebelum menyimpan ke Turso.");
       return false;
@@ -1346,14 +1620,19 @@ export default function SpoGeneratorPage() {
           judul_sop,
           no_sop,
           html_content,
+          klinik: selectedClinic,
           data: {
             ...sop,
             judul_sop,
             no_sop,
             tanggal_pembuatan,
             tanggal_pengesahan,
+            pengertian,
+            tujuan,
+            kebijakan,
             unit_terkait,
             dokumen_terkait,
+            prosedur,
           },
         }),
       });
@@ -1364,22 +1643,30 @@ export default function SpoGeneratorPage() {
       }
       if (!response.ok) throw new Error(result.error || "Gagal menyimpan SPO.");
       if (result.id) setActiveDocumentId(result.id);
+      const savedNoSop = result.no_sop || no_sop;
+      if (noSopRow?.cells[1]) noSopRow.cells[1].textContent = savedNoSop;
+      const savedHtml = sanitizeEditorHtml(table.outerHTML);
       setSop((current) => ({
         ...current,
         judul_sop,
-        no_sop,
+        no_sop: savedNoSop,
         tanggal_pembuatan,
         tanggal_pengesahan,
+        pengertian,
+        tujuan,
+        kebijakan,
         unit_terkait,
         dokumen_terkait,
+        prosedur,
       }));
-      setEditorHtml(html_content);
+      setEditorHtml(savedHtml);
       setDateValues({
         tanggal_pembuatan: toDateInputValue(tanggal_pembuatan),
         tanggal_pengesahan: toDateInputValue(tanggal_pengesahan),
       });
       setIsEditing(false);
       await loadSavedDocuments();
+      await loadManagementSops();
       setNotice("Perubahan SPO berhasil disimpan ke database Turso.");
       return true;
     } catch (saveError) {
@@ -1508,7 +1795,7 @@ export default function SpoGeneratorPage() {
             <Sparkles size={26} />
           </div>
           <div>
-            <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 sm:text-2xl">SPO Generator AI</h1>
+            <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 sm:text-2xl">Manajemen SPO + AI</h1>
             <p className="mt-1 text-sm text-slate-500">Memuat editor SPO...</p>
           </div>
         </header>
@@ -1518,24 +1805,51 @@ export default function SpoGeneratorPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-16">
-      <header className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200">
+      <header className="overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-blue-950 to-blue-700 p-6 text-white shadow-xl shadow-blue-950/10 sm:p-8">
+        <div className="flex flex-wrap items-center gap-4">
+        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-blue-100 ring-1 ring-white/20">
           <Sparkles size={26} />
         </div>
         <div>
-          <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 sm:text-2xl">SPO Generator AI</h1>
-          <p className="mt-1 text-sm text-slate-500">Ekstrak SPO lama, edit preview tabel, lalu unduh sebagai dokumen Word.</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-200">Pusat kerja dokumen</p>
+          <h1 className="mt-1 text-xl font-black uppercase tracking-tight sm:text-2xl">Manajemen SPO + AI</h1>
+          <p className="mt-1 max-w-2xl text-sm text-blue-100/80">Buat draft, ekstrak dokumen lama, kelola nomor dan arsip, lalu tinjau serta unduh dari satu halaman.</p>
         </div>
+        <span className="ml-auto rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold text-blue-100">
+          {managementSops.length} SPO terdaftar
+        </span>
+        </div>
+        <nav aria-label="Navigasi bagian SPO" className="mt-6 flex flex-wrap gap-2">
+          {[
+            ["#spo-create", "Buat baru", "create"],
+            ["#spo-extract", "Ekstrak lama", "extract"],
+            ["#spo-archive", "Arsip draft", "archive"],
+            ["#spo-numbering", "Penomoran", "numbering"],
+            ["#spo-registry", "Manajemen SPO", "registry"],
+            ["#spo-editor", "Editor & unduh", "editor"],
+          ].map(([href, label, section]) => (
+            <a key={href} href={href} onClick={() => openSectionFromNavigation(section)} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-bold text-white transition hover:bg-white/20">
+              {label}
+            </a>
+          ))}
+        </nav>
       </header>
 
-      <section className="space-y-4 rounded-3xl border border-blue-100 bg-blue-50/70 p-5 shadow-sm sm:p-7">
-        <div className="flex items-center gap-3">
-          <Sparkles className="text-blue-600" size={20} />
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Buat SPO Baru dengan AI</h2>
-            <p className="mt-1 text-xs text-slate-500">Isi topik dan arahan. AI menyusun draft lengkap langsung ke tabel untuk Anda tinjau.</p>
+      <section id="spo-create" className="scroll-mt-6 space-y-4 rounded-3xl border border-blue-100 bg-blue-50/70 p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Sparkles className="text-blue-600" size={20} />
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Buat SPO Baru dengan AI</h2>
+              <p className="mt-1 text-xs text-slate-500">Isi topik dan arahan. AI menyusun draft lengkap langsung ke tabel untuk Anda tinjau.</p>
+            </div>
           </div>
+          <button type="button" onClick={() => toggleSection("create")} aria-expanded={openSections.create} aria-controls="spo-create-content" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
+            {openSections.create ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            {openSections.create ? "Tutup" : "Buka"}
+          </button>
         </div>
+        <div id="spo-create-content" hidden={!openSections.create}>
         <form onSubmit={generateNewSop} className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1.5 text-xs font-bold text-slate-600">
             <span>Nama / judul SPO <span className="text-red-500">*</span></span>
@@ -1571,13 +1885,24 @@ export default function SpoGeneratorPage() {
         <p className="text-[11px] leading-relaxed text-slate-500">
           Hasil AI adalah draft untuk ditinjau. Lengkapi metadata pengesahan dan validasi isi klinis, kebijakan, serta dasar hukum sebelum ditetapkan.
         </p>
+        </div>
       </section>
 
-      <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-        <div className="flex items-center gap-3">
-          <Upload className="text-blue-600" size={20} />
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Unggah SPO Lama</h2>
+      <section id="spo-extract" className="scroll-mt-6 space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Upload className="text-blue-600" size={20} />
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Unggah SPO Lama</h2>
+              <p className="mt-1 text-xs text-slate-500">Ekstrak dokumen lama dengan AI dan lanjutkan penyuntingan pada halaman ini.</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => toggleSection("extract")} aria-expanded={openSections.extract} aria-controls="spo-extract-content" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+            {openSections.extract ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            {openSections.extract ? "Tutup" : "Buka"}
+          </button>
         </div>
+        <div id="spo-extract-content" hidden={!openSections.extract}>
         <div
           {...getRootProps()}
           className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${isDragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
@@ -1668,9 +1993,21 @@ export default function SpoGeneratorPage() {
             </ul>
           </div>
         )}
+        </div>
       </section>
 
-      <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+      <section id="spo-archive" className="scroll-mt-6 space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Arsip SPO Tersimpan</h2>
+            <p className="mt-1 text-xs text-slate-500">{savedDocuments.length} dokumen · Draft AI dan hasil ekstraksi yang tersimpan.</p>
+          </div>
+          <button type="button" onClick={() => toggleSection("archive")} aria-expanded={openSections.archive} aria-controls="spo-archive-content" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+            {openSections.archive ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            {openSections.archive ? "Tutup" : "Buka"}
+          </button>
+        </div>
+        <div id="spo-archive-content" hidden={!openSections.archive}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Arsip SPO Tersimpan</h2>
@@ -1739,6 +2076,7 @@ export default function SpoGeneratorPage() {
             ))}
           </ul>
         )}
+        </div>
       </section>
 
       {(error || notice) && (
@@ -1748,14 +2086,21 @@ export default function SpoGeneratorPage() {
         </div>
       )}
 
-      <section className="space-y-4 rounded-3xl border border-violet-100 bg-violet-50/60 p-5 shadow-sm sm:p-7">
-        <div className="flex items-center gap-3">
-          <Hash className="text-violet-700" size={20} />
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Penomoran Terintegrasi Manajemen SOP</h2>
-            <p className="mt-1 text-xs text-slate-600">Nomor berikutnya mengikuti urutan global di ruangan tanpa kode klinik. Pilihan klinik hanya menentukan kategori arsip Manajemen SOP.</p>
+      <section id="spo-numbering" className="scroll-mt-6 space-y-4 rounded-3xl border border-violet-100 bg-violet-50/60 p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Hash className="text-violet-700" size={20} />
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Penomoran Terintegrasi</h2>
+              <p className="mt-1 text-xs text-slate-600">{managementSops.length} nomor tercatat · Tahun nomor baru otomatis mengikuti tahun berjalan.</p>
+            </div>
           </div>
+          <button type="button" onClick={() => toggleSection("numbering")} aria-expanded={openSections.numbering} aria-controls="spo-numbering-content" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100">
+            {openSections.numbering ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            {openSections.numbering ? "Tutup" : "Buka"}
+          </button>
         </div>
+        <div id="spo-numbering-content" hidden={!openSections.numbering}>
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
           <select
             value={selectedManagementSopId}
@@ -1821,9 +2166,163 @@ export default function SpoGeneratorPage() {
             </button>
           </div>
         </div>
+        </div>
       </section>
 
-      <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+      <section id="spo-registry" className="scroll-mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-7">
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Daftar Manajemen SPO</h2>
+            <p className="mt-1 text-xs text-slate-500">Kelola nomor, klinik, tanggal, dan tautan dokumen tanpa meninggalkan generator.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">{managementSops.length} dokumen</span>
+            <button
+              type="button"
+              onClick={loadManagementSops}
+              disabled={isLoadingManagementSops}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {isLoadingManagementSops ? "Memuat..." : "Muat ulang"}
+            </button>
+            <button type="button" onClick={() => toggleSection("registry")} aria-expanded={openSections.registry} aria-controls="spo-registry-content" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+              {openSections.registry ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              {openSections.registry ? "Tutup" : "Buka"}
+            </button>
+          </div>
+        </div>
+
+        <div id="spo-registry-content" hidden={!openSections.registry}>
+        {editingManagementSop && (
+          <form onSubmit={saveManagementSop} className="m-5 grid gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 sm:m-7 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 sm:col-span-2">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wide text-amber-900">Ubah data SPO</p>
+                <p className="mt-1 text-xs text-amber-800">Nomor dapat disesuaikan manual. Daftar akan diurutkan ulang setelah disimpan.</p>
+              </div>
+              <button type="button" onClick={cancelEditingManagementSop} className="rounded-lg p-2 text-slate-500 hover:bg-white" aria-label="Batal mengubah SOP">
+                <X size={17} />
+              </button>
+            </div>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600 sm:col-span-2">
+              <span>Nomor SPO</span>
+              <input
+                required
+                maxLength={100}
+                value={managementForm.no_sop}
+                onChange={(event) => setManagementForm((current) => ({ ...current, no_sop: event.target.value }))}
+                placeholder="IRJA/001/2026"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600">
+              <span>Judul prosedur</span>
+              <input
+                required
+                maxLength={255}
+                value={managementForm.judul_prosedur}
+                onChange={(event) => setManagementForm((current) => ({ ...current, judul_prosedur: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600">
+              <span>Klinik tujuan</span>
+              <select
+                required
+                value={managementForm.klinik}
+                onChange={(event) => setManagementForm((current) => ({ ...current, klinik: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                {daftarKlinikArsipSop.map((clinic) => <option key={clinic} value={clinic}>{clinic}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600">
+              <span>Tanggal pembuatan</span>
+              <input type="date" value={managementForm.tanggal_pembuatan} onChange={(event) => setManagementForm((current) => ({ ...current, tanggal_pembuatan: event.target.value }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600">
+              <span>Tanggal pengesahan</span>
+              <input type="date" value={managementForm.tanggal_pengesahan} onChange={(event) => setManagementForm((current) => ({ ...current, tanggal_pengesahan: event.target.value }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-600 sm:col-span-2">
+              <span>Link dokumen Google Drive</span>
+              <input type="url" value={managementForm.link_gdrive} onChange={(event) => setManagementForm((current) => ({ ...current, link_gdrive: event.target.value }))} placeholder="https://drive.google.com/..." className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            </label>
+            <div className="flex gap-2 sm:col-span-2">
+              <button type="submit" disabled={isSavingManagementSop} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50">
+                {isSavingManagementSop ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                {isSavingManagementSop ? "Menyimpan..." : "Simpan metadata"}
+              </button>
+              <button type="button" onClick={cancelEditingManagementSop} className="rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
+            </div>
+          </form>
+        )}
+
+        <div className="border-b border-slate-100 p-5 sm:p-7">
+          <input
+            type="search"
+            value={managementSearch}
+            onChange={(event) => setManagementSearch(event.target.value)}
+            placeholder="Cari nomor, judul, atau klinik..."
+            aria-label="Cari daftar Manajemen SPO"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:max-w-md"
+          />
+        </div>
+
+        {isLoadingManagementSops ? (
+          <div className="flex items-center justify-center gap-2 p-10 text-sm font-semibold text-slate-500">
+            <Loader2 size={18} className="animate-spin" /> Memuat daftar SPO...
+          </div>
+        ) : managementSops.length === 0 ? (
+          <p className="p-10 text-center text-sm font-medium text-slate-500">Belum ada SPO terdaftar. Buat draft atau daftarkan nomor melalui panel penomoran di atas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-5 py-4">No. SPO</th>
+                  <th className="px-5 py-4">Judul prosedur</th>
+                  <th className="px-5 py-4">Klinik</th>
+                  <th className="px-5 py-4">Dokumen</th>
+                  <th className="px-5 py-4 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {managementSops
+                  .filter((item) => `${item.no_sop} ${item.judul_prosedur || item.judul_sop || ""} ${item.klinik || ""}`.toLocaleLowerCase("id-ID").includes(managementSearch.trim().toLocaleLowerCase("id-ID")))
+                  .map((item) => (
+                    <tr key={item.id} className="border-t border-slate-100">
+                      <td className="whitespace-nowrap px-5 py-4 font-bold text-slate-700">{item.no_sop}</td>
+                      <td className="max-w-sm px-5 py-4 font-semibold text-slate-800">{item.judul_prosedur || item.judul_sop}</td>
+                      <td className="px-5 py-4 text-slate-600">{item.klinik || "—"}</td>
+                      <td className="px-5 py-4">
+                        {item.link_gdrive ? (
+                          <a href={item.link_gdrive} target="_blank" rel="noopener noreferrer" className="whitespace-nowrap rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">Buka dokumen ↗</a>
+                        ) : <span className="text-xs text-slate-400">Belum ditautkan</span>}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => startEditingManagementSop(item)} aria-label={`Ubah ${item.no_sop}`} className="rounded-lg bg-amber-50 p-2 text-amber-700 hover:bg-amber-100">
+                            <Pencil size={15} />
+                          </button>
+                          <button type="button" onClick={() => deleteManagementSop(item)} disabled={deletingManagementSopId === item.id} aria-label={`Hapus ${item.no_sop}`} className="rounded-lg bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-50">
+                            {deletingManagementSopId === item.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {managementSops.filter((item) => `${item.no_sop} ${item.judul_prosedur || item.judul_sop || ""} ${item.klinik || ""}`.toLocaleLowerCase("id-ID").includes(managementSearch.trim().toLocaleLowerCase("id-ID"))).length === 0 && (
+              <p className="p-8 text-center text-sm text-slate-500">Tidak ada SPO yang cocok dengan pencarian.</p>
+            )}
+          </div>
+        )}
+        </div>
+      </section>
+
+      <section id="spo-editor" className="scroll-mt-6 space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Preview Tabel SPO</h2>
@@ -1838,6 +2337,7 @@ export default function SpoGeneratorPage() {
                 onClick={() => {
                   resetEditorHistory(editorRef.current?.innerHTML || "");
                   setIsEditing(true);
+                  setOpenSections((current) => ({ ...current, editor: true }));
                 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white transition hover:bg-blue-700"
               >
@@ -1863,10 +2363,160 @@ export default function SpoGeneratorPage() {
               {isDownloading ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
               {isDownloading ? "Menyiapkan unduhan..." : "Unduh Word (.docx)"}
             </button>
+            <button type="button" onClick={() => toggleSection("editor")} aria-expanded={openSections.editor} aria-controls="spo-editor-content" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+              {openSections.editor ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              {openSections.editor ? "Tutup" : "Buka"}
+            </button>
           </div>
         </div>
 
+        <div id="spo-editor-content" hidden={!openSections.editor}>
         <div className="space-y-4">
+          <section aria-label="Asisten AI untuk isi SPO" className="space-y-4 rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-teal-100 text-teal-700">
+                <Sparkles size={19} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-800">Asisten AI isi SPO</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  Minta bantuan untuk menyusun atau menyempurnakan satu bagian. Saran hanya diterapkan setelah Anda meninjau dan memilihnya.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <label className="space-y-1.5 text-xs font-bold text-slate-700">
+                <span>Bagian yang ingin dibantu</span>
+                <select
+                  value={aiSection}
+                  onChange={(event) => {
+                    setAiSection(event.target.value);
+                    setAiSuggestion(null);
+                    setAiFeedback(null);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                >
+                  <option value="pengertian">Pengertian</option>
+                  <option value="tujuan">Tujuan</option>
+                  <option value="kebijakan">Kebijakan</option>
+                  <option value="unit_terkait">Unit kerja terkait</option>
+                  <option value="dokumen_terkait">Dokumen terkait</option>
+                  <option value="prosedur">Uraian tugas / prosedur</option>
+                </select>
+              </label>
+              <label className="block space-y-1.5 text-xs font-bold text-slate-700">
+                <span>Arahan tambahan <span className="font-normal text-slate-400">(opsional)</span></span>
+                <textarea
+                  ref={aiInstructionsRef}
+                  value={aiInstructions}
+                  onChange={(event) => {
+                    aiInstructionsSelectionRef.current = {
+                      start: event.target.selectionStart,
+                      end: event.target.selectionEnd,
+                    };
+                    setAiInstructions(event.target.value);
+                  }}
+                  onSelect={(event) => {
+                    aiInstructionsSelectionRef.current = {
+                      start: event.target.selectionStart,
+                      end: event.target.selectionEnd,
+                    };
+                  }}
+                  onPointerUp={(event) => {
+                    aiInstructionsSelectionRef.current = {
+                      start: event.currentTarget.selectionStart,
+                      end: event.currentTarget.selectionEnd,
+                    };
+                  }}
+                  onFocus={(event) => {
+                    const { start, end } = aiInstructionsSelectionRef.current;
+                    event.currentTarget.setSelectionRange(start, end);
+                  }}
+                  maxLength={5000}
+                  rows={4}
+                  placeholder="Jelaskan arahan dengan bebas. Contoh: gunakan bahasa sederhana, sesuaikan untuk petugas pendaftaran, dan buat langkah kerja mudah dipahami."
+                  className="min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-normal leading-6 text-slate-800 outline-none placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                />
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] text-slate-500">{aiInstructions.length.toLocaleString("id-ID")} / 5.000 karakter</p>
+                <button
+                  type="button"
+                  onClick={generateSectionSuggestion}
+                  disabled={isAiGenerating || isSaving || isExtracting || !sop.judul_sop}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isAiGenerating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                  {isAiGenerating ? "Menyusun saran..." : "Buat saran AI"}
+                </button>
+              </div>
+            </div>
+
+            {aiFeedback && (
+              <p role={aiFeedback.type === "error" ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-xs font-semibold ${aiFeedback.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {aiFeedback.text}
+              </p>
+            )}
+
+            {aiSuggestion && (
+              <div aria-live="polite" className="space-y-3 rounded-xl border border-teal-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-wide text-teal-800">
+                    Saran AI · {
+                      {
+                        pengertian: "Pengertian",
+                        tujuan: "Tujuan",
+                        kebijakan: "Kebijakan",
+                        unit_terkait: "Unit kerja terkait",
+                        dokumen_terkait: "Dokumen terkait",
+                        prosedur: "Uraian tugas / prosedur",
+                      }[aiSuggestion.section]
+                    }
+                  </p>
+                  <p className="text-[10px] font-semibold text-amber-700">Tinjau dan validasi sebelum ditetapkan.</p>
+                </div>
+                {aiSuggestion.section === "prosedur" ? (
+                  <div className="max-h-72 space-y-3 overflow-y-auto rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+                    {aiSuggestion.value.map((stage, stageIndex) => (
+                      <div key={`${stage.tahap}-${stageIndex}`}>
+                        <p className="font-bold">{stage.tahap || `Tahap ${stageIndex + 1}`}</p>
+                        <ol className="ml-5 mt-1 list-decimal space-y-1">
+                          {stage.langkah.map((step, stepIndex) => <li key={`${step}-${stepIndex}`}>{cleanStepNumber(step)}</li>)}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">{aiSuggestion.value}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={applySectionSuggestion}
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-xs font-bold text-white transition hover:bg-teal-800"
+                  >
+                    <Pencil size={14} /> Terapkan ke tabel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={generateSectionSuggestion}
+                    disabled={isAiGenerating}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Buat ulang
+                  </button>
+                  <button type="button" onClick={() => setAiSuggestion(null)} className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100">
+                    Abaikan
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Isi AI adalah draf, bukan kebijakan resmi. Periksa kesesuaian dengan aturan, formulir, unit, dan prosedur klinis yang berlaku sebelum menyimpan atau menggunakan.
+            </p>
+          </section>
+
           <div
             aria-disabled={!isEditing}
             className={`rounded-2xl border border-slate-200 bg-slate-50 p-3 ${isEditing ? "" : "pointer-events-none opacity-50"}`}
@@ -2109,6 +2759,7 @@ export default function SpoGeneratorPage() {
             Pilih teks lalu gunakan toolbar. Pintasan keyboard dan tempel teks kaya dari Word juga didukung.
             Semua pemformatan pada preview ikut diekspor ke DOCX.
           </p>
+        </div>
         </div>
       </section>
     </div>

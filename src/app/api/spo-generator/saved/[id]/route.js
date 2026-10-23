@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
-import { ensureSpoGeneratorStorage, getSavedSopDocument } from "@/lib/spo-generator-storage";
+import {
+  ensureSpoGeneratorStorage,
+  getSavedSopDocument,
+  saveSopArchive,
+} from "@/lib/spo-generator-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -51,19 +54,21 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: "Ukuran isi dokumen terlalu besar untuk disimpan." }, { status: 413 });
     }
 
-    await ensureSpoGeneratorStorage();
-    const result = await turso.execute({
-      sql: `UPDATE spo_generator_documents
-            SET no_sop = ?, judul_sop = ?, content_json = ?, html_content = ?
-            WHERE id = ? AND UPPER(TRIM(ruangan)) = ?`,
-      args: [no_sop, judul_sop, JSON.stringify(data), html_content, id, ruangan],
+    const saved = await saveSopArchive({
+      id,
+      ruangan,
+      no_sop,
+      judul_sop,
+      data,
+      html_content,
+      klinik: body?.klinik,
     });
-    if (result.rowsAffected === 0) {
-      return NextResponse.json({ error: "Arsip SPO tidak ditemukan di ruangan Anda." }, { status: 404 });
-    }
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, no_sop: saved.no_sop });
   } catch (error) {
     console.error("SPO Generator document update failed:", error);
+    if (error.message === "Arsip SPO tidak ditemukan di ruangan Anda.") {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: "Gagal menyimpan perubahan SPO ke Turso." }, { status: 500 });
   }
 }

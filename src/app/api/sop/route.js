@@ -36,10 +36,10 @@ function compareSopNumbers(left, right) {
   const rightMatch = parseNumber(right.no_sop);
 
   if (leftMatch && rightMatch) {
-    const yearDifference = Number(rightMatch[2]) - Number(leftMatch[2]);
-    if (yearDifference) return yearDifference;
     const sequenceDifference = Number(leftMatch[1]) - Number(rightMatch[1]);
     if (sequenceDifference) return sequenceDifference;
+    const yearDifference = Number(rightMatch[2]) - Number(leftMatch[2]);
+    if (yearDifference) return yearDifference;
   }
   return String(left.no_sop || "").localeCompare(String(right.no_sop || ""), "id", {
     numeric: true,
@@ -81,9 +81,10 @@ async function createGeneratedSop(body, ruangan, columns) {
   }
   if (link.error) return { error: link.error, status: 400 };
 
-  const tahun = tanggal_pembuatan
-    ? tanggal_pembuatan.slice(0, 4)
-    : String(new Date().getFullYear());
+  const tahun = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+  }).format(new Date());
   const transaction = await turso.transaction("write");
   try {
     const existing = await transaction.execute({
@@ -93,10 +94,12 @@ async function createGeneratedSop(body, ruangan, columns) {
     });
 
     const nomorUrutTerakhir = existing.rows.reduce((max, row) => {
-      const match = String(row.no_sop || "").match(
-        new RegExp(`^IRJA/(?:[A-Z]{3}/)?(\\d+)/${tahun}$`, "i")
+      const match = String(row.no_sop || "").trim().match(
+        /^IRJA\/(?:[A-Z]{3}\/)?(\d+)\/\d{4}$/i
       );
-      return match ? Math.max(max, Number(match[1])) : max;
+      if (!match) return max;
+      const nomorUrut = Number(match[1]);
+      return Number.isSafeInteger(nomorUrut) ? Math.max(max, nomorUrut) : max;
     }, 0);
     const nomor_sop = `IRJA/${String(nomorUrutTerakhir + 1).padStart(3, "0")}/${tahun}`;
 

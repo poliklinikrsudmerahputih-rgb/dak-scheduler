@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
-import { turso } from "@/lib/turso";
 import { getSopRuangan } from "@/lib/sop";
-import { listSavedSopDocuments, ensureSpoGeneratorStorage } from "@/lib/spo-generator-storage";
+import {
+  listSavedSopDocuments,
+  saveSopArchive,
+  syncArchivedSopDocuments,
+} from "@/lib/spo-generator-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ export async function GET() {
     if (!ruangan) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
+    await syncArchivedSopDocuments(ruangan);
     const documents = await listSavedSopDocuments(ruangan);
     return NextResponse.json({ success: true, documents });
   } catch (error) {
@@ -43,15 +46,19 @@ export async function POST(request) {
       return NextResponse.json({ error: "Ukuran isi dokumen terlalu besar untuk disimpan." }, { status: 413 });
     }
 
-    await ensureSpoGeneratorStorage();
-    const id = randomUUID();
-    await turso.execute({
-      sql: `INSERT INTO spo_generator_documents
-            (id, ruangan, no_sop, judul_sop, source_type, content_json, html_content)
-            VALUES (?, ?, ?, ?, 'manual', ?, ?)`,
-      args: [id, ruangan, no_sop, judul_sop, JSON.stringify(data), html_content],
+    const saved = await saveSopArchive({
+      ruangan,
+      no_sop,
+      judul_sop,
+      source_type: "manual",
+      data,
+      html_content,
+      klinik: body?.klinik,
     });
-    return NextResponse.json({ success: true, id }, { status: 201 });
+    return NextResponse.json(
+      { success: true, id: saved.id, no_sop: saved.no_sop },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("SPO Generator manual document save failed:", error);
     return NextResponse.json({ error: "Gagal menyimpan SPO ke arsip Turso." }, { status: 500 });

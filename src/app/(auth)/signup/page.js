@@ -41,41 +41,43 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
-      <div className="w-full max-w-[420px] space-y-6">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#edf3f7] p-4 font-sans text-slate-900 sm:p-8">
+      <div className="pointer-events-none absolute -left-32 -top-40 h-[28rem] w-[28rem] rounded-full bg-teal-200/40 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-48 -right-24 h-[34rem] w-[34rem] rounded-full bg-blue-200/40 blur-3xl" />
+      <div className="relative w-full max-w-[480px] space-y-6">
         
-        <div className="text-center space-y-2">
-          <div className="inline-flex p-4 bg-blue-600 rounded-3xl shadow-xl text-white mb-2">
-            <UserPlus size={32} />
+        <div className="text-center">
+          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#10233d] to-[#087e8b] text-teal-100 shadow-lg shadow-teal-900/20">
+            <UserPlus size={25} />
           </div>
-          <h1 className="text-2xl font-black tracking-tighter uppercase italic">
-            DAK-<span className="text-blue-600">REGISTER</span>
+          <h1 className="text-3xl font-black tracking-[-0.05em]">
+            DAK<span className="text-[#087e8b]">-PRO</span>
           </h1>
-          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">Create Your Staff Account</p>
+          <p className="mt-2 text-xs font-semibold tracking-wide text-slate-500">Buat akun ruang kerja Anda</p>
         </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl border border-white">
+        <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-[0_28px_80px_-36px_rgba(15,35,59,0.35)] sm:p-8">
           <form onSubmit={handleSignup} className="space-y-4">
             
             {msg.text && (
-              <div className={`${msg.type === "success" ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"} p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center border animate-pulse`}>
+              <div role="status" className={`${msg.type === "success" ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"} rounded-xl border p-3 text-xs font-bold text-center`}>
                 {msg.text}
               </div>
             )}
 
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Informasi Akun</label>
-              <input name="nama" placeholder="NAMA LENGKAP" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
-              <input name="username" placeholder="USERNAME / ID" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
-              <input name="password" type="password" placeholder="BUAT PASSWORD" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none" required />
+              <label className="mb-2 block text-xs font-bold text-slate-700">Informasi akun</label>
+              <input name="nama" placeholder="Nama lengkap" className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10" required />
+              <input name="username" placeholder="Username / ID" autoComplete="username" className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10" required />
+              <input name="password" type="password" placeholder="Buat password" autoComplete="new-password" className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10" required />
             </div>
 
             {/* TAMBAHAN: PILIHAN RUANGAN (PENGGANTI RLS) */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-blue-600 uppercase ml-2 tracking-widest italic flex items-center gap-1">
+              <label className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-700">
                 <Hospital size={10} /> Pilih Unit Kerja / Ruangan
               </label>
-              <select name="ruangan" className="w-full bg-blue-50 border-none rounded-2xl p-4 text-xs font-black uppercase focus:ring-2 focus:ring-blue-500 outline-none text-blue-700" required>
+              <select name="ruangan" className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10" required>
                 {daftarRuangan.map((r) => (
                   <option key={r} value={r}>{r}</option>
                 ))}
@@ -83,24 +85,24 @@ export default function SignupPage() {
             </div>
             
             <div className="pt-4 border-t border-slate-50">
-              <label className="text-[9px] font-black text-amber-600 uppercase mb-2 block tracking-widest leading-none italic font-bold">
+              <label className="mb-2 block text-xs font-bold text-slate-700">
                 <ShieldCheck size={10} className="inline mr-1" /> * Pengaman Reset Password
               </label>
-              <select name="pertanyaan" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-[10px] font-bold uppercase mb-3 outline-none focus:ring-2 focus:ring-amber-500">
+              <select name="pertanyaan" className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-medium text-slate-800 outline-none transition focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10">
                 <option value="Nama Ibu Kandung?">Nama Ibu Kandung?</option>
                 <option value="Nama Sekolah SD Anda?">Nama Sekolah SD Anda?</option>
                 <option value="Kota Kelahiran Anda?">Kota Kelahiran Anda?</option>
               </select>
-              <input name="jawaban" placeholder="JAWABAN RAHASIA ANDA" className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold uppercase focus:ring-2 focus:ring-amber-500 outline-none" required />
+              <input name="jawaban" placeholder="Jawaban rahasia Anda" className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-[#087e8b] focus:bg-white focus:ring-4 focus:ring-teal-600/10" required />
             </div>
 
-            <button disabled={loading} type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-slate-900 transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
+            <button disabled={loading} type="submit" className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10233d] py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-[#087e8b] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60">
               {loading ? <Loader2 className="animate-spin" size={16} /> : "Konfirmasi Pendaftaran"}
             </button>
           </form>
 
           <div className="mt-8 pt-6 border-t border-slate-50 text-center">
-            <Link href="/login" className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-900 flex items-center justify-center gap-2">
+            <Link href="/login" className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-500 transition hover:text-[#087e8b]">
               <ArrowLeft size={12} /> Sudah punya akun? Login
             </Link>
           </div>

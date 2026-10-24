@@ -73,6 +73,409 @@ input:-webkit-autofill:focus {
   transition: background-color 9999s ease-out;
 }
 
+@keyframes login-card-open {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes login-content-open {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 18% 0 round 1.5rem);
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes login-field-open {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes login-orbit-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-12px, 10px, 0) scale(1.04);
+  }
+}
+
+@keyframes login-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes login-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(110 231 183 / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgb(110 231 183 / 0);
+  }
+}
+
+.login-card-enter {
+  animation: login-card-open 700ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.login-form-reveal {
+  animation: login-content-open 850ms 120ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.login-copy-enter {
+  animation: login-field-open 700ms 180ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.login-copy-delayed {
+  animation-delay: 420ms;
+}
+
+.login-field-enter {
+  animation: login-field-open 550ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.login-delay-1 {
+  animation-delay: 220ms;
+}
+
+.login-delay-2 {
+  animation-delay: 340ms;
+}
+
+.login-delay-3 {
+  animation-delay: 460ms;
+}
+
+.login-delay-4 {
+  animation-delay: 580ms;
+}
+
+.login-delay-5 {
+  animation-delay: 700ms;
+}
+
+.login-orbit-outer {
+  animation: login-orbit-float 9s ease-in-out 700ms infinite;
+}
+
+.login-orbit-inner {
+  animation: login-orbit-float 7s ease-in-out 500ms infinite reverse;
+}
+
+.login-glow {
+  animation: login-glow-breathe 6s ease-in-out infinite;
+}
+
+.login-status-dot {
+  animation: login-status-pulse 2.4s ease-out infinite;
+}
+
+.login-watermark {
+  animation: login-orbit-float 8s ease-in-out 900ms infinite reverse;
+}
+
+.login-page {
+  position: relative;
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-x: hidden;
+  background: #07111f;
+  padding: 1rem;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.login-night-city {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.login-city-haze {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 45%;
+  background: linear-gradient(0deg, rgb(8 19 33 / 0.6), transparent);
+  pointer-events: none;
+}
+
+.login-page-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: 100%;
+  max-width: 1440px;
+  justify-content: flex-start;
+  margin-inline: auto;
+  padding: 1rem clamp(11rem, 20vw, 18rem) 1rem clamp(1rem, 3vw, 3rem);
+  pointer-events: none;
+}
+
+.login-page-content > .login-card-enter {
+  pointer-events: auto;
+}
+
+.login-streetlamp {
+  position: absolute;
+  z-index: 1;
+  top: clamp(1rem, 4vh, 3rem);
+  right: clamp(1rem, 4vw, 4rem);
+  width: 180px;
+  height: min(70vh, 520px);
+}
+
+.login-streetlamp-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 8px rgb(0 0 0 / 0.35));
+  pointer-events: none;
+}
+
+.login-streetlamp-bulb {
+  fill: #607286;
+  transition: fill 400ms ease, filter 400ms ease;
+}
+
+.login-page.is-lit .login-streetlamp-bulb {
+  fill: #fff0b5;
+  filter: drop-shadow(0 0 9px #ffd978);
+}
+
+.login-streetlamp-beam {
+  position: absolute;
+  top: 2rem;
+  left: 0;
+  width: 11rem;
+  height: 28rem;
+  background: linear-gradient(180deg, rgb(255 226 158 / 0.24), rgb(255 229 174 / 0.1) 55%, transparent);
+  clip-path: polygon(15% 0, 35% 0, 100% 100%, 0 100%);
+  opacity: 0;
+  transform: scaleY(0.72);
+  transform-origin: top center;
+  transition: opacity 700ms ease, transform 900ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  pointer-events: none;
+}
+
+.login-page.is-lit .login-streetlamp-beam {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.login-streetlamp-cord {
+  position: absolute;
+  top: 3.15rem;
+  left: 2.9rem;
+  width: 2px;
+  background: linear-gradient(90deg, #9a8259, #f3d79d 48%, #9a8259);
+  transition: height 180ms ease-out;
+}
+
+.login-streetlamp-pull {
+  position: absolute;
+  left: 2.35rem;
+  display: block;
+  width: 1.2rem;
+  height: 1.5rem;
+  border: 1px solid rgb(255 238 199 / 0.75);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f7dfaa, #a7834d);
+  box-shadow: 0 4px 15px rgb(0 0 0 / 0.35), 0 0 14px rgb(255 222 158 / 0.2);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  transition: top 180ms ease-out, box-shadow 220ms ease, transform 220ms ease;
+}
+
+.login-streetlamp-pull:hover,
+.login-streetlamp-pull:focus-visible {
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.4), 0 0 22px rgb(255 222 158 / 0.55);
+  transform: scale(1.1);
+}
+
+.login-streetlamp-pull:active {
+  cursor: grabbing;
+}
+
+.login-streetlamp-hint {
+  position: absolute;
+  top: 10.8rem;
+  right: 0;
+  width: max-content;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 999px;
+  background: rgb(7 17 31 / 0.78);
+  padding: 0.45rem 0.7rem;
+  color: #f7e2b7;
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 250ms ease, transform 250ms ease;
+}
+
+.login-streetlamp-hint.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.login-pull-prompt {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid #fde7bb;
+  border-radius: 1rem;
+  background: linear-gradient(110deg, #fffaf0, #fff 76%);
+  padding: 0.8rem 1rem;
+  text-align: left;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.login-pull-prompt:hover,
+.login-pull-prompt:focus-visible {
+  border-color: #efc46e;
+  box-shadow: 0 8px 24px rgb(180 132 49 / 0.12);
+  transform: translateY(-1px);
+}
+
+.login-prompt-cord {
+  position: absolute;
+  top: -1.5rem;
+  left: 1.95rem;
+  width: 2px;
+  height: 1.5rem;
+  background: #d3a94f;
+}
+
+.login-credentials {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: max-height 650ms ease, opacity 350ms ease, transform 450ms ease;
+}
+
+.login-credentials.is-revealed {
+  max-height: 260px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.login-credentials input:disabled {
+  cursor: not-allowed;
+}
+
+@media (min-width: 768px) {
+  .login-page-content > .login-card-enter {
+    width: min(100%, 64rem);
+  }
+}
+
+@media (max-width: 1023px) {
+  .login-page-content {
+    padding-right: clamp(9rem, 21vw, 13rem);
+    padding-left: 0.5rem;
+  }
+
+  .login-streetlamp {
+    right: 0.5rem;
+    transform: scale(0.8);
+    transform-origin: top right;
+  }
+
+  .login-pull-prompt {
+    position: relative;
+    z-index: 2;
+  }
+}
+
+@media (max-width: 767px) {
+  .login-page {
+    align-items: flex-start;
+    padding: 0.75rem;
+  }
+
+  .login-page-content {
+    padding: 12rem 0.25rem 1rem;
+  }
+
+  .login-streetlamp {
+    top: 0;
+    right: 0;
+    width: 140px;
+    height: 210px;
+    transform: none;
+  }
+
+  .login-streetlamp-art {
+    width: 140px;
+    height: 210px;
+  }
+
+  .login-streetlamp-cord {
+    top: 2.55rem;
+    left: 2.25rem;
+    max-height: 5rem;
+  }
+
+  .login-streetlamp-pull {
+    left: 1.7rem;
+  }
+
+  .login-streetlamp-beam {
+    top: 1.75rem;
+    width: 8rem;
+    height: 15rem;
+  }
+
+  .login-page-content > .login-card-enter {
+    width: 100%;
+    max-width: 32rem;
+    margin-inline: auto;
+  }
+
+  .login-page-content > .login-card-enter > section:last-child {
+    min-height: 0;
+    padding: 1.5rem;
+  }
+}
+
 .dak-dashboard [class~="bg-blue-950"],
 .dak-dashboard [class~="bg-blue-900"],
 .dak-dashboard [class~="bg-blue-800"],
@@ -159,6 +562,7 @@ input:-webkit-autofill:focus {
   *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }

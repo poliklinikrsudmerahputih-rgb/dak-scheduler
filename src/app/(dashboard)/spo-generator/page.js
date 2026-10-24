@@ -565,6 +565,7 @@ export default function SpoGeneratorPage() {
   const [managementSops, setManagementSops] = useState([]);
   const [selectedManagementSopId, setSelectedManagementSopId] = useState("");
   const [selectedClinic, setSelectedClinic] = useState(daftarKlinikArsipSop[0]);
+  const [newManagementSopTitle, setNewManagementSopTitle] = useState("");
   const [isLoadingManagementSops, setIsLoadingManagementSops] = useState(true);
   const [openSections, setOpenSections] = useState({
     create: false,
@@ -1769,6 +1770,44 @@ export default function SpoGeneratorPage() {
     }
   };
 
+  const createManagementSop = async (event) => {
+    event.preventDefault();
+    const ruangan = getSessionRuangan();
+    if (!ruangan) {
+      setError("Ruangan sesi tidak ditemukan. Silakan masuk kembali.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setIsNumbering(true);
+    try {
+      const response = await fetch("/api/sop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judul_sop: newManagementSopTitle.trim(),
+          ruangan,
+          klinik: selectedClinic,
+        }),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "Gagal membuat SPO baru.");
+
+      setNewManagementSopTitle("");
+      await loadManagementSops();
+      setNotice(`SPO baru berhasil didaftarkan dengan nomor ${result.data?.nomor_sop}. Dokumen dapat ditautkan nanti dari daftar Manajemen SPO.`);
+    } catch (createError) {
+      setError(createError.message || "Gagal membuat SPO baru.");
+    } finally {
+      setIsNumbering(false);
+    }
+  };
+
   const downloadWord = async () => {
     setError("");
     setNotice("");
@@ -2101,6 +2140,34 @@ export default function SpoGeneratorPage() {
           </button>
         </div>
         <div id="spo-numbering-content" hidden={!openSections.numbering}>
+        <form onSubmit={createManagementSop} className="space-y-3 rounded-2xl border border-violet-200 bg-white p-4">
+          <div>
+            <h3 className="text-xs font-black uppercase tracking-wide text-slate-800">Tambah SPO baru tanpa unggah dokumen</h3>
+            <p className="mt-1 text-xs text-slate-500">Masukkan judul untuk membuat nomor dan mendaftarkannya langsung ke Manajemen SPO. Dokumen bisa ditautkan nanti.</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <label className="min-w-0 flex-1 space-y-1.5 text-xs font-bold text-slate-600">
+              <span>Judul SPO <span className="text-red-500">*</span></span>
+              <input
+                required
+                maxLength={255}
+                value={newManagementSopTitle}
+                onChange={(event) => setNewManagementSopTitle(event.target.value)}
+                placeholder="Contoh: Prosedur Identifikasi Pasien"
+                disabled={isNumbering}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 disabled:bg-slate-100"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!newManagementSopTitle.trim() || isNumbering || isSaving}
+              className="inline-flex shrink-0 items-center justify-center gap-2 self-end rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isNumbering ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
+              Buat SPO & nomor otomatis
+            </button>
+          </div>
+        </form>
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
           <select
             value={selectedManagementSopId}
@@ -2142,7 +2209,7 @@ export default function SpoGeneratorPage() {
         </div>
         <div className="grid gap-3 rounded-2xl border border-violet-100 bg-white/80 p-4 md:grid-cols-[minmax(0,1fr)_auto]">
           <label className="space-y-1.5 text-xs font-bold text-slate-600">
-            <span>Klinik tujuan arsip</span>
+            <span>Klinik untuk SPO baru / arsip</span>
             <select
               value={selectedClinic}
               onChange={(event) => setSelectedClinic(event.target.value)}

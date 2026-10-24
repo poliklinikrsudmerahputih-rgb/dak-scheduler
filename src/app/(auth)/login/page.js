@@ -1,65 +1,66 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { AnimatePresence, motion, useMotionValue } from "framer-motion";
+import { Lottie } from "lottie-react";
 import { Lock, User, ShieldCheck, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
+
+const LAMP_PULL_THRESHOLD = 60;
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [lampOn, setLampOn] = useState(false);
-  const [cordPull, setCordPull] = useState(0);
-  const pullStartY = useRef(null);
-  const pullStartedLit = useRef(false);
-  const suppressPullClick = useRef(false);
+  const [isLampOn, setIsLampOn] = useState(false);
+  const [moonAnimation, setMoonAnimation] = useState(null);
+  const [animationError, setAnimationError] = useState("");
+  const cordY = useMotionValue(0);
+  const suppressCordClick = useRef(false);
   const usernameInputRef = useRef(null);
 
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setLampOn(true);
+    const controller = new AbortController();
+
+    async function loadMoonAnimation() {
+      try {
+        const response = await fetch("/bulan.json", { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setMoonAnimation(await response.json());
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        setAnimationError("Animasi bulan tidak dapat dimuat. Muat ulang halaman untuk mencoba lagi.");
+      }
     }
+
+    loadMoonAnimation();
+
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    if (!lampOn) return undefined;
-    const timer = window.setTimeout(() => usernameInputRef.current?.focus(), 850);
+    if (!isLampOn) return undefined;
+    const timer = window.setTimeout(() => usernameInputRef.current?.focus(), 250);
     return () => window.clearTimeout(timer);
-  }, [lampOn]);
+  }, [isLampOn]);
 
-  function startPull(event) {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pullStartY.current = event.clientY;
-    pullStartedLit.current = lampOn;
-  }
-
-  function movePull(event) {
-    if (pullStartY.current === null) return;
-    const distance = Math.max(-64, Math.min(64, event.clientY - pullStartY.current));
-    setCordPull(distance);
-  }
-
-  function endPull(event) {
-    if (pullStartY.current === null) return;
-    const distance = event.clientY - pullStartY.current;
-    if ((!pullStartedLit.current && distance >= 24) || (pullStartedLit.current && distance <= -24)) {
-      setLampOn(!pullStartedLit.current);
-      suppressPullClick.current = true;
+  function handleCordDragEnd(_, info) {
+    if (info.offset.y > LAMP_PULL_THRESHOLD) {
+      suppressCordClick.current = true;
+      window.setTimeout(() => {
+        suppressCordClick.current = false;
+      }, 300);
+      setIsLampOn((current) => !current);
     }
-    pullStartY.current = null;
-    setCordPull(0);
-  }
-
-  function cancelPull() {
-    pullStartY.current = null;
-    setCordPull(0);
   }
 
   function toggleLamp() {
-    if (suppressPullClick.current) {
-      suppressPullClick.current = false;
+    if (suppressCordClick.current) {
+      suppressCordClick.current = false;
       return;
     }
-    setLampOn((current) => !current);
+    setIsLampOn((current) => !current);
   }
 
   async function handleLogin(e) {
@@ -96,7 +97,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className={`login-page${lampOn ? " is-lit" : ""}`}>
+    <div className="login-page">
       <svg className="login-night-city" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
         <defs>
           <linearGradient id="night-sky" x1="720" y1="0" x2="720" y2="900" gradientUnits="userSpaceOnUse">
@@ -110,8 +111,6 @@ export default function LoginPage() {
           </linearGradient>
         </defs>
         <rect width="1440" height="900" fill="url(#night-sky)" />
-        <circle cx="1120" cy="150" r="55" fill="#D8E6F0" opacity=".72" />
-        <circle cx="1143" cy="132" r="55" fill="#0B1B2F" />
         <g fill="#DAE9F5" opacity=".75">
           <circle cx="170" cy="118" r="2" /><circle cx="300" cy="204" r="1.5" />
           <circle cx="468" cy="92" r="2" /><circle cx="605" cy="172" r="1.5" />
@@ -127,39 +126,49 @@ export default function LoginPage() {
         <path d="M0 818c265-40 483-35 720 0 237-35 455-40 720 0v82H0v-82Z" fill="url(#road-glow)" />
         <path d="M720 827v73" stroke="#F2C879" strokeOpacity=".2" strokeWidth="3" strokeDasharray="18 24" />
       </svg>
+      <div className="login-moon" aria-hidden="true">
+        {moonAnimation && (
+          <Lottie src={moonAnimation} autoplay loop className="h-full w-full" />
+        )}
+      </div>
       <div className="login-city-haze" />
-      <div className="login-streetlamp">
-        <svg className="login-streetlamp-art" viewBox="0 0 180 520" fill="none">
-          <path d="M91 520V83c0-25-18-43-43-43H30" stroke="#687B8D" strokeWidth="12" strokeLinecap="round" />
-          <path d="M26 31h24c30 0 51 22 51 52v12" stroke="#A8B7C4" strokeWidth="7" strokeLinecap="round" />
-          <path d="M18 31h42l-8 19H26l-8-19Z" fill="#394D60" stroke="#C6D2DC" strokeWidth="2" strokeLinejoin="round" />
-          <path className="login-streetlamp-bulb" d="M28 51h23l-4 10H32l-4-10Z" fill="#F9D992" />
-          <path d="M91 520h-28" stroke="#687B8D" strokeWidth="12" strokeLinecap="round" />
-        </svg>
-        <div className="login-streetlamp-beam" />
-        <div
-          className="login-streetlamp-cord"
-          style={{ height: `${104 + cordPull}px` }}
+      <div className={`login-streetlamp${isLampOn ? " is-on" : ""}`}>
+        <Image
+          src="/tiang-lampu.png"
+          alt="Lampu"
+          width={350}
+          height={1105}
+          priority
+          className="login-lamp-image"
         />
-        <button
+        <span className="login-lamp-glow login-lamp-glow-left" aria-hidden="true" />
+        <span className="login-lamp-glow login-lamp-glow-center" aria-hidden="true" />
+        <span className="login-lamp-glow login-lamp-glow-right" aria-hidden="true" />
+        <motion.button
           type="button"
-          className="login-streetlamp-pull"
-          style={{ top: `${134 + cordPull}px` }}
-          onPointerDown={startPull}
-          onPointerMove={movePull}
-          onPointerUp={endPull}
-          onPointerCancel={cancelPull}
+          className="login-pull-cord"
+          drag="y"
+          dragConstraints={{ top: 0, bottom: 150 }}
+          dragElastic={0.35}
+          dragMomentum={false}
+          onDragEnd={handleCordDragEnd}
           onClick={toggleLamp}
-          aria-label={lampOn
-            ? "Tarik tali lampu jalan ke atas untuk mematikan lampu dan menutup login"
-            : "Tarik tali lampu jalan ke bawah untuk membuka kolom login"}
-        />
-        <span className={`login-streetlamp-hint${lampOn ? " is-visible" : ""}`} aria-hidden={!lampOn}>
-          Tarik ke atas untuk mematikan lampu
+          style={{ y: cordY }}
+          aria-label={isLampOn ? "Tarik tali untuk mematikan lampu dan menutup login" : "Tarik tali untuk menyalakan lampu dan membuka login"}
+          aria-pressed={isLampOn}
+          aria-describedby="login-drag-instructions"
+        >
+          <span className="login-pull-cord-grip" aria-hidden="true" />
+        </motion.button>
+        <span id="login-drag-instructions" className="login-drag-instructions">
+          {isLampOn ? "Tarik lagi untuk mematikan lampu" : "Tarik tali untuk menyalakan lampu"}
         </span>
       </div>
+      {animationError && (
+        <p className="login-animation-error" role="status">{animationError}</p>
+      )}
       <div className="login-page-content">
-      <div className="login-card-enter relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-[0_32px_100px_-40px_rgba(15,35,59,0.45)] lg:grid-cols-[0.95fr_1.05fr]">
+      <div className={`login-card-enter relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-[0_32px_100px_-40px_rgba(15,35,59,0.45)] lg:grid-cols-[0.95fr_1.05fr]${isLampOn ? " is-lit" : ""}`}>
         <section className="relative hidden min-h-[650px] flex-col justify-between overflow-hidden bg-gradient-to-br from-[#0b1729] via-[#12304a] to-[#087e8b] p-10 text-white lg:flex xl:p-14">
           <div className="login-orbit login-orbit-outer absolute -right-28 top-24 h-80 w-80 rounded-full border border-white/10" />
           <div className="login-orbit login-orbit-inner absolute -right-12 top-40 h-48 w-48 rounded-full border border-white/10" />
@@ -183,7 +192,16 @@ export default function LoginPage() {
           <div className="login-watermark absolute bottom-24 right-10 text-[110px] font-black tracking-[-0.1em] text-white/[0.035]">PRO</div>
         </section>
 
-        <section className="login-form-reveal flex min-h-[620px] flex-col justify-center px-6 py-10 sm:px-12 lg:px-14">
+        <AnimatePresence>
+        {isLampOn && (
+        <motion.section
+          key="login-form"
+          initial={{ y: 50, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 50, opacity: 0 }}
+          transition={{ duration: 0.9, ease: "easeOut" }}
+          className="flex min-h-[620px] flex-col justify-center px-6 py-10 sm:px-12 lg:px-14"
+        >
           <div className="login-field-enter mb-9 lg:hidden">
             <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#10233d] to-[#087e8b] text-teal-100 shadow-lg shadow-teal-900/20">
               <ShieldCheck size={25} />
@@ -204,26 +222,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {!lampOn && (
-              <button
-                type="button"
-                onClick={() => setLampOn(true)}
-                className="login-pull-prompt"
-              >
-                <span className="login-prompt-cord" aria-hidden="true" />
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-amber-100 text-amber-700">✦</span>
-                <span className="text-left">
-                  <span className="block text-sm font-bold text-slate-800">Tarik tali lampu jalan</span>
-                  <span className="mt-0.5 block text-xs font-medium text-slate-500">untuk membuka kolom login</span>
-                </span>
-              </button>
-            )}
-
-            <div
-              className={`login-credentials${lampOn ? " is-revealed" : ""}`}
-              aria-hidden={!lampOn}
-              inert={!lampOn}
-            >
+            <div className="space-y-5">
             <div className="login-field-enter login-delay-2 space-y-2">
               <label className="text-xs font-bold text-slate-700" htmlFor="login-username">Username</label>
               <div className="relative">
@@ -231,7 +230,6 @@ export default function LoginPage() {
                 <input
                   suppressHydrationWarning
                   required
-                  disabled={!lampOn}
                   id="login-username"
                   ref={usernameInputRef}
                   name="username"
@@ -253,7 +251,6 @@ export default function LoginPage() {
                 <input
                   suppressHydrationWarning
                   required
-                  disabled={!lampOn}
                   id="login-password"
                   name="password"
                   type="password"
@@ -263,16 +260,15 @@ export default function LoginPage() {
                 />
               </div>
             </div>
-            </div>
-
             <button
               suppressHydrationWarning
-              disabled={loading || !lampOn}
+              disabled={loading}
               type="submit"
               className="login-field-enter login-delay-4 mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10233d] py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-[#087e8b] hover:shadow-teal-900/20 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? <Loader2 className="animate-spin" size={17} /> : <>Masuk ke DAK-PRO <ChevronRight size={17} /></>}
             </button>
+            </div>
           </form>
 
           <div className="login-field-enter login-delay-5 mt-8 border-t border-slate-100 pt-6 text-center">
@@ -282,7 +278,9 @@ export default function LoginPage() {
             </p>
           </div>
           <p className="login-field-enter login-delay-5 mt-8 text-center text-[10px] font-semibold tracking-wide text-slate-400">DAK-PRO · Ruang kerja operasional Anda</p>
-        </section>
+        </motion.section>
+        )}
+        </AnimatePresence>
       </div>
       </div>
     </div>

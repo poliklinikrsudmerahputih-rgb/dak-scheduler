@@ -16,6 +16,9 @@ export default function middleware(request) {
     pathname === "/login" || 
     pathname === "/signup" || 
     pathname === "/forgot-password" ||
+    pathname === "/bulan.json" ||
+    pathname === "/lampu.json" ||
+    pathname === "/tiang-lampu.png" ||
     pathname === "/view-jadwal" ||
     pathname === "/laporan-eksekutif" ||
     pathname.startsWith("/shared");

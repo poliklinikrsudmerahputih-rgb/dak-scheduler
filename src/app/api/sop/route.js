@@ -31,17 +31,7 @@ async function getSopColumns(client = turso) {
 }
 
 function compareSopNumbers(left, right) {
-  const parseNumber = (value) => String(value || "").match(/^IRJA\/(?:[A-Z]{3}\/)?(\d+)\/(\d{4})$/i);
-  const leftMatch = parseNumber(left.no_sop);
-  const rightMatch = parseNumber(right.no_sop);
-
-  if (leftMatch && rightMatch) {
-    const sequenceDifference = Number(leftMatch[1]) - Number(rightMatch[1]);
-    if (sequenceDifference) return sequenceDifference;
-    const yearDifference = Number(rightMatch[2]) - Number(leftMatch[2]);
-    if (yearDifference) return yearDifference;
-  }
-  return String(left.no_sop || "").localeCompare(String(right.no_sop || ""), "id", {
+  return String(left.no_sop || "").trim().localeCompare(String(right.no_sop || "").trim(), "id", {
     numeric: true,
     sensitivity: "base",
   }) || Number(left.id) - Number(right.id);

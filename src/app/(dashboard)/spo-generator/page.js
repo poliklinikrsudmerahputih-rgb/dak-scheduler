@@ -43,7 +43,9 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
   ImageRun,
+  PageNumber,
   Packer,
   Paragraph,
   Table,
@@ -243,7 +245,7 @@ function createPreviewHtml(sop) {
   const approvalRow = `<tr><td style="${cellStyle}">Disahkan Oleh</td><td style="${cellStyle};height:142px;text-align:center;vertical-align:top"><div>${textToHtml(sop.disahkan_oleh)}</div><div style="height:46px"></div><div><strong>${textToHtml(sop.pejabat_pengesah)}</strong></div><div>${textToHtml(sop.nip_pengesah)}</div></td></tr>`;
   const titleRow = `<tr><td style="${cellStyle}">Nama SOP</td><td style="${cellStyle};text-align:center;font-weight:bold;text-transform:uppercase">${textToHtml(sop.judul_sop)}</td></tr>`;
   const informationRows = fields.map(([key, label]) => (
-    `<tr><td style="${cellStyle};text-transform:uppercase">${label}</td><td colspan="2" style="${cellStyle}">${textToHtml(sop[key])}</td></tr>`
+    `<tr><td style="${cellStyle};text-transform:uppercase">${label}</td><td colspan="2" style="${cellStyle}">${textToHtml(["unit_terkait", "dokumen_terkait"].includes(key) ? String(sop[key] || "").trim() || "-" : sop[key])}</td></tr>`
   ));
   const procedure = sop.prosedur.map((stage) => (
     `<p data-stage-heading="true" style="margin:0 0 2px"><strong>${textToHtml(stage.tahap)}</strong></p><ol style="margin:0 0 5px 28px;padding-left:18px;list-style-position:outside;list-style-type:decimal">${stage.langkah.map((step) => `<li style="display:list-item;padding-left:2px">${textToHtml(cleanStepNumber(step))}</li>`).join("")}</ol>`
@@ -500,8 +502,18 @@ async function downloadSopWord(editor) {
       properties: {
         page: {
           size: { width: 11906, height: 16838 },
-          margin: { top: 720, bottom: 720, left: 850, right: 850 },
+          margin: { top: 720, bottom: 720, left: 850, right: 850, footer: 360 },
         },
+      },
+      footers: {
+        default: new Footer({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ children: [PageNumber.CURRENT], font: "Bookman Old Style", size: 20 })],
+            }),
+          ],
+        }),
       },
       children,
     }],
@@ -1032,9 +1044,13 @@ export default function SpoGeneratorPage() {
     const selection = restoreEditorSelection();
     if (!selection?.rangeCount || selection.isCollapsed) {
       setNotice("Pilih teks terlebih dahulu untuk menerapkan format.");
-      return;
+      return false;
     }
     const range = selection.getRangeAt(0);
+    if (!editorRef.current?.contains(range.commonAncestorContainer)) {
+      setNotice("Pilih teks di dalam tabel SPO terlebih dahulu untuk menerapkan format.");
+      return false;
+    }
     const textNodes = [];
     try {
       const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
@@ -1057,7 +1073,10 @@ export default function SpoGeneratorPage() {
         wrapper.append(selectedNode);
         wrappers.push(wrapper);
       }
-      if (!wrappers.length) return;
+      if (!wrappers.length) {
+        setNotice("Teks yang dipilih tidak dapat diformat.");
+        return false;
+      }
       selection.removeAllRanges();
       const nextRange = document.createRange();
       nextRange.setStartBefore(wrappers[0]);
@@ -1065,8 +1084,11 @@ export default function SpoGeneratorPage() {
       selection.addRange(nextRange);
       saveEditorSelection();
       recordEditorChange();
+      setNotice("Format diterapkan pada teks yang dipilih.");
+      return true;
     } catch {
       setError("Format tidak dapat diterapkan pada pilihan teks tersebut.");
+      return false;
     }
   };
 
@@ -1321,6 +1343,7 @@ export default function SpoGeneratorPage() {
             id: result.documentId,
             title: extractedSop.judul_sop || "SPO tanpa judul",
             data: extractedSop,
+            extractionMode: result.extractionMode,
           };
           results[resultIndex] = documentResult;
           extractedDocuments.push(documentResult);
@@ -1351,9 +1374,10 @@ export default function SpoGeneratorPage() {
       }
 
       const failedCount = results.filter((item) => item.status === "gagal").length;
+      const localCount = extractedDocuments.filter((item) => item.extractionMode === "local").length;
       if (extractedDocuments.length) {
         setNotice(
-          `${extractedDocuments.length} lembar kerja berhasil dibuat dan disimpan${failedCount ? `; ${failedCount} berkas gagal diproses` : ""}. Pilih hasil di bawah untuk membuka lembar kerja.`
+          `${extractedDocuments.length} lembar kerja berhasil dibuat dan disimpan${failedCount ? `; ${failedCount} berkas gagal diproses` : ""}${localCount ? `. ${localCount} berkas diekstrak lokal tanpa AI karena GROQ_API_KEY belum dikonfigurasi; periksa kembali hasilnya` : ""}. Pilih hasil di bawah untuk membuka lembar kerja.`
         );
       } else {
         setError(results.find((item) => item.status === "gagal")?.error || "Ekstraksi SPO gagal.");
@@ -1516,11 +1540,11 @@ export default function SpoGeneratorPage() {
 
         const list = document.createElement("ol");
         configureListElement(list, "ol");
-        stage.langkah.forEach((step, stepIndex) => {
+        stage.langkah.forEach((step) => {
           const item = document.createElement("li");
           item.style.display = "list-item";
           item.style.paddingLeft = "2px";
-          item.textContent = `${stepIndex + 1}. ${cleanStepNumber(step)}`;
+          item.textContent = cleanStepNumber(step);
           list.append(item);
         });
         procedureCell.append(heading, list);
@@ -2614,10 +2638,13 @@ export default function SpoGeneratorPage() {
               <select
                 aria-label="Jenis huruf"
                 value={fontFamily}
+                onPointerDown={saveEditorSelection}
                 onMouseDown={saveEditorSelection}
                 onChange={(event) => {
-                  setFontFamily(event.target.value);
-                  applyInlineStyle({ fontFamily: `"${event.target.value}"` });
+                  const selectedFont = event.target.value;
+                  if (applyInlineStyle({ fontFamily: `"${selectedFont}"` })) {
+                    setFontFamily(selectedFont);
+                  }
                 }}
                 className="h-9 max-w-48 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700"
               >
@@ -2628,10 +2655,13 @@ export default function SpoGeneratorPage() {
               <select
                 aria-label="Ukuran huruf"
                 value={fontSize}
+                onPointerDown={saveEditorSelection}
                 onMouseDown={saveEditorSelection}
                 onChange={(event) => {
-                  setFontSize(event.target.value);
-                  applyInlineStyle({ fontSize: `${event.target.value}pt` });
+                  const selectedSize = event.target.value;
+                  if (applyInlineStyle({ fontSize: `${selectedSize}pt` })) {
+                    setFontSize(selectedSize);
+                  }
                 }}
                 className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700"
               >
@@ -2824,7 +2854,7 @@ export default function SpoGeneratorPage() {
           </div>
           <p className="text-xs text-slate-500">
             Pilih teks lalu gunakan toolbar. Pintasan keyboard dan tempel teks kaya dari Word juga didukung.
-            Semua pemformatan pada preview ikut diekspor ke DOCX.
+            Semua pemformatan pada preview ikut diekspor ke DOCX. Nomor halaman ditambahkan otomatis di bawah setiap halaman, rata tengah, Bookman Old Style 10 pt.
           </p>
         </div>
         </div>

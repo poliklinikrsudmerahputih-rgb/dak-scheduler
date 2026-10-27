@@ -4,7 +4,7 @@ import { turso } from "@/lib/turso";
 
 export const dynamic = "force-dynamic";
 
-const weekdays = new Set([
+const weekdayNames = [
   "MINGGU",
   "SENIN",
   "SELASA",
@@ -12,7 +12,8 @@ const weekdays = new Set([
   "KAMIS",
   "JUMAT",
   "SABTU",
-]);
+];
+const weekdays = new Set(weekdayNames);
 const absenceSymbols = new Set(["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"]);
 
 async function hasSession() {
@@ -32,6 +33,14 @@ function cleanString(value, maxLength = 80) {
 
 function normalizeSymbol(value) {
   return String(value ?? "").trim().toUpperCase();
+}
+
+function isMidelSymbol(value) {
+  return /^(?:M|MIDEL)\s*[12]$/.test(normalizeSymbol(value));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeWeekday(value) {
@@ -215,8 +224,9 @@ export async function POST(request) {
   const targetBulan = Number(body?.bulan || new Date().getMonth() + 1);
   const targetTahun = Number(body?.tahun || new Date().getFullYear());
   const requestRuangan = body?.ruangan ? String(body.ruangan).trim().toUpperCase() : null;
+  const additionalInstructions = cleanString(body?.additionalInstructions, 2000);
 
-  const normalizedWeekdaysInput = weekdaysInput
+  let normalizedWeekdaysInput = weekdaysInput
     .map((day) => ({
       weekday: normalizeWeekday(day?.weekday),
       symbols: Array.isArray(day?.symbols)
@@ -257,6 +267,40 @@ export async function POST(request) {
     uniqueDoctorSymbols: [...new Set(dbContext.doctorSymbols.map((row) => row.simbol_praktik).filter(Boolean))].slice(0, 20),
   });
 
+  const masterSymbolsByWeekday = new Map(weekdayNames.map((weekday) => [weekday, new Set()]));
+  for (const doctor of dbContext.doctorSymbols) {
+    const symbol = normalizeSymbol(doctor.simbol_praktik);
+    if (!symbol) continue;
+    const doctorWeekdays = String(doctor.jadwal_hari || "")
+      .split(/[,;/|&]+|\s+dan\s+/i)
+      .map(normalizeWeekday);
+    for (const weekday of doctorWeekdays) {
+      masterSymbolsByWeekday.get(weekday)?.add(symbol);
+    }
+  }
+
+  normalizedWeekdaysInput = normalizedWeekdaysInput.map((weekdayInput) => {
+    const calendarInput = weekdayInput.calendar.length
+      ? weekdayInput.calendar
+      : weekdayInput.days.map((day) => ({ day, symbols: weekdayInput.symbols }));
+    const calendar = calendarInput.map((entry) => {
+      const actualWeekday = weekdayNames[new Date(targetTahun, targetBulan - 1, entry.day).getDay()];
+      const masterSymbols = masterSymbolsByWeekday.get(actualWeekday) || new Set();
+      return {
+        day: entry.day,
+        symbols: actualWeekday === weekdayInput.weekday
+          ? entry.symbols.filter((symbol) => masterSymbols.has(symbol))
+          : [],
+      };
+    }).filter((entry) => entry.symbols.length > 0);
+    return {
+      ...weekdayInput,
+      symbols: [...new Set(calendar.flatMap((entry) => entry.symbols))],
+      days: calendar.map((entry) => entry.day),
+      calendar,
+    };
+  }).filter((weekdayInput) => weekdayInput.symbols.length > 0);
+
   if (
     people.length === 0 || people.length > 200 ||
     normalizedWeekdaysInput.length === 0 || normalizedWeekdaysInput.length > 7 ||
@@ -276,11 +320,19 @@ export async function POST(request) {
     const leaveDays = [...new Set((Array.isArray(person?.leaveDays) ? person.leaveDays : [])
       .map(Number)
       .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31))].sort((a, b) => a - b);
+    const leaveDetails = (Array.isArray(person?.leaveDetails) ? person.leaveDetails : [])
+      .map((leave) => ({
+        day: Number(leave?.day),
+        symbol: normalizeSymbol(leave?.symbol),
+      }))
+      .filter((leave) => Number.isInteger(leave.day) && leave.day >= 1 && leave.day <= 31 && leave.symbol);
     safePeople.push({
       code,
+      name: cleanString(person?.name, 120),
       role: cleanString(person?.role, 60) || "Tidak diketahui",
       sdmId: String(person?.sdmId || "").trim(),
-      leaveDays,
+      leaveDays: [...new Set([...leaveDays, ...leaveDetails.map((leave) => leave.day)])].sort((a, b) => a - b),
+      leaveDetails,
       experience: [],
     });
   }
@@ -296,6 +348,25 @@ export async function POST(request) {
       .sort((a, b) => b.shifts - a.shifts)
       .slice(0, 12);
   }
+
+  const peopleByCode = new Map(safePeople.map((person) => [person.code, person]));
+  const safeExistingAssignments = (Array.isArray(body?.existingAssignments) ? body.existingAssignments : [])
+    .map((assignment) => ({
+      person: cleanString(assignment?.person, 12),
+      day: Number(assignment?.day),
+      symbol: cleanString(assignment?.symbol, 80),
+    }))
+    .filter((assignment) => peopleByCode.has(assignment.person)
+      && Number.isInteger(assignment.day)
+      && assignment.day >= 1
+      && assignment.day <= 31
+      && assignment.symbol);
+  const safePreviousDayAssignments = (Array.isArray(body?.previousDayAssignments) ? body.previousDayAssignments : [])
+    .map((assignment) => ({
+      person: cleanString(assignment?.person, 12),
+      symbol: cleanString(assignment?.symbol, 80),
+    }))
+    .filter((assignment) => peopleByCode.has(assignment.person) && assignment.symbol);
 
   const allowedByWeekday = new Map();
   for (const day of normalizedWeekdaysInput) {
@@ -326,7 +397,7 @@ export async function POST(request) {
 
   const payload = {
     periode: cleanString(body?.periode, 40) || "periode terpilih",
-    people: safePeople.map(({ sdmId, ...person }) => person),
+    people: safePeople.map(({ sdmId, name, ...person }) => person),
     weekdays: [...allowedByWeekday].map(([weekday, symbols]) => ({
       weekday,
       symbols,
@@ -335,6 +406,27 @@ export async function POST(request) {
     })),
     previousPatterns,
   };
+  if (additionalInstructions) {
+    let anonymizedInstructions = additionalInstructions;
+    const replacements = [
+      ...dbContext.doctorSymbols
+        .filter((doctor) => doctor.nama_dokter)
+        .map((doctor) => ({
+          name: doctor.nama_dokter,
+          replacement: `simbol ${doctor.simbol_praktik}${doctor.klinik ? ` di klinik ${doctor.klinik}` : ""}`,
+        })),
+      ...safePeople
+        .filter((person) => person.name)
+        .map((person) => ({ name: person.name, replacement: person.code })),
+    ].sort((first, second) => second.name.length - first.name.length);
+    for (const { name, replacement } of replacements) {
+      anonymizedInstructions = anonymizedInstructions.replace(
+        new RegExp(escapeRegExp(name), "gi"),
+        replacement,
+      );
+    }
+    payload.additionalInstructions = anonymizedInstructions;
+  }
   if (JSON.stringify(payload).length > 24000) {
     return NextResponse.json({ success: false, error: "Data pola jadwal terlalu besar untuk diproses." }, { status: 413 });
   }
@@ -357,13 +449,18 @@ ATURAN WAJIB:
 - Gunakan riwayat simbol per SDM sebagai bukti pengalaman penugasan; utamakan kecocokan simbol, tetapi jumlah riwayat bukan sertifikasi kompetensi.
 - Buat pola yang adil dan tidak monoton; rotasikan SDM lintas simbol hanya jika riwayat menunjukkan ia pernah menangani simbol tersebut.
 - Perhatikan leaveDays berisi tanggal cuti yang sudah disetujui; jangan menjadwalkan SDM pada tanggal tersebut. Jadwal akhir tetap akan menjaga kode cuti.
+- leaveDetails berisi tanggal dan kode cuti SDM yang harus tetap terlihat pada pratinjau; jangan menggantinya dengan simbol dokter.
+- Jangan menugaskan simbol M1, M2, Midel 1, atau Midel 2 kepada SDM yang mendapat salah satu simbol midel tersebut pada hari sebelumnya.
+- Sebarkan jumlah penugasan M1/M2/Midel secara seimbang antar-SDM sepanjang bulan; jangan memusatkan penugasan pada orang yang sama.
 - Hanya isi hari yang memang memiliki simbol praktik aktif.
+- Untuk setiap tanggal, gunakan hanya simbol dalam calendar tanggal tersebut; calendar sudah disesuaikan dengan hari aktual bulan target dan jadwal praktik master dokter. Jangan memindahkan pola berdasarkan nomor tanggal bulan sebelumnya.
 - Sertakan semua pasangan person dan simbol pada previousPatterns; jangan menghilangkan SDM yang ada di pola sumber.
 - Satu orang maksimal satu simbol per hari.
 - Jadikan pola bulan sebelumnya sebagai dasar; variasikan SDM lintas tanggal hanya pada simbol yang tercatat di riwayat kompetensinya.
 - Jika simbol lama tidak tersedia, pindahkan orang ke simbol aktif yang masih cocok agar distribusi tetap merata.
 - Prioritaskan minimal satu orang untuk setiap simbol aktif bila jumlah petugas mencukupi.
 - Jangan menugaskan orang yang tidak tercatat bekerja pada hari itu.
+- Patuhi additionalInstructions sebagai ketentuan khusus jika tidak bertentangan dengan cuti, simbol praktik pada kalender, pengalaman simbol, atau larangan midel berturut-turut.
 - Jangan menyertakan cuti, absensi, atau status selain simbol praktik.
 - Jangan menambahkan teks sebelum atau sesudah JSON.
 - summary harus dalam bahasa Indonesia dan tidak boleh menyebutkan nama atau identitas personal.
@@ -559,39 +656,124 @@ ATURAN WAJIB:
   });
 
   const assignmentsByDate = [];
+  const midelCounts = new Map(safePeople.map((person) => [person.code, 0]));
+  const existingByDate = new Map();
+  for (const assignment of safeExistingAssignments) {
+    const daily = existingByDate.get(assignment.day) || new Map();
+    daily.set(assignment.person, assignment.symbol);
+    existingByDate.set(assignment.day, daily);
+    if (isMidelSymbol(assignment.symbol)) {
+      midelCounts.set(assignment.person, (midelCounts.get(assignment.person) || 0) + 1);
+    }
+  }
+  const previousDayMidelByPerson = new Map(safePreviousDayAssignments.map((assignment) => [
+    assignment.person,
+    isMidelSymbol(assignment.symbol),
+  ]));
+  const lastDayMidelByPerson = new Map(previousDayMidelByPerson);
+  const weekdayOccurrences = new Map();
   let rotatedSymbolCount = 0;
-  for (const weekday of normalizedWeekdaysInput) {
-    const dates = weekday.days;
-    if (!dates.length) continue;
-    const weekdayAssignments = validatedAssignments.filter((assignment) => assignment.weekday === weekday.weekday);
-    for (let occurrence = 0; occurrence < dates.length; occurrence++) {
-      for (const assignment of weekdayAssignments) {
-        const person = safePeople.find((candidate) => candidate.code === assignment.person);
-        if (person?.leaveDays.includes(dates[occurrence])) continue;
 
-        const dateSymbols = weekday.calendar.find((entry) => entry.day === dates[occurrence])?.symbols || weekday.symbols;
-        const historicalSymbols = (person?.experience || [])
+  const calendarByWeekday = new Map(normalizedWeekdaysInput.map((weekday) => [
+    weekday.weekday,
+    new Map(weekday.calendar.map((entry) => [entry.day, entry.symbols])),
+  ]));
+  const targetDates = Array.from({ length: new Date(targetTahun, targetBulan, 0).getDate() }, (_, index) => {
+    const day = index + 1;
+    const weekday = weekdayNames[new Date(targetTahun, targetBulan - 1, day).getDay()];
+    return {
+      weekday,
+      day,
+      symbols: calendarByWeekday.get(weekday)?.get(day) || [],
+    };
+  });
+
+  for (const targetDate of targetDates) {
+    const day = targetDate.day;
+    const dateSymbols = targetDate.symbols;
+    const occurrence = weekdayOccurrences.get(targetDate.weekday) || 0;
+    if (dateSymbols.length) weekdayOccurrences.set(targetDate.weekday, occurrence + 1);
+    const existing = existingByDate.get(day) || new Map();
+    const dailyAssignments = dateSymbols.length ? validatedAssignments
+      .filter((assignment) => assignment.weekday === targetDate.weekday)
+      .flatMap((assignment) => {
+        const person = peopleByCode.get(assignment.person);
+        if (!person || person.leaveDays.includes(day) || existing.has(person.code)) return [];
+
+        const historicalSymbols = person.experience
           .filter((item) => dateSymbols.some((symbol) => normalizeSymbol(symbol) === normalizeSymbol(item.symbol)))
           .sort((first, second) => second.shifts - first.shifts)
           .map((item) => dateSymbols.find((symbol) => normalizeSymbol(symbol) === normalizeSymbol(item.symbol)));
         const baseSymbolAvailable = dateSymbols.some((symbol) => normalizeSymbol(symbol) === normalizeSymbol(assignment.symbol));
         const rotationSymbols = [...new Set([...(baseSymbolAvailable ? [assignment.symbol] : []), ...historicalSymbols])];
-        if (!rotationSymbols.length) continue;
-        const symbol = rotationSymbols[occurrence % rotationSymbols.length] || assignment.symbol;
-        if (symbol !== assignment.symbol) rotatedSymbolCount++;
-        assignmentsByDate.push({ ...assignment, day: dates[occurrence], symbol });
+        if (!rotationSymbols.length) return [];
+        return [{
+          assignment,
+          person,
+          rotationSymbols,
+          preferredSymbol: rotationSymbols[occurrence % rotationSymbols.length],
+        }];
+      }) : [];
+
+    const desiredMidelCount = dailyAssignments.filter((item) => isMidelSymbol(item.preferredSymbol)).length;
+    const midelCandidates = dailyAssignments
+      .filter(({ person, rotationSymbols }) =>
+        !lastDayMidelByPerson.get(person.code) && rotationSymbols.some(isMidelSymbol),
+      )
+      .sort((first, second) =>
+        (midelCounts.get(first.person.code) || 0) - (midelCounts.get(second.person.code) || 0)
+        || first.person.code.localeCompare(second.person.code, "id"),
+      );
+    const selectedMidelPeople = new Set(
+      midelCandidates.slice(0, desiredMidelCount).map(({ person }) => person.code),
+    );
+    const currentDayMidelByPerson = new Map(safePeople.map((person) => [person.code, false]));
+
+    for (const [personCode, symbol] of existing) {
+      currentDayMidelByPerson.set(personCode, isMidelSymbol(symbol));
+    }
+
+    for (const item of dailyAssignments) {
+      const { assignment, person, rotationSymbols, preferredSymbol } = item;
+      const midelSymbols = rotationSymbols.filter(isMidelSymbol);
+      const nonMidelSymbols = rotationSymbols.filter((symbol) => !isMidelSymbol(symbol));
+      const canUseMidel = !lastDayMidelByPerson.get(person.code) && midelSymbols.length > 0;
+      let symbol = "";
+
+      if (selectedMidelPeople.has(person.code) && canUseMidel) {
+        symbol = midelSymbols.find((candidate) => candidate === preferredSymbol) || midelSymbols[0];
+        midelCounts.set(person.code, (midelCounts.get(person.code) || 0) + 1);
+        currentDayMidelByPerson.set(person.code, true);
+      } else {
+        symbol = nonMidelSymbols.find((candidate) => candidate === preferredSymbol) || nonMidelSymbols[0] || "";
+        if (!symbol && canUseMidel && selectedMidelPeople.size < desiredMidelCount) {
+          symbol = midelSymbols[0];
+          midelCounts.set(person.code, (midelCounts.get(person.code) || 0) + 1);
+          currentDayMidelByPerson.set(person.code, true);
+        }
       }
+
+      if (!symbol) continue;
+      if (symbol !== assignment.symbol) rotatedSymbolCount++;
+      assignmentsByDate.push({ ...assignment, day, symbol });
+    }
+
+    for (const person of safePeople) {
+      lastDayMidelByPerson.set(person.code, currentDayMidelByPerson.get(person.code) || false);
     }
   }
-  const finalAssignments = assignmentsByDate.length ? assignmentsByDate : validatedAssignments;
+
+  const finalAssignments = assignmentsByDate;
   logDebug("daily-rotation", {
     dateAssignmentCount: assignmentsByDate.length,
     rotatedSymbolCount,
+    midelCounts: Object.fromEntries(midelCounts),
   });
 
   return NextResponse.json({
     success: true,
     assignments: finalAssignments,
+    midelCounts: Object.fromEntries(midelCounts),
     summary: cleanString(generated.summary, 500),
   });
 }

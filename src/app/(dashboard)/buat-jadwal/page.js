@@ -26,9 +26,8 @@ function doctorLeaveMatches(doctor, leave, date) {
   const leaveName = normalizeScheduleLabel(leave.nama_dokter);
   const leaveSymbol = normalizeScheduleLabel(leave.simbol);
   const leaveClinic = normalizeScheduleLabel(leave.klinik);
-  return leaveName === doctorName || (
-    leaveSymbol && leaveSymbol === doctorSymbol && (!leaveClinic || leaveClinic === doctorClinic)
-  );
+  if (leaveName) return leaveName === doctorName;
+  return leaveSymbol && leaveSymbol === doctorSymbol && (!leaveClinic || leaveClinic === doctorClinic);
 }
 
 export default function BuatJadwal() {
@@ -51,6 +50,7 @@ export default function BuatJadwal() {
   const [scheduleGenerationError, setScheduleGenerationError] = useState("");
   const [scheduleGenerationReport, setScheduleGenerationReport] = useState(null);
   const [scheduleGenerationDraft, setScheduleGenerationDraft] = useState(null);
+  const [scheduleAdditionalInstructions, setScheduleAdditionalInstructions] = useState("");
 
   // STATE UNTUK MODAL PENGATURAN HEADER (POP-UP)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -492,8 +492,7 @@ export default function BuatJadwal() {
 
   const getSimbolHarian = (day, currentVal) => {
     const dayContext = doctorContextByDay.get(day);
-    const symbols = [...(dayContext?.doctorsBySymbol.keys() || [])]
-      .filter(symbol => !dayContext?.unavailableSymbols.has(symbol));
+    const symbols = [...(dayContext?.doctorsBySymbol.keys() || [])];
     const currentSymbol = normalizeScheduleLabel(currentVal);
     if (currentSymbol && !dayContext?.unavailableSymbols.has(currentSymbol) && !symbols.includes(currentSymbol)) {
       symbols.push(currentSymbol);
@@ -503,6 +502,9 @@ export default function BuatJadwal() {
 
   const getSymbolAssistantCount = (symbol, day) =>
     symbolAssistantCountsByDay.get(`${day}|${normalizeScheduleLabel(symbol)}`) || 0;
+
+  const getDoctorsOnLeaveForSymbol = (symbol, day) =>
+    doctorContextByDay.get(day)?.absentDoctorsBySymbol.get(normalizeScheduleLabel(symbol)) || [];
 
   const handleGenerateSchedule = async () => {
     if (generatingSchedule || loading) return;
@@ -546,10 +548,14 @@ export default function BuatJadwal() {
       }
 
       const previousAssignmentsByDate = new Map();
+      const previousMonthEndAssignments = [];
       previousRows.forEach(row => {
         const date = Number(row.tanggal);
         const person = peopleById.get(String(row.sdm_id));
         if (!person || !Number.isInteger(date)) return;
+        if (date === daysInPreviousMonth && row.simbol && !statusAbsensi.includes(String(row.simbol).toLocaleUpperCase("id-ID"))) {
+          previousMonthEndAssignments.push({ person: person.code, symbol: String(row.simbol).trim() });
+        }
         const key = `${getDay(new Date(previousYear, previousMonth - 1, date))}-${date}`;
         if (!previousAssignmentsByDate.has(key)) previousAssignmentsByDate.set(key, []);
         previousAssignmentsByDate.get(key).push({ person: person.code, symbol: String(row.simbol || "").trim() });
@@ -605,11 +611,28 @@ export default function BuatJadwal() {
           people: people.map(person => ({
             sdmId: person.id,
             code: person.code,
+            name: person.name,
             role: person.role,
             leaveDays: targetDays
               .filter(day => getAutoCutiValue(person.name, day.day))
               .map(day => day.day),
+            leaveDetails: targetDays
+              .map(day => ({
+                day: day.day,
+                symbol: getAutoCutiValue(person.name, day.day),
+              }))
+              .filter(leave => leave.symbol),
           })),
+          additionalInstructions: scheduleAdditionalInstructions,
+          previousDayAssignments: previousMonthEndAssignments,
+          existingAssignments: Object.entries(removeUnavailableDoctorAssignments(isiJadwal)).flatMap(([key, symbol]) => {
+            const separator = key.lastIndexOf("-");
+            const person = people.find(item => item.id === key.slice(0, separator));
+            const day = Number(key.slice(separator + 1));
+            return person && Number.isInteger(day) && symbol && !statusAbsensi.includes(normalizeScheduleLabel(symbol))
+              ? [{ person: person.code, day, symbol }]
+              : [];
+          }),
           weekdays: [...symbolsByWeekday].map(([weekday, symbols]) => ({
             weekday,
             symbols: [...symbols],
@@ -737,7 +760,7 @@ export default function BuatJadwal() {
         .filter(person => !scheduledPeople.has(String(person.id)))
         .map(person => person.nama);
 
-      setScheduleGenerationDraft({ assignments: draftAssignments, clearedKeys });
+      setScheduleGenerationDraft({ assignments: draftAssignments, clearedKeys, previewSchedule: nextSchedule });
       setScheduleGenerationReport({
         assignedCount,
         coveredPeopleCount: scheduledPeople.size,
@@ -748,6 +771,12 @@ export default function BuatJadwal() {
         clearedNoPracticeCount,
         noPracticeDays: targetDays.filter(day => day.symbols.length === 0).map(day => day.day),
         coverage: [...coverage.values()].sort((a, b) => a.symbol.localeCompare(b.symbol, "id")),
+        midelCounts: Object.entries(result.midelCounts || {})
+          .map(([code, count]) => ({
+            name: codeToPerson.get(code)?.name || code,
+            count: Number(count) || 0,
+          }))
+          .sort((first, second) => first.count - second.count || first.name.localeCompare(second.name, "id")),
         summary: String(result.summary || ""),
       });
     } catch (error) {
@@ -979,8 +1008,8 @@ export default function BuatJadwal() {
         .schedule-section + .schedule-section { page-break-before: always; }
         .schedule-title { font-size: 12pt; font-weight: bold; text-transform: uppercase; border-bottom: 1pt solid #222; padding-bottom: 4pt; margin-bottom: 4pt; }
         .schedule-description { font-size: 9pt; margin: 2pt 0 8pt; }
-        .compact-legend { font-size: 7pt; line-height: 1.2; margin-top: 10pt; }
-        .compact-legend > div { margin-top: 2pt; }
+        .compact-legend { font-size: 6pt !important; line-height: 1.1; margin-top: 8pt; }
+        .compact-legend > div { margin-top: 1pt; }
         .final-signatures td { padding: 0 12pt; }
       </style></head><body><div class="Section1">
         <div style="text-align:center;"><b>${header.institusi}</b><br/><b>${header.judul_bebas.toUpperCase()}</b><br/>PERIODE: ${daftarBulan[bulan-1].toUpperCase()} ${tahun}</div><br/>
@@ -1009,8 +1038,8 @@ export default function BuatJadwal() {
           .no-print { display: none !important; }
           .schedule-section + .schedule-section { break-before: page; page-break-before: always; }
           .schedule-signatures { width: 100%; margin: 24px auto 0; text-align: center; font-size: 10px; font-weight: 700; break-inside: avoid; page-break-inside: avoid; }
-          .compact-legend { margin-top: 16px; font-size: 8px; line-height: 1.2; }
-          .compact-legend > div { margin-top: 2px; }
+          .compact-legend { margin-top: 12px; font-size: 6px !important; line-height: 1.1; }
+          .compact-legend > div { margin-top: 1px; }
           table { width: 100% !important; border: 1pt solid black !important; table-layout: fixed; }
           th, td { border: 0.5pt solid black !important; font-size: 6px !important; padding: 1px !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         }
@@ -1209,6 +1238,19 @@ export default function BuatJadwal() {
         </div>
 
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 no-print">
+          <label className="mb-4 block">
+            <span className="mb-1 block text-xs font-bold text-slate-700">Instruksi tambahan untuk AI (opsional)</span>
+            <textarea
+              value={scheduleAdditionalInstructions}
+              onChange={event => setScheduleAdditionalInstructions(event.target.value)}
+              maxLength={2000}
+              rows={3}
+              placeholder="Contoh: Bulan ini, [nama SDM] ditugaskan khusus untuk dokter [nama dokter] (simbol [simbol]) pada hari praktiknya."
+              disabled={generatingSchedule || loading || approvingDraft}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs text-slate-800 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
+            />
+            <span className="mt-1 block text-right text-[10px] text-slate-500">{scheduleAdditionalInstructions.length}/2000 karakter</span>
+          </label>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="font-black text-slate-900 flex items-center gap-2"><Sparkles size={18} className="text-violet-600" /> Draft Jadwal dengan Groq</h2>
@@ -1244,6 +1286,13 @@ export default function BuatJadwal() {
                 {scheduleGenerationReport.skippedOnLeave > 0 && `; ${scheduleGenerationReport.skippedOnLeave} penugasan dilewati karena cuti disetujui`}.
               </p>
               {scheduleGenerationReport.summary && <p>{scheduleGenerationReport.summary}</p>}
+              {scheduleGenerationReport.midelCounts?.length > 0 && (
+                <p>
+                  Rekap midel bulan ini: {scheduleGenerationReport.midelCounts
+                    .map(item => `${item.name} ${item.count} kali`)
+                    .join("; ")}.
+                </p>
+              )}
               <p className={scheduleGenerationReport.unassignedPeople.length ? "text-amber-800" : "text-emerald-700"}>
                 SDM yang terjadwal setelah draft: {scheduleGenerationReport.coveredPeopleCount}/{scheduleGenerationReport.totalPeopleCount}.
                 {scheduleGenerationReport.unassignedPeople.length > 0 && ` Belum tercakup: ${scheduleGenerationReport.unassignedPeople.join(", ")}.`}
@@ -1251,6 +1300,43 @@ export default function BuatJadwal() {
               {scheduleGenerationReport.noPracticeDays.length > 0 && (
                 <p className="text-amber-800">Tidak ada dokter praktik (dibiarkan kosong): tanggal {scheduleGenerationReport.noPracticeDays.join(", ")}.</p>
               )}
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-wide mb-2">Pratinjau Jadwal Bulanan Sebelum Diterapkan</h3>
+                <p className="mb-2 text-[10px] text-slate-600">Cuti SDM yang disetujui ditampilkan sesuai kode cuti dan tidak akan diganti oleh usulan AI.</p>
+                <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
+                  <table className="w-full min-w-max border-collapse text-center text-[10px]">
+                    <thead className="sticky top-0 z-10 bg-slate-800 text-white">
+                      <tr>
+                        <th className="sticky left-0 z-20 min-w-36 bg-slate-800 p-1 text-left">Nama SDM</th>
+                        {Array.from({ length: jumlahHari }).map((_, index) => (
+                          <th key={index} className="min-w-8 border-l border-slate-600 p-1">{index + 1}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {daftarSDM.map(person => (
+                        <tr key={person.id} className="border-t border-slate-200 odd:bg-white even:bg-slate-50">
+                          <th className="sticky left-0 z-[1] bg-inherit p-1 text-left font-semibold">{person.nama}</th>
+                          {Array.from({ length: jumlahHari }).map((_, index) => {
+                            const day = index + 1;
+                            const leave = getAutoCutiValue(person.nama, day);
+                            const symbol = scheduleGenerationDraft.previewSchedule?.[`${person.id}-${day}`] || "";
+                            return (
+                              <td
+                                key={day}
+                                title={leave ? `Cuti disetujui: ${leave}` : symbol ? `Usulan jadwal: ${symbol}` : "Belum ada jadwal"}
+                                className={`border-l border-slate-100 p-1 font-bold ${leave ? "bg-blue-100 text-blue-900" : symbol ? "text-slate-800" : "text-slate-300"}`}
+                              >
+                                {leave || symbol || "-"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
               <div>
                 <h3 className="font-black text-xs uppercase tracking-wide mb-2">Pratinjau Penugasan</h3>
               {doctorLeaveImpacts.length > 0 && (
@@ -1349,6 +1435,27 @@ export default function BuatJadwal() {
             <div />
             <div className="flex items-center gap-2">
               <button onClick={() => setShowLegendModal(true)} className="text-sm bg-slate-100 px-3 py-2 rounded-xl border">Keterangan Simbol</button>
+            </div>
+          </div>
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 no-print">
+            <p className="mb-2 text-xs font-black text-blue-900">Petunjuk warna opsi simbol dokter</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-[10px] font-semibold text-slate-700">
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border border-red-300 bg-red-200" />
+                Merah: belum ada asisten
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border border-emerald-300 bg-emerald-100" />
+                Hijau: tepat satu asisten
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border border-amber-300 bg-amber-100" />
+                Kuning: lebih dari satu asisten
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border border-violet-300 bg-violet-200" />
+                Ungu: ada dokter dengan simbol ini yang sedang cuti; arahkan kursor untuk melihat namanya.
+              </span>
             </div>
           </div>
 
@@ -1466,8 +1573,31 @@ export default function BuatJadwal() {
                                         <optgroup label="DOKTER (CERDAS)">
                                           {getSimbolHarian(tgl, currentVal).map(s => {
                                             const assistantCount = getSymbolAssistantCount(s, tgl);
+                                            const doctorsOnLeave = getDoctorsOnLeaveForSymbol(s, tgl);
+                                            const optionColor = doctorsOnLeave.length
+                                              ? { backgroundColor: "#e9d5ff", color: "#581c87" }
+                                              : assistantCount === 0
+                                                ? { backgroundColor: "#fecaca", color: "#7f1d1d" }
+                                                : assistantCount === 1
+                                                  ? { backgroundColor: "#d1fae5", color: "#064e3b" }
+                                                  : { backgroundColor: "#fef3c7", color: "#78350f" };
+                                            const optionTitle = [
+                                              `Dipakai ${assistantCount} SDM pada tanggal ${tgl}`,
+                                              doctorsOnLeave.length
+                                                ? `Dokter cuti: ${doctorsOnLeave.map(doctor => doctor.nama_dokter).join(", ")}`
+                                                : "",
+                                              isDoctorSymbolUnavailable(s, tgl)
+                                                ? "Tidak dapat dipilih karena semua dokter dengan simbol ini sedang cuti"
+                                                : "",
+                                            ].filter(Boolean).join(". ");
                                             return (
-                                              <option key={s} value={s} title={`Dipakai ${assistantCount} SDM pada tanggal ${tgl}`}>
+                                              <option
+                                                key={s}
+                                                value={s}
+                                                title={optionTitle}
+                                                style={optionColor}
+                                                disabled={isDoctorSymbolUnavailable(s, tgl)}
+                                              >
                                                 {s}
                                               </option>
                                             );

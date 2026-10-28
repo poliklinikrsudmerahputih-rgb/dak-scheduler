@@ -167,9 +167,9 @@ export async function GET(request) {
                   WHEN UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) = 'TIDAK'
                   THEN 1 ELSE 0
                 END) AS identifikasi_tidak,
-                SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
+                SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                 SUM(CASE
-                  WHEN waktu_tunggu_menit < 60
+                  WHEN CAST(waktu_tunggu_menit AS REAL) < 60
                     AND EXISTS (
                       SELECT 1 FROM log_imut_keterlambatan kehadiran
                       WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
@@ -178,10 +178,43 @@ export async function GET(request) {
                     )
                   THEN 1 ELSE 0
                 END) AS waktu_kurang_60_tercapai,
-                SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
-                SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
-                COUNT(*) AS total_sampel,
-                COALESCE(SUM(waktu_tunggu_menit), 0) AS total_waktu_tunggu
+                SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
+                SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
+                SUM(CASE
+                  WHEN CAST(waktu_tunggu_menit AS REAL) < 60
+                    AND NOT EXISTS (
+                      SELECT 1 FROM log_imut_keterlambatan kehadiran
+                      WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                        AND kehadiran.tanggal = log_imut_pasien.tanggal
+                        AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                        AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                    )
+                  THEN 1 ELSE 0
+                END) AS waktu_kurang_60_grafik,
+                SUM(CASE
+                  WHEN CAST(waktu_tunggu_menit AS REAL) = 60
+                    AND NOT EXISTS (
+                      SELECT 1 FROM log_imut_keterlambatan kehadiran
+                      WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                        AND kehadiran.tanggal = log_imut_pasien.tanggal
+                        AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                        AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                    )
+                  THEN 1 ELSE 0
+                END) AS waktu_tepat_60_grafik,
+                SUM(CASE
+                  WHEN CAST(waktu_tunggu_menit AS REAL) > 60
+                    OR EXISTS (
+                      SELECT 1 FROM log_imut_keterlambatan kehadiran
+                      WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                        AND kehadiran.tanggal = log_imut_pasien.tanggal
+                        AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                        AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                    )
+                  THEN 1 ELSE 0
+                END) AS waktu_lebih_60_grafik,
+                COUNT(waktu_tunggu_menit) AS total_sampel,
+                COALESCE(SUM(CAST(waktu_tunggu_menit AS REAL)), 0) AS total_waktu_tunggu
               FROM log_imut_pasien
               WHERE dokter_id IN (${placeholders}) AND ${reportFilter}
               GROUP BY UPPER(TRIM(klinik))`,
@@ -352,6 +385,9 @@ export async function GET(request) {
         waktuKurang60Tercapai: Number(patient.waktu_kurang_60_tercapai) || 0,
         waktuTepat60: Number(patient.waktu_tepat_60) || 0,
         waktuLebih60: Number(patient.waktu_lebih_60) || 0,
+        waktuKurang60Grafik: Number(patient.waktu_kurang_60_grafik) || 0,
+        waktuTepat60Grafik: Number(patient.waktu_tepat_60_grafik) || 0,
+        waktuLebih60Grafik: Number(patient.waktu_lebih_60_grafik) || 0,
         sampelWaktuTunggu: sampleCount
       };
       return {

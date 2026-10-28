@@ -252,9 +252,9 @@ export async function GET(request) {
                     WHEN UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) = 'TIDAK'
                     THEN 1 ELSE 0
                   END) AS identifikasi_tidak,
-                  SUM(CASE WHEN waktu_tunggu_menit < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
+                  SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                   SUM(CASE
-                    WHEN waktu_tunggu_menit < 60
+                    WHEN CAST(waktu_tunggu_menit AS REAL) < 60
                       AND EXISTS (
                         SELECT 1 FROM log_imut_keterlambatan kehadiran
                         WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
@@ -263,10 +263,43 @@ export async function GET(request) {
                       )
                     THEN 1 ELSE 0
                   END) AS waktu_kurang_60_tercapai,
-                  SUM(CASE WHEN waktu_tunggu_menit = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
-                  SUM(CASE WHEN waktu_tunggu_menit > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
-                  COUNT(*) AS total_sampel,
-                  COALESCE(SUM(waktu_tunggu_menit), 0) AS total_waktu_tunggu
+                  SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) = 60 THEN 1 ELSE 0 END) AS waktu_tepat_60,
+                  SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) > 60 THEN 1 ELSE 0 END) AS waktu_lebih_60,
+                  SUM(CASE
+                    WHEN CAST(waktu_tunggu_menit AS REAL) < 60
+                      AND NOT EXISTS (
+                        SELECT 1 FROM log_imut_keterlambatan kehadiran
+                        WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                          AND kehadiran.tanggal = log_imut_pasien.tanggal
+                          AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                          AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                      )
+                    THEN 1 ELSE 0
+                  END) AS waktu_kurang_60_grafik,
+                  SUM(CASE
+                    WHEN CAST(waktu_tunggu_menit AS REAL) = 60
+                      AND NOT EXISTS (
+                        SELECT 1 FROM log_imut_keterlambatan kehadiran
+                        WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                          AND kehadiran.tanggal = log_imut_pasien.tanggal
+                          AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                          AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                      )
+                    THEN 1 ELSE 0
+                  END) AS waktu_tepat_60_grafik,
+                  SUM(CASE
+                    WHEN CAST(waktu_tunggu_menit AS REAL) > 60
+                      OR EXISTS (
+                        SELECT 1 FROM log_imut_keterlambatan kehadiran
+                        WHERE kehadiran.dokter_id = log_imut_pasien.dokter_id
+                          AND kehadiran.tanggal = log_imut_pasien.tanggal
+                          AND UPPER(TRIM(kehadiran.klinik)) = UPPER(TRIM(log_imut_pasien.klinik))
+                          AND CAST(kehadiran.is_terlambat AS INTEGER) = 1
+                      )
+                    THEN 1 ELSE 0
+                  END) AS waktu_lebih_60_grafik,
+                  COUNT(waktu_tunggu_menit) AS total_sampel,
+                  COALESCE(SUM(CAST(waktu_tunggu_menit AS REAL)), 0) AS total_waktu_tunggu
                 FROM log_imut_pasien
                 WHERE dokter_id IN (${placeholders}) AND tanggal BETWEEN ? AND ?
                 GROUP BY UPPER(TRIM(klinik))`,
@@ -302,6 +335,9 @@ export async function GET(request) {
         waktuKurang60Tercapai: Number(imut.waktu_kurang_60_tercapai) || 0,
         waktuTepat60: Number(imut.waktu_tepat_60) || 0,
         waktuLebih60: Number(imut.waktu_lebih_60) || 0,
+        waktuKurang60Grafik: Number(imut.waktu_kurang_60_grafik) || 0,
+        waktuTepat60Grafik: Number(imut.waktu_tepat_60_grafik) || 0,
+        waktuLebih60Grafik: Number(imut.waktu_lebih_60_grafik) || 0,
         sampelWaktuTunggu: sampleCount
       };
       return {
@@ -379,15 +415,11 @@ export async function GET(request) {
     for (const row of complianceRows) {
       const doctor = doctorById.get(String(row.dokter_id));
       const actualMinutes = getTimeMinutes(row.jam_hadir_aktual);
-      if (!doctor || actualMinutes === null) continue;
+      if (!doctor) continue;
 
       const isLate = Number(row.is_terlambat) === 1;
+      const hasDisciplineStatus = Number(row.is_terlambat) === 0 || isLate;
       const delayMinutes = Math.max(0, Number(row.menit_terlambat) || 0);
-      totalArrivalMinutes += actualMinutes;
-      arrivalCount += 1;
-      if (isLate) complianceLate += 1;
-      else complianceOnTime += 1;
-
       const current = complianceByDoctor.get(String(row.dokter_id)) || {
         namaDokter: doctor.nama_dokter,
         klinik: doctor.klinik,
@@ -395,12 +427,23 @@ export async function GET(request) {
         totalKedatanganMenit: 0,
         jumlahKedatangan: 0,
         keterlambatanTerparah: 0,
-        terlambat: 0
+        terlambat: 0,
+        tepatWaktu: 0
       };
       current.totalSesi += 1;
-      current.totalKedatanganMenit += actualMinutes;
-      current.jumlahKedatangan += 1;
-      if (isLate) current.terlambat += 1;
+      if (actualMinutes !== null) {
+        totalArrivalMinutes += actualMinutes;
+        arrivalCount += 1;
+        current.totalKedatanganMenit += actualMinutes;
+        current.jumlahKedatangan += 1;
+      }
+      if (hasDisciplineStatus && isLate) {
+        complianceLate += 1;
+        current.terlambat += 1;
+      } else if (hasDisciplineStatus) {
+        complianceOnTime += 1;
+        current.tepatWaktu += 1;
+      }
       current.keterlambatanTerparah = Math.max(current.keterlambatanTerparah, isLate ? delayMinutes : 0);
       complianceByDoctor.set(String(row.dokter_id), current);
 
@@ -424,7 +467,11 @@ export async function GET(request) {
         totalSesiPraktik: doctor.totalSesi,
         rataRataKedatangan: formatTime(doctor.totalKedatanganMenit / doctor.jumlahKedatangan),
         keterlambatanTerparah: doctor.keterlambatanTerparah,
-        statusDisiplin: doctor.terlambat > 0 ? "Terlambat" : "Tepat Waktu"
+        statusDisiplin: doctor.terlambat > 0
+          ? "Terlambat"
+          : doctor.tepatWaktu > 0
+            ? "Tepat Waktu"
+            : "Status tidak tercatat"
       }))
       .sort((first, second) => first.namaDokter.localeCompare(second.namaDokter, "id"));
 

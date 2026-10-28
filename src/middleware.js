@@ -21,6 +21,7 @@ export default function middleware(request) {
     pathname === "/tiang-lampu.png" ||
     pathname === "/view-jadwal" ||
     pathname === "/laporan-eksekutif" ||
+    pathname === "/laporan-rawat-jalan" ||
     pathname.startsWith("/shared");
 
   // 3. LOGIKA PROTEKSI:

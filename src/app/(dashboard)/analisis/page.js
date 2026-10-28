@@ -110,9 +110,9 @@ function ReportCharts({ data }) {
     { name: "Terlambat", value: Number(data?.summary?.late) || 0, color: reportChartColors.late }
   ];
   const waitData = [
-    { name: "< 60 menit", value: rekap.reduce((total, row) => total + (Number(row.waktuKurang60) || 0), 0), color: reportChartColors.good },
-    { name: "= 60 menit", value: rekap.reduce((total, row) => total + (Number(row.waktuTepat60) || 0), 0), color: reportChartColors.yellow },
-    { name: "> 60 menit", value: rekap.reduce((total, row) => total + (Number(row.waktuLebih60) || 0), 0), color: reportChartColors.late }
+    { name: "< 60 menit · praktik tidak terlambat", value: rekap.reduce((total, row) => total + (Number(row.waktuKurang60Grafik ?? row.waktuKurang60) || 0), 0), color: reportChartColors.good },
+    { name: "= 60 menit · praktik tidak terlambat", value: rekap.reduce((total, row) => total + (Number(row.waktuTepat60Grafik ?? row.waktuTepat60) || 0), 0), color: reportChartColors.yellow },
+    { name: "Praktik terlambat atau > 60 menit", value: rekap.reduce((total, row) => total + (Number(row.waktuLebih60Grafik ?? row.waktuLebih60) || 0), 0), color: reportChartColors.late }
   ];
   const clinicVisits = data?.clinicVisits || [];
   const abbreviateClinic = (name) => String(name || "").length > 13
@@ -146,7 +146,7 @@ function ReportCharts({ data }) {
           </ResponsiveContainer>
         ) : <p className="grid h-[300px] place-items-center text-sm text-slate-500">Belum ada data kunjungan per poliklinik.</p>}
       </ChartPanel>
-      <ChartPanel title="Capaian Waktu Tunggu Pasien (IMUT 3)" subtitle="Jumlah sampel di bawah, tepat, dan di atas 60 menit.">
+      <ChartPanel title="Capaian Waktu Tunggu Pasien (IMUT 3)" subtitle="Sampel pasien ikut kategori merah jika dokter terlambat pada tanggal dan poliklinik yang sama, meskipun waktu tunggu tercatat di bawah 60 menit.">
         <ResponsiveContainer width="100%" height={300}>
           <PieChart>
             <Pie data={waitData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={95} paddingAngle={3}>
@@ -570,7 +570,7 @@ export default function AnalisisPage() {
     } else {
       params.set("tahun", String(shareYear));
     }
-    const url = `${window.location.origin}/laporan-eksekutif?${params}`;
+    const url = `${window.location.origin}/laporan-rawat-jalan?${params}`;
     try {
       await navigator.clipboard.writeText(url);
       setToast("Link laporan berhasil disalin! Silakan bagikan ke WhatsApp atasan.");

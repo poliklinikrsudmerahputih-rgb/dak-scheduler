@@ -43,6 +43,7 @@ export default function AIExecutiveAdvisor({
   shareQuarter,
   selectedDate,
   reportPayload,
+  publicShare = false,
 }) {
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
@@ -71,12 +72,17 @@ export default function AIExecutiveAdvisor({
     if (clinic && clinic.toLowerCase() !== "all") params.set("clinic", clinic);
     return `/api/ai-advisor?${params.toString()}`;
   }, [range?.start, range?.end, clinic, periodType, shareMonth, shareYear, shareQuarter, selectedDate]);
-  const { data, error, isLoading } = useSWR(metricsUrl, fetcher, { revalidateOnFocus: false });
+  const { data, error, isLoading } = useSWR(publicShare ? null : metricsUrl, fetcher, { revalidateOnFocus: false });
+  const publicMetrics = reportPayload?.advisorMetrics;
+  const metrics = data?.metrics || publicMetrics;
+  const imutMetrics = publicMetrics;
+  const metricsLoading = publicShare ? false : isLoading;
+  const hasMetrics = publicShare ? Boolean(publicMetrics) : Boolean(data);
   const metricValue = (key, sampleKey) => {
-    if (data?.metrics?.sampleCounts?.[sampleKey] > 0) {
+    if (metrics?.sampleCounts?.[sampleKey] > 0) {
       return {
-        value: data.metrics[key],
-        note: `${data.metrics.sampleCounts[sampleKey]} sampel pada periode terpilih`,
+        value: metrics[key],
+        note: `${metrics.sampleCounts[sampleKey]} sampel pada periode terpilih`,
       };
     }
     return { value: "—", note: "Tidak ada sampel pada periode terpilih" };
@@ -87,43 +93,46 @@ export default function AIExecutiveAdvisor({
   }, [error, router]);
 
   const generateAnalysis = async () => {
-    if (!metricsUrl) return;
+    if (!metricsUrl && !publicShare) return;
     setIsGenerating(true);
     setGenerationError("");
     setAiResult("");
     try {
       const reportMetrics = {
-        ...(reportPayload || {}),
-        kinerjaPelayanan: {
-          ...(reportPayload?.kinerjaPelayanan || {}),
-          waktuTunggu: {
-            rataRataMenit: data?.metrics?.averageWaitMinutes
-              ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.rataRataMenit
-              ?? null,
-            sampel: data?.metrics?.sampleCounts?.imut
-              ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.sampel
-              ?? null,
+        ...(publicShare ? reportPayload || {} : {
+          ...(reportPayload || {}),
+          kinerjaPelayanan: {
+            ...(reportPayload?.kinerjaPelayanan || {}),
+            waktuTunggu: {
+              rataRataMenit: metrics?.averageWaitMinutes
+                ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.rataRataMenit
+                ?? null,
+              sampel: metrics?.sampleCounts?.imut
+                ?? reportPayload?.kinerjaPelayanan?.waktuTunggu?.sampel
+                ?? null,
+            },
           },
-        },
-        timeMotionStudy: {
-          skorNasaTlx: data?.metrics?.averageTlxScore ?? null,
-          sampelNasaTlx: data?.metrics?.sampleCounts?.nasaTlx ?? null,
-          asesmenPerawatMenit: data?.metrics?.averageAssessmentMinutes ?? null,
-          sampelAsesmen: data?.metrics?.sampleCounts?.assessment ?? null,
-          pemeriksaanDokterMenit: data?.metrics?.averageExaminationMinutes ?? null,
-          edukasiPerawatMenit: data?.metrics?.averageEducationMinutes ?? null,
-          sampelEdukasi: data?.metrics?.sampleCounts?.education ?? null,
-          tindakanPerawatMenit: data?.metrics?.averageActionMinutes ?? null,
-          sampelTindakan: data?.metrics?.sampleCounts?.action ?? null,
-          jumlahKejadianObservasi: data?.metrics?.sampleCounts?.observations ?? null,
-          totalShiftTerjadwal: data?.metrics?.scheduledShifts ?? null,
-        },
+          timeMotionStudy: {
+            skorNasaTlx: metrics?.averageTlxScore ?? null,
+            sampelNasaTlx: metrics?.sampleCounts?.nasaTlx ?? null,
+            asesmenPerawatMenit: metrics?.averageAssessmentMinutes ?? null,
+            sampelAsesmen: metrics?.sampleCounts?.assessment ?? null,
+            pemeriksaanDokterMenit: metrics?.averageExaminationMinutes ?? null,
+            edukasiPerawatMenit: metrics?.averageEducationMinutes ?? null,
+            sampelEdukasi: metrics?.sampleCounts?.education ?? null,
+            tindakanPerawatMenit: metrics?.averageActionMinutes ?? null,
+            sampelTindakan: metrics?.sampleCounts?.action ?? null,
+            jumlahKejadianObservasi: metrics?.sampleCounts?.observations ?? null,
+            totalShiftTerjadwal: metrics?.scheduledShifts ?? null,
+          },
+        }),
       };
       const response = await fetch(metricsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           activeTab,
+          publicShare,
           fullReportPayload: reportMetrics,
           reportPayload: reportMetrics,
         }),
@@ -155,7 +164,9 @@ export default function AIExecutiveAdvisor({
           </div>
         </div>
         <p className="mt-3 max-w-3xl text-xs leading-5 text-slate-300">
-          Analisis lintas data IMUT, kunjungan pasien, jadwal, absensi, cuti, NASA-TLX, dan Time-Motion pada periode laporan terpilih. Data yang dikirim ke AI hanya agregat tanpa identitas pasien atau pegawai.
+          {publicShare
+            ? "Analisis khusus indikator mutu IMUT 1, IMUT 2, dan IMUT 3 berdasarkan rekap Turso pada periode terpilih."
+            : "Analisis lintas data IMUT, kunjungan pasien, jadwal, absensi, cuti, NASA-TLX, dan Time-Motion pada periode laporan terpilih. Data yang dikirim ke AI hanya agregat tanpa identitas pasien atau pegawai."}
         </p>
       </header>
 
@@ -166,28 +177,61 @@ export default function AIExecutiveAdvisor({
           </p>
         )}
 
-        {isLoading ? (
+        {metricsLoading ? (
           <div className="grid animate-pulse grid-cols-2 gap-3 lg:grid-cols-4">
             {Array.from({ length: 8 }, (_, index) => <div key={index} className="h-[68px] rounded-xl bg-slate-200/70" />)}
           </div>
-        ) : data ? (
+        ) : hasMetrics ? (
           <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Metric label="Rata-rata waktu tunggu" {...metricValue("averageWaitMinutes", "imut")} suffix="menit" />
-            <Metric label="Total kunjungan" value={data.metrics.totalPatients} suffix="pasien" />
-            <Metric label="Skor NASA-TLX" {...metricValue("averageTlxScore", "nasaTlx")} suffix="/ 100" />
-            <Metric label="Asesmen perawat" {...metricValue("averageAssessmentMinutes", "assessment")} suffix="menit" />
-            <Metric label="Edukasi perawat" {...metricValue("averageEducationMinutes", "education")} suffix="menit" />
-            <Metric label="Tindakan perawat" {...metricValue("averageActionMinutes", "action")} suffix="menit" />
-            <Metric label="Shift terjadwal" value={data.metrics.scheduledShifts} />
-            <Metric
-              label="Kehadiran praktik tepat waktu"
-              value={operationalSummary ? operationalSummary.onTime : "—"}
-              suffix={operationalSummary ? "sesi" : ""}
-              note={operationalSummary
-                ? `${operationalSummary.onTime} tepat waktu dari ${operationalSummary.onTime + operationalSummary.late} catatan praktik`
-                : "Tidak ada catatan praktik pada periode ini"}
-            />
+            {publicShare ? (
+              <>
+                <Metric
+                  label="IMUT 1 · Kepatuhan praktik"
+                  value={imutMetrics?.imut1?.capaianPersen === null ? "—" : imutMetrics?.imut1?.capaianPersen}
+                  suffix={imutMetrics?.imut1?.capaianPersen === null ? "" : "%"}
+                  note={imutMetrics?.imut1?.sampel
+                    ? `${imutMetrics.imut1.tepatWaktu} tepat waktu · ${imutMetrics.imut1.terlambat} terlambat`
+                    : "Tidak ada sampel kepatuhan praktik"}
+                />
+                <Metric
+                  label="IMUT 2 · Identifikasi pasien"
+                  value={imutMetrics?.imut2?.capaianPersen === null ? "—" : imutMetrics?.imut2?.capaianPersen}
+                  suffix={imutMetrics?.imut2?.capaianPersen === null ? "" : "%"}
+                  note={imutMetrics?.imut2?.sampel
+                    ? `${imutMetrics.imut2.ya} ya · ${imutMetrics.imut2.tidak} tidak`
+                    : "Tidak ada sampel identifikasi"}
+                />
+                <Metric
+                  label="IMUT 3 · Waktu tunggu"
+                  value={imutMetrics?.imut3?.rataRataMenit ?? "—"}
+                  suffix={imutMetrics?.imut3?.rataRataMenit === null ? "" : "menit"}
+                  note={imutMetrics?.imut3?.sampel
+                    ? `${imutMetrics.imut3.lebih60} merah · ${imutMetrics.imut3.kurang60} <60 menit tanpa keterlambatan`
+                    : "Tidak ada sampel waktu tunggu"}
+                />
+              </>
+            ) : (
+              <>
+                <Metric label="Rata-rata waktu tunggu" {...metricValue("averageWaitMinutes", "imut")} suffix="menit" />
+                <Metric label="Total kunjungan" value={metrics.totalPatients ?? "—"} suffix="pasien" />
+                <Metric label="Skor NASA-TLX" {...metricValue("averageTlxScore", "nasaTlx")} suffix="/ 100" />
+                <Metric label="Asesmen perawat" {...metricValue("averageAssessmentMinutes", "assessment")} suffix="menit" />
+                <Metric label="Edukasi perawat" {...metricValue("averageEducationMinutes", "education")} suffix="menit" />
+                <Metric label="Tindakan perawat" {...metricValue("averageActionMinutes", "action")} suffix="menit" />
+                <Metric label="Shift terjadwal" value={metrics.scheduledShifts ?? "—"} />
+              </>
+            )}
+            {!publicShare && (
+              <Metric
+                label="Kehadiran praktik tepat waktu"
+                value={operationalSummary ? operationalSummary.onTime : "—"}
+                suffix={operationalSummary ? "sesi" : ""}
+                note={operationalSummary
+                  ? `${operationalSummary.onTime} tepat waktu dari ${operationalSummary.onTime + operationalSummary.late} catatan praktik`
+                  : "Tidak ada catatan praktik pada periode ini"}
+              />
+            )}
           </div>
           </div>
         ) : (
@@ -198,7 +242,7 @@ export default function AIExecutiveAdvisor({
           <p className="text-xs leading-5 text-slate-500">
             AI membedakan fakta dan hipotesis, serta menandai metrik tanpa sampel sebagai data tidak tersedia.
           </p>
-          <button type="button" onClick={generateAnalysis} disabled={isGenerating || isLoading || !data} suppressHydrationWarning={true}
+          <button type="button" onClick={generateAnalysis} disabled={isGenerating || metricsLoading || !hasMetrics} suppressHydrationWarning={true}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-3 text-sm font-black text-white shadow-md transition hover:-translate-y-0.5 hover:from-blue-700 hover:to-violet-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50">
             {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
             {isGenerating ? "Menganalisis data..." : "Hasilkan Analisis AI"}

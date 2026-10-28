@@ -909,15 +909,12 @@ export default function BuatJadwal() {
     return getDay(d) === 0 || hariLibur2026.includes(format(d, "yyyy-MM-dd"));
   };
 
-  const hitungTotalMasuk = (tgl, kategori, anggota = daftarSDM) => {
+  const hitungTotalMasuk = (tgl, profesi, anggota = daftarSDM) => {
     let total = 0;
     anggota.forEach(sdm => {
       const val = getAutoCutiValue(sdm.nama, tgl) || getScheduleSymbol(sdm.id, tgl);
-      if (val && !statusAbsensi.includes(val)) {
-        const isPerawat = sdm.jabatan?.toLowerCase().includes("perawat");
-        if (kategori === "perawat" && isPerawat) total++;
-        if (kategori === "lain" && !isPerawat) total++;
-      }
+      const profesiSDM = String(sdm.jabatan || "Lainnya").trim() || "Lainnya";
+      if (val && !statusAbsensi.includes(val) && normalizeScheduleLabel(profesiSDM) === normalizeScheduleLabel(profesi)) total++;
     });
     return total;
   };
@@ -1462,6 +1459,10 @@ export default function BuatJadwal() {
           <div id="grouped-schedule-tables" className="space-y-5">
             {kelompokDenganAnggota.map((group, groupIndex) => {
               const groupLegend = getKeteranganSimbolTerkelompok(group.anggota);
+              const profesiKelompok = [...new Map(group.anggota.map(sdm => {
+                const profesi = String(sdm.jabatan || "Lainnya").trim() || "Lainnya";
+                return [normalizeScheduleLabel(profesi), profesi];
+              })).values()];
               return (
               <section key={group.id} className="schedule-section" style={groupIndex > 0 ? { breakBefore: "page" } : undefined}>
                 <div className="mb-2 border-b-2 border-slate-800 pb-2">
@@ -1620,20 +1621,15 @@ export default function BuatJadwal() {
                       })}
                     </tbody>
                     <tfoot className="bg-slate-50 font-bold text-[9px]">
-                      <tr>
-                        <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Perawat Masuk</td>
-                        {Array.from({ length: jumlahHari }).map((_, i) => (
-                          <td key={i} className="border border-black text-center text-blue-600 font-black cell-input">{hitungTotalMasuk(i+1, "perawat", group.anggota) || ""}</td>
-                        ))}
-                        <td className="schedule-recap-column border border-black"></td>
-                      </tr>
-                      <tr>
-                        <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah Tenaga Lain Masuk</td>
-                        {Array.from({ length: jumlahHari }).map((_, i) => (
-                          <td key={i} className="border border-black text-center text-emerald-600 font-black cell-input">{hitungTotalMasuk(i+1, "lain", group.anggota) || ""}</td>
-                        ))}
-                        <td className="schedule-recap-column border border-black"></td>
-                      </tr>
+                      {profesiKelompok.map((profesi, profesiIndex) => (
+                        <tr key={profesi}>
+                          <td colSpan="2" className="border border-black p-1 text-right italic uppercase">Jumlah {profesi} Masuk</td>
+                          {Array.from({ length: jumlahHari }).map((_, i) => (
+                            <td key={i} className={`border border-black text-center font-black cell-input ${profesiIndex % 2 === 0 ? "text-blue-600" : "text-emerald-600"}`}>{hitungTotalMasuk(i+1, profesi, group.anggota) || ""}</td>
+                          ))}
+                          <td className="schedule-recap-column border border-black"></td>
+                        </tr>
+                      ))}
                     </tfoot>
                   </table>
                 </div>

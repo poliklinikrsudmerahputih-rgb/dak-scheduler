@@ -8,6 +8,16 @@ import { id } from "date-fns/locale";
 const statusAbsensi = ["L", "CT", "CM", "CS", "DD", "DL", "CAP", "CLTN", "TB"];
 const namaHariLengkap = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 const normalizeScheduleLabel = value => String(value || "").trim().toLocaleUpperCase("id-ID");
+const jabatanPerSimbolDokter = {
+  POB: ["BIDAN"],
+  M2POB: ["BIDAN"],
+  PW: ["TERAPIS WICARA", "TERAPI WICARA"],
+  PO: ["TERAPIS OKUPASI", "TERAPI OKUPASI"],
+  PF: ["FISIOTERAPIS"],
+  PG: ["TERAPIS GIGI"],
+  PP: ["PSIKOLOGI KLINIS"],
+  P: ["ADMIN"],
+};
 
 function doctorWorksOnDate(doctor, day, month, year) {
   const weekday = namaHariLengkap[getDay(new Date(year, month - 1, day))].toLocaleUpperCase("id-ID");
@@ -493,14 +503,27 @@ export default function BuatJadwal() {
     });
   }, [isiJadwal, daftarSDM, bebanDokter, doctorContextByDay, approvedStaffLeaveByPersonDay, symbolAssistantCountsByDay]);
 
-  const getSimbolHarian = (day, currentVal) => {
+  const getSimbolHarian = (day, currentVal, jabatan) => {
     const dayContext = doctorContextByDay.get(day);
     const symbols = [...(dayContext?.doctorsBySymbol.keys() || [])];
     const currentSymbol = normalizeScheduleLabel(currentVal);
     if (currentSymbol && !dayContext?.unavailableSymbols.has(currentSymbol) && !symbols.includes(currentSymbol)) {
       symbols.push(currentSymbol);
     }
-    return symbols.filter(symbol => !statusAbsensi.includes(symbol));
+    const normalizedJabatan = normalizeScheduleLabel(jabatan);
+    const isSunday = getDay(new Date(tahun, bulan - 1, day)) === 0;
+    Object.entries(jabatanPerSimbolDokter).forEach(([symbol, allowedJabatan]) => {
+      if (allowedJabatan.includes(normalizedJabatan) && !symbols.includes(symbol)) {
+        symbols.push(symbol);
+      }
+    });
+    return symbols.filter(symbol => {
+      if (statusAbsensi.includes(symbol)) return false;
+      const allowedJabatan = jabatanPerSimbolDokter[symbol];
+      if (allowedJabatan && !allowedJabatan.includes(normalizedJabatan)) return false;
+      if (symbol === "P" && normalizedJabatan === "ADMIN" && isSunday) return false;
+      return true;
+    });
   };
 
   const getSymbolAssistantCount = (symbol, day) =>
@@ -1575,7 +1598,7 @@ export default function BuatJadwal() {
                                           {statusAbsensi.map(s => <option key={s} value={s}>{s}</option>)}
                                         </optgroup>
                                         <optgroup label="DOKTER (CERDAS)">
-                                          {getSimbolHarian(tgl, currentVal).map(s => {
+                                          {getSimbolHarian(tgl, currentVal, sdm.jabatan).map(s => {
                                             const assistantCount = getSymbolAssistantCount(s, tgl);
                                             const doctorsOnLeave = getDoctorsOnLeaveForSymbol(s, tgl);
                                             const optionColor = doctorsOnLeave.length

@@ -357,7 +357,10 @@ export default function BuatJadwal() {
       if (normalizeScheduleLabel(leave.status_acc) !== "DISETUJUI") continue;
       const personName = normalizeScheduleLabel(leave.nama_sdm);
       for (let day = 1; day <= jumlahHari; day++) {
-        const date = format(new Date(tahun, bulan - 1, day), "yyyy-MM-dd");
+        const tanggal = new Date(tahun, bulan - 1, day);
+        if (getDay(tanggal) === 0) continue;
+
+        const date = format(tanggal, "yyyy-MM-dd");
         if (date >= String(leave.tgl_mulai || "") && date <= String(leave.tgl_selesai || "")) {
           leaveByPersonDay.set(`${personName}|${day}`, leave.jenis_cuti);
         }

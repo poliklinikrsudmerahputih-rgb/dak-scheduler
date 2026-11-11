@@ -5,7 +5,14 @@ import Image from "next/image";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
-import { calculateTargetPIC, calculateTargetValidator } from "@/lib/imut-indicators";
+import {
+  applyImutSampleLimits,
+  calculateImutTargets,
+  getMonthlyImutSampleCount,
+  getMonthlyImutPopulation,
+  getPoliSampleLimit,
+  inferImutTargetsFromPicTarget
+} from "@/lib/imut-indicators";
 import { 
   Search, Camera, Clock, X,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
@@ -196,7 +203,17 @@ const BannerPengingat = ({ doctors }) => {
   );
 };
 
-function ModalImutPasien({ modal, onClose, onSaved }) {
+function ModalImutPasien({
+  modal,
+  onClose,
+  onSaved,
+  monthlySampleCount,
+  sampleLimit,
+  targets,
+  targetsLoading,
+  quotaReady,
+  quotaError
+}) {
   const [noRM, setNoRM] = useState("");
   const [jamAsesmen, setJamAsesmen] = useState("");
   const [jamSelesai, setJamSelesai] = useState("");
@@ -209,14 +226,20 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
         return (jamAkhir * 60 + menitAkhir) - (jamMulai * 60 + menitMulai);
       })()
     : null;
+  const isQuotaCheckPending = sampleLimit !== null && !quotaReady;
+  const isWaitQuotaReached = sampleLimit !== null
+    && (isQuotaCheckPending || monthlySampleCount >= sampleLimit);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const nomorRM = noRM.trim();
     if (
-      !nomorRM || !jamAsesmen || !jamSelesai ||
+      !nomorRM ||
       !["Ya", "Tidak"].includes(identifikasiPraTindakan) ||
-      !Number.isSafeInteger(waktuTungguMenit) || waktuTungguMenit < 0
+      (!isWaitQuotaReached && (
+        !jamAsesmen || !jamSelesai ||
+        !Number.isSafeInteger(waktuTungguMenit) || waktuTungguMenit < 0
+      ))
     ) {
       return alert("Isi Nomor RM, pilih identifikasi Ya atau Tidak, dan pastikan Jam Selesai tidak mendahului Jam Asesmen.");
     }
@@ -230,10 +253,14 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
           dokter_id: modal.dokter.id,
           tanggal: modal.tanggal,
           no_rm: nomorRM,
-          jam_asesmen: jamAsesmen,
-          jam_selesai: jamSelesai,
-          waktu_tunggu_menit: waktuTungguMenit,
-          identifikasi_pra_tindakan: identifikasiPraTindakan
+          identifikasi_pra_tindakan: identifikasiPraTindakan,
+          ...(isWaitQuotaReached
+            ? { identifikasi_saja: true }
+            : {
+                jam_asesmen: jamAsesmen,
+                jam_selesai: jamSelesai,
+                waktu_tunggu_menit: waktuTungguMenit
+              })
         })
       });
       const result = await response.json().catch(() => ({}));
@@ -264,14 +291,33 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
       >
         <div className="mb-6">
           <h2 id="modal-imut-pasien-title" className="text-lg font-black uppercase text-slate-900">
-            Input Sampel IMUT 2 &amp; 3
+            {isWaitQuotaReached ? "Input Sampel IMUT 2" : "Input Sampel IMUT 2 & 3"}
           </h2>
           <p className="mt-2 text-xs font-bold text-slate-500">
             {modal.dokter.nama_dokter} · {modal.dokter.klinik} · {modal.tanggal}
           </p>
+          <div className="mt-3 space-y-1 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">
+            {targets ? (
+              <>
+                <p>Target Pengumpulan Data · PIC: {targets.targetPIC.toLocaleString("id-ID")} Sampel</p>
+                <p>Target Validasi · Kepala Ruang / Koordinator: {targets.targetValidasi.toLocaleString("id-ID")} Sampel</p>
+              </>
+            ) : (
+              <p>{targetsLoading ? "Menghitung target sampel IMUT..." : "Target sampel IMUT belum tersedia."}</p>
+            )}
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isWaitQuotaReached && (
+            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+              {quotaError
+                ? "Kuota sampel IMUT gagal dimuat. Sampel waktu tunggu dikunci; input indikator 2 tetap tersedia."
+                : isQuotaCheckPending
+                  ? "Kuota sampel IMUT sedang diperiksa. Sampel waktu tunggu tidak dapat ditambahkan saat ini."
+                  : "Kuota sampel IMUT untuk poli ini telah terpenuhi. Input indikator 2 tetap tersedia."}
+            </p>
+          )}
           <label className="block text-xs font-black uppercase text-slate-600">
             Nomor RM
             <input
@@ -319,36 +365,40 @@ function ModalImutPasien({ modal, onClose, onSaved }) {
             </div>
           </fieldset>
 
-          <label className="block text-xs font-black uppercase text-slate-600">
-            Jam Asesmen Perawat
-            <input
-              type="time"
-              value={jamAsesmen}
-              onChange={(event) => setJamAsesmen(event.target.value)}
-              required
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
-              suppressHydrationWarning={true}
-            />
-          </label>
+          {!isWaitQuotaReached && (
+            <>
+              <label className="block text-xs font-black uppercase text-slate-600">
+                Jam Asesmen Perawat
+                <input
+                  type="time"
+                  value={jamAsesmen}
+                  onChange={(event) => setJamAsesmen(event.target.value)}
+                  required
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+                  suppressHydrationWarning={true}
+                />
+              </label>
 
-          <label className="block text-xs font-black uppercase text-slate-600">
-            Jam Selesai Dilayani (Discharge)
-            <input
-              type="time"
-              value={jamSelesai}
-              onChange={(event) => setJamSelesai(event.target.value)}
-              required
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
-              suppressHydrationWarning={true}
-            />
-          </label>
+              <label className="block text-xs font-black uppercase text-slate-600">
+                Jam Selesai Dilayani (Discharge)
+                <input
+                  type="time"
+                  value={jamSelesai}
+                  onChange={(event) => setJamSelesai(event.target.value)}
+                  required
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+                  suppressHydrationWarning={true}
+                />
+              </label>
 
-          {waktuTungguMenit !== null && (
-            <p className={`rounded-lg px-3 py-2 text-xs font-black ${waktuTungguMenit < 0 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
-              {waktuTungguMenit < 0
-                ? "Jam Selesai harus sama atau setelah Jam Asesmen."
-                : `Waktu Tunggu: ${waktuTungguMenit} Menit`}
-            </p>
+              {waktuTungguMenit !== null && (
+                <p className={`rounded-lg px-3 py-2 text-xs font-black ${waktuTungguMenit < 0 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+                  {waktuTungguMenit < 0
+                    ? "Jam Selesai harus sama atau setelah Jam Asesmen."
+                    : `Waktu Tunggu: ${waktuTungguMenit} Menit`}
+                </p>
+              )}
+            </>
           )}
 
           <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
@@ -1011,13 +1061,36 @@ export default function ViewJadwalPublic() {
     tanggal_hari_ini: tanggalLaporanImut,
     ruangan: ruanganShare || "POLIKLINIK"
   });
-  const { data: dataImut, error: errorImut, isLoading: loadingImut } = useSWR(
+  const imutQuotaParams = new URLSearchParams({
+    tipe: "bulanan",
+    bulan: String(Number(selectedDateFull.slice(5, 7))),
+    tahun: String(Number(selectedDateFull.slice(0, 4))),
+    tanggal_hari_ini: tanggalLaporanImut,
+    ruangan: ruanganShare || "POLIKLINIK"
+  });
+  const { data: dataImut, error: errorImut, isLoading: loadingImut, mutate: mutateImut } = useSWR(
     isModalImutOpen ? `/api/analisis-imut?${imutParams}` : null,
     fetchJSONWithTimeout,
     { revalidateOnFocus: true, refreshInterval: 60000, dedupingInterval: 60000 }
   );
+  const {
+    data: dataImutQuota,
+    error: errorImutQuota,
+    isLoading: loadingImutQuota,
+    mutate: mutateImutQuota
+  } = useSWR(`/api/analisis-imut?${imutQuotaParams}`, fetchJSONWithTimeout, {
+    revalidateOnFocus: true,
+    refreshInterval: 60000,
+    dedupingInterval: 60000
+  });
+  const quotaDataReady = Boolean(dataImutQuota && !errorImutQuota && !loadingImutQuota);
   const totalKunjunganImut = (Array.isArray(dataImut?.rekap) ? dataImut.rekap : [])
     .reduce((total, row) => total + (Number(row.kunjungan) || 0), 0);
+  const indikatorMutuDisplayed = applyImutSampleLimits(
+    Array.isArray(dataImut?.indikatorMutu) ? dataImut.indikatorMutu : [],
+    Array.isArray(dataImut?.rekap) ? dataImut.rekap : []
+  );
+  const totalTargetsImut = calculateImutTargets(totalKunjunganImut);
   const { data: dataSop, error: errorSop, isLoading: loadingSop, mutate: mutateSop } = useSWR(
     "/api/sop",
     fetchJSONWithTimeout,
@@ -1060,6 +1133,19 @@ export default function ViewJadwalPublic() {
   const [modalImutOpen, setModalImutOpen] = useState(null);
   const [modalRiwayatOpen, setModalRiwayatOpen] = useState(null);
   const [imutSaveNotice, setImutSaveNotice] = useState("");
+  const modalImutPopulation = modalImutOpen
+    ? getMonthlyImutPopulation(dataImutQuota?.rekap, modalImutOpen.dokter.klinik)
+    : null;
+  const modalImutFallbackTarget = modalImutOpen
+    ? getPoliSampleLimit(modalImutOpen.dokter.klinik)
+    : null;
+  const modalImutTargets = modalImutOpen
+    ? modalImutPopulation !== null
+      ? calculateImutTargets(modalImutPopulation)
+      : modalImutFallbackTarget !== null
+        ? inferImutTargetsFromPicTarget(modalImutFallbackTarget)
+        : null
+    : null;
 
   const handleCreateSopFromPublicModal = async (event) => {
     event.preventDefault();
@@ -1146,6 +1232,18 @@ export default function ViewJadwalPublic() {
       alert("ID dokter tidak valid.");
       return;
     }
+    const sampleLimit = getPoliSampleLimit(dok.klinik);
+    if (sampleLimit !== null) {
+      if (!quotaDataReady) {
+        alert(errorImutQuota?.message || "Kuota sampel IMUT belum dapat diverifikasi. Coba lagi sebentar.");
+        return;
+      }
+      const sampleCount = getMonthlyImutSampleCount(dataImutQuota?.rekap, dok.klinik, "sampelKehadiran");
+      if (sampleCount >= sampleLimit) {
+        alert("Kuota sampel IMUT untuk poli ini telah terpenuhi.");
+        return;
+      }
+    }
 
     let waktuManual = jamMulaiManual;
     if (selectedDateFull < getTanggalJakarta() && !waktuManual) {
@@ -1181,6 +1279,9 @@ export default function ViewJadwalPublic() {
             : item
         )
       } : current, { revalidate: false });
+      void mutateImutQuota().catch((error) => {
+        console.error("Gagal memperbarui rekap kuota IMUT:", error);
+      });
       setManualDoctorId(null);
       setManualStartTime("");
     } catch (error) {
@@ -1201,6 +1302,20 @@ export default function ViewJadwalPublic() {
     if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
       alert("ID dokter tidak valid.");
       return;
+    }
+    if (!dok.jam_mulai_aktual) {
+      const sampleLimit = getPoliSampleLimit(dok.klinik);
+      if (sampleLimit !== null) {
+        if (!quotaDataReady) {
+          alert(errorImutQuota?.message || "Kuota sampel IMUT belum dapat diverifikasi. Coba lagi sebentar.");
+          return;
+        }
+        const sampleCount = getMonthlyImutSampleCount(dataImutQuota?.rekap, dok.klinik, "sampelKehadiran");
+        if (sampleCount >= sampleLimit) {
+          alert("Kuota sampel IMUT untuk poli ini telah terpenuhi.");
+          return;
+        }
+      }
     }
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(jamPraktik)) {
       alert("Pilih jam praktik yang valid.");
@@ -1231,6 +1346,11 @@ export default function ViewJadwalPublic() {
             : item
         )
       } : current, { revalidate: false });
+      if (!dok.jam_mulai_aktual) {
+        void mutateImutQuota().catch((error) => {
+          console.error("Gagal memperbarui rekap kuota IMUT:", error);
+        });
+      }
       setEditingJamPraktik((previous) => ({ ...previous, [cardKey]: false }));
       setManualDoctorId(null);
       setManualStartTime("");
@@ -1507,9 +1627,25 @@ export default function ViewJadwalPublic() {
         <ModalImutPasien
           modal={modalImutOpen}
           onClose={() => setModalImutOpen(null)}
+          targets={modalImutTargets}
+          targetsLoading={loadingImutQuota && !errorImutQuota}
+          sampleLimit={getPoliSampleLimit(modalImutOpen.dokter.klinik)}
+          monthlySampleCount={getMonthlyImutSampleCount(
+            dataImutQuota?.rekap,
+            modalImutOpen.dokter.klinik,
+            "sampelWaktuTunggu"
+          )}
+          quotaReady={quotaDataReady}
+          quotaError={errorImutQuota}
           onSaved={() => {
             setModalImutOpen(null);
             setImutSaveNotice("Sampel IMUT sudah tersimpan.");
+            void mutateImutQuota().catch((error) => {
+              console.error("Gagal memperbarui rekap kuota IMUT:", error);
+            });
+            void mutateImut().catch((error) => {
+              console.error("Gagal memperbarui capaian mutu IMUT:", error);
+            });
           }}
         />
       )}
@@ -1555,6 +1691,13 @@ export default function ViewJadwalPublic() {
               </button>
             </div>
 
+            {dataImut && (
+              <div className="mb-5 grid grid-cols-1 gap-2 rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs font-semibold text-blue-950 sm:grid-cols-2">
+                <p>Target Pengumpulan Data · PIC: {totalTargetsImut.targetPIC.toLocaleString("id-ID")} Sampel</p>
+                <p>Target Validasi · Kepala Ruang / Koordinator: {totalTargetsImut.targetValidasi.toLocaleString("id-ID")} Sampel</p>
+              </div>
+            )}
+
             {loadingImut && !dataImut && (
               <div className="py-12 text-center text-sm font-semibold text-slate-500">
                 <Loader2 className="mx-auto mb-2 animate-spin" size={22} />
@@ -1581,7 +1724,7 @@ export default function ViewJadwalPublic() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(dataImut.indikatorMutu || []).map((indikator, index) => {
+                    {indikatorMutuDisplayed.map((indikator, index) => {
                       const hasSamples = Number(indikator.denominator) > 0 && indikator.capaian !== null;
                       const tercapai = hasSamples && Number(indikator.capaian) >= Number(indikator.target);
                       return (
@@ -1600,7 +1743,7 @@ export default function ViewJadwalPublic() {
                         </tr>
                       );
                     })}
-                    {(!dataImut.indikatorMutu || dataImut.indikatorMutu.length === 0) && (
+                    {indikatorMutuDisplayed.length === 0 && (
                       <tr>
                         <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
                           Belum ada data indikator mutu pada periode ini.
@@ -1617,25 +1760,17 @@ export default function ViewJadwalPublic() {
                   Ringkasan Perhitungan dan Target Sampel
                 </h3>
                 <p className="mt-1 text-xs leading-5 text-slate-600">
-                  Capaian dihitung dengan rumus Numerator ÷ Denominator × 100. Target sampel ditentukan dari total kunjungan pasien pada periode laporan.
+                  Capaian dihitung dengan rumus Numerator ÷ Denominator × 100. Target sampel ditentukan dari total kunjungan pasien pada periode laporan; sampel indikator 2 di atas kuota poli tidak diikutkan dalam rumus resmi.
                 </p>
-                <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <dl className="mt-4 grid grid-cols-1 gap-3">
                   <div className="rounded-lg border border-blue-100 bg-white p-3">
                     <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Populasi · Kunjungan Pasien</dt>
                     <dd className="mt-1 text-lg font-black text-slate-900">{totalKunjunganImut.toLocaleString("id-ID")}</dd>
                   </div>
-                  <div className="rounded-lg border border-blue-100 bg-white p-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Pengumpulan Data · PIC</dt>
-                    <dd className="mt-1 text-lg font-black text-slate-900">{calculateTargetPIC(totalKunjunganImut).toLocaleString("id-ID")} sampel</dd>
-                  </div>
-                  <div className="rounded-lg border border-blue-100 bg-white p-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Validasi · Kepala Ruang / Koordinator</dt>
-                    <dd className="mt-1 text-lg font-black text-slate-900">{calculateTargetValidator(totalKunjunganImut).toLocaleString("id-ID")} sampel</dd>
-                  </div>
                 </dl>
                 <div className="mt-4 space-y-2">
                   <h4 className="text-xs font-black uppercase tracking-wide text-slate-700">Rincian Numerator, Denominator, dan Rumus</h4>
-                  {(dataImut.indikatorMutu || []).map((indikator) => {
+                  {indikatorMutuDisplayed.map((indikator) => {
                     const numerator = Number(indikator.numerator) || 0;
                     const denominator = Number(indikator.denominator) || 0;
                     const capaian = indikator.capaian === null || indikator.capaian === undefined
@@ -2091,6 +2226,21 @@ export default function ViewJadwalPublic() {
                     const isBerhalangan = dok.is_berhalangan === true;
                     const keteranganBerhalangan = getBerhalanganLabel(dok.keterangan_berhalangan);
                     const mutuPraktik = getStatusMutuPraktik(dok.jam_praktik, dok.jam_mulai_aktual);
+                    const poliSampleLimit = getPoliSampleLimit(dok.klinik);
+                    const monthlyLateSampleCount = getMonthlyImutSampleCount(
+                      dataImutQuota?.rekap,
+                      dok.klinik,
+                      "sampelKehadiran"
+                    );
+                    const monthlyWaitSampleCount = getMonthlyImutSampleCount(
+                      dataImutQuota?.rekap,
+                      dok.klinik,
+                      "sampelWaktuTunggu"
+                    );
+                    const lateQuotaReached = poliSampleLimit !== null
+                      && quotaDataReady
+                      && monthlyLateSampleCount >= poliSampleLimit;
+                    const lateQuotaUnavailable = poliSampleLimit !== null && !quotaDataReady;
 
                     return (
                       <div key={cardKey} className={`p-6 rounded-[2.5rem] border-2 transition-all ${isBerhalangan ? 'border-red-100 bg-red-50/30 opacity-75' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
@@ -2102,6 +2252,40 @@ export default function ViewJadwalPublic() {
                               <span className="mt-2 inline-flex rounded-full border border-red-200 bg-red-100 px-2.5 py-1 text-[8px] font-black uppercase tracking-wide text-red-800">
                                 🚫 {keteranganBerhalangan || "Dokter Berhalangan"}
                               </span>
+                            )}
+                            {poliSampleLimit !== null && (
+                              <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`Status kuota sampel IMUT ${dok.klinik}`}>
+                                {[
+                                  { label: "IMUT 1", count: monthlyLateSampleCount },
+                                  { label: "IMUT 3", count: monthlyWaitSampleCount }
+                                ].map(({ label, count }) => {
+                                  const remaining = Math.max(0, poliSampleLimit - count);
+                                  const overLimit = Math.max(0, count - poliSampleLimit);
+                                  return (
+                                    <span
+                                      key={label}
+                                      role="status"
+                                      className={`rounded-full border px-2.5 py-1 text-[8px] font-black uppercase ${
+                                        !quotaDataReady
+                                          ? "border-slate-200 bg-slate-100 text-slate-600"
+                                          : remaining === 0
+                                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                                            : "border-blue-200 bg-blue-50 text-blue-800"
+                                      }`}
+                                    >
+                                      {quotaDataReady
+                                        ? overLimit > 0
+                                          ? `${label}: ${count}/${poliSampleLimit} · lebih ${overLimit}`
+                                          : remaining > 0
+                                            ? `${label}: ${count}/${poliSampleLimit} · kurang ${remaining}`
+                                            : `${label}: terpenuhi ${count}/${poliSampleLimit}`
+                                        : errorImutQuota
+                                          ? `${label}: kuota gagal dimuat`
+                                          : `${label}: memuat kuota...`}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             )}
 
                             <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -2116,15 +2300,32 @@ export default function ViewJadwalPublic() {
                                 </span>
                               )}
                               {!dok.jam_mulai_aktual && !isBerhalangan && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleMulaiPraktik(dok)}
-                                  disabled={startingDoctorId === Number(dok.id)}
-                                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                                 suppressHydrationWarning={true}>
-                                  {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
-                                  Mulai Praktik
-                                </button>
+                                <>
+                                  {(lateQuotaReached || lateQuotaUnavailable) && (
+                                    <span
+                                      role={lateQuotaReached ? "alert" : "status"}
+                                      className={`rounded-full px-2.5 py-1 text-[8px] font-black uppercase ${
+                                        lateQuotaReached ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      {lateQuotaReached
+                                        ? "Kuota sampel IMUT untuk poli ini telah terpenuhi."
+                                        : errorImutQuota
+                                          ? "Kuota IMUT gagal diverifikasi."
+                                          : "Memeriksa kuota sampel IMUT..."}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMulaiPraktik(dok)}
+                                    disabled={startingDoctorId === Number(dok.id) || lateQuotaReached || lateQuotaUnavailable}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[8px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                                    suppressHydrationWarning={true}
+                                  >
+                                    {startingDoctorId === Number(dok.id) ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
+                                    Mulai Praktik
+                                  </button>
+                                </>
                               )}
                               {!isBerhalangan && String(dok.ruangan || ruanganAktifGlobal).trim().toUpperCase() === "POLIKLINIK" && (
                                 <div className="flex flex-wrap items-center gap-2">
@@ -2174,7 +2375,9 @@ export default function ViewJadwalPublic() {
                                        suppressHydrationWarning={true}/>
                                       <button
                                         type="submit"
-                                        disabled={savingJamPraktikId === Number(dok.id)}
+                                        disabled={savingJamPraktikId === Number(dok.id) || (
+                                          !dok.jam_mulai_aktual && (lateQuotaReached || lateQuotaUnavailable)
+                                        )}
                                         className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
                                        suppressHydrationWarning={true}>
                                         {savingJamPraktikId === Number(dok.id)

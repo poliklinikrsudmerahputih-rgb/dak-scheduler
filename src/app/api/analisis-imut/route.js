@@ -167,6 +167,12 @@ export async function GET(request) {
                   WHEN UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) = 'TIDAK'
                   THEN 1 ELSE 0
                 END) AS identifikasi_tidak,
+                SUM(CASE
+                  WHEN identifikasi_pra_tindakan IS NULL
+                    OR TRIM(CAST(identifikasi_pra_tindakan AS TEXT)) = ''
+                    OR UPPER(TRIM(CAST(identifikasi_pra_tindakan AS TEXT))) IN ('YA', 'TIDAK', '1', '0', 'TRUE', 'FALSE')
+                  THEN 1 ELSE 0
+                END) AS total_identifikasi,
                 SUM(CASE WHEN CAST(waktu_tunggu_menit AS REAL) < 60 THEN 1 ELSE 0 END) AS waktu_kurang_60,
                 SUM(CASE
                   WHEN CAST(waktu_tunggu_menit AS REAL) < 60
@@ -381,6 +387,7 @@ export async function GET(request) {
         sampelKehadiran: Number(late.total_sampling) || 0,
         identifikasiYa: Number(patient.identifikasi_ya) || 0,
         identifikasiTidak: Number(patient.identifikasi_tidak) || 0,
+        sampelIdentifikasi: Number(patient.total_identifikasi) || 0,
         waktuKurang60: Number(patient.waktu_kurang_60) || 0,
         waktuKurang60Tercapai: Number(patient.waktu_kurang_60_tercapai) || 0,
         waktuTepat60: Number(patient.waktu_tepat_60) || 0,

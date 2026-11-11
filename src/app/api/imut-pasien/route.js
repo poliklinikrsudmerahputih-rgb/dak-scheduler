@@ -54,14 +54,16 @@ export async function POST(request) {
       jam_asesmen: jamAsesmenPayload,
       jam_selesai: jamSelesaiPayload,
       waktu_tunggu_menit: waktuTungguPayload,
-      identifikasi_pra_tindakan: identifikasiPraTindakanPayload
+      identifikasi_pra_tindakan: identifikasiPraTindakanPayload,
+      identifikasi_saja: identifikasiSajaPayload
     } = body || {};
+    const identifikasiSaja = identifikasiSajaPayload === true;
     const dokterId = Number(dokterIdPayload);
     const tanggal = String(tanggalPayload || "").trim();
     const noRM = String(noRMpayload || "").trim();
     const jamAsesmen = String(jamAsesmenPayload || "").trim();
     const jamSelesai = String(jamSelesaiPayload || "").trim();
-    const waktuTunggu = Number(waktuTungguPayload);
+    const waktuTunggu = identifikasiSaja ? null : Number(waktuTungguPayload);
     const identifikasiPraTindakan = identifikasiPraTindakanPayload
       ?? (typeof body?.identifikasi === "boolean" ? (body.identifikasi ? "Ya" : "Tidak") : null);
     const formatJamValid = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -73,15 +75,17 @@ export async function POST(request) {
     const tanggalDate = /^\d{4}-\d{2}-\d{2}$/.test(tanggal)
       ? new Date(`${tanggal}T00:00:00.000Z`)
       : null;
-    const durasiTerhitung = formatJamValid.test(jamAsesmen) && formatJamValid.test(jamSelesai)
+    const durasiTerhitung = !identifikasiSaja && formatJamValid.test(jamAsesmen) && formatJamValid.test(jamSelesai)
       ? menitDariJam(jamSelesai) - menitDariJam(jamAsesmen)
       : null;
     if (
       !Number.isSafeInteger(dokterId) || dokterId <= 0 ||
       !tanggalDate || Number.isNaN(tanggalDate.getTime()) || tanggalDate.toISOString().slice(0, 10) !== tanggal ||
       !noRM || noRM.length > 64 ||
-      durasiTerhitung === null || durasiTerhitung < 0 ||
-      !Number.isSafeInteger(waktuTunggu) || waktuTunggu !== durasiTerhitung ||
+      (!identifikasiSaja && (
+        durasiTerhitung === null || durasiTerhitung < 0 ||
+        !Number.isSafeInteger(waktuTunggu) || waktuTunggu !== durasiTerhitung
+      )) ||
       !["Ya", "Tidak"].includes(identifikasiPraTindakan)
     ) {
       return NextResponse.json({ success: false, error: "Data sampel IMUT tidak valid." }, { status: 400 });
@@ -113,8 +117,8 @@ export async function POST(request) {
         dokter.nama_dokter,
         dokter.klinik,
         noRM,
-        jamAsesmen,
-        jamSelesai,
+        identifikasiSaja ? null : jamAsesmen,
+        identifikasiSaja ? null : jamSelesai,
         waktuTunggu,
         identifikasiPraTindakan
       ]

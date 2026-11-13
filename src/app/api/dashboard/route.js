@@ -100,11 +100,31 @@ export async function GET(request) {
                              ORDER BY id ASC`;
 
     // Launch every independent dashboard read in the same round trip window.
-    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll] = await Promise.all([
+    const firstMonthlyDate = new Date(`${queryTglAwalBulan}T00:00:00.000Z`);
+    const lastMonthlyDate = new Date(`${queryTglAkhirBulan}T00:00:00.000Z`);
+    if (firstMonthlyDate.getUTCDate() > 1) {
+      firstMonthlyDate.setUTCMonth(firstMonthlyDate.getUTCMonth() + 1, 1);
+    }
+    if (lastMonthlyDate.getUTCDate() < new Date(Date.UTC(
+      lastMonthlyDate.getUTCFullYear(),
+      lastMonthlyDate.getUTCMonth() + 1,
+      0
+    )).getUTCDate()) {
+      lastMonthlyDate.setUTCDate(0);
+    }
+    const reportMonthStart = firstMonthlyDate.getUTCFullYear() * 100 + firstMonthlyDate.getUTCMonth() + 1;
+    const reportMonthEnd = lastMonthlyDate.getUTCFullYear() * 100 + lastMonthlyDate.getUTCMonth() + 1;
+    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resRekapKunjunganBulanan, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll] = await Promise.all([
       turso.execute({ sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: "SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: sqlJadwal, args: argsJadwal }),
       turso.execute({ sql: sqlPasien, args: argsPasien }),
+      turso.execute({
+        sql: `SELECT nama_dokter, jumlah FROM rekap_kunjungan_dokter_bulanan
+              WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+                AND (CAST(tahun AS INTEGER) * 100 + CAST(bulan AS INTEGER)) BETWEEN ? AND ?`,
+        args: [kunciRuangan, reportMonthStart, reportMonthEnd]
+      }),
       turso.execute({
         sql: `SELECT * FROM absensi 
               WHERE tanggal = ? 
@@ -146,6 +166,11 @@ export async function GET(request) {
 
     const semuaJadwalBulanIni = resJadwal.rows;
     const dataPasienBulanIni = resPasienPoli.rows;
+    const monthlyVisitsByDoctor = new Map();
+    for (const row of resRekapKunjunganBulanan.rows) {
+      const key = normalizeDoctorIdentity(row.nama_dokter);
+      monthlyVisitsByDoctor.set(key, (monthlyVisitsByDoctor.get(key) || 0) + (Number(row.jumlah) || 0));
+    }
 
     const absensiMap = resAbsensiHariIni.rows.reduce((acc, row) => {
       acc[row.sdm_id] = row;
@@ -327,7 +352,10 @@ export async function GET(request) {
       const patientStats = pasienByDokterKey.get(doctorKey);
       const targetDateKey = `${pTahun}-${pBulan}-${pTanggal}`;
       const totalPasienHarian = patientStats?.byDate.get(targetDateKey) || 0;
-      const totalPasienRentang = patientStats?.total || 0;
+      const doctorMonthlyKey = normalizeDoctorIdentity(dok.nama_dokter);
+      const totalPasienRentang = monthlyVisitsByDoctor.has(doctorMonthlyKey)
+        ? monthlyVisitsByDoctor.get(doctorMonthlyKey)
+        : patientStats?.total || 0;
 
       const timHarian = jadwalHariIni.filter(j => isAsistenUntukDokter(j, dok));
 
@@ -674,7 +702,9 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
       dokterPraktik: dokterPraktik,
       leaderboard: leaderboardBeban,
       missingPasien: uniqueMissing,
-      totalPasienBulanIni: dataPasienBulanIni.reduce((total, row) => total + (Number(row.jumlah) || 0), 0),
+      totalPasienBulanIni: resRekapKunjunganBulanan.rows.length
+        ? resRekapKunjunganBulanan.rows.reduce((total, row) => total + (Number(row.jumlah) || 0), 0)
+        : dataPasienBulanIni.reduce((total, row) => total + (Number(row.jumlah) || 0), 0),
       trenPasienHarian,
       mutuPraktik
     }, {

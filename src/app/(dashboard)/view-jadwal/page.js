@@ -7,11 +7,10 @@ import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
 import {
   applyImutSampleLimits,
-  calculateImutTargets,
   getMonthlyImutSampleCount,
-  getMonthlyImutPopulation,
   getPoliSampleLimit,
-  inferImutTargetsFromPicTarget
+  inferImutTargetsFromPicTarget,
+  IMUT_REPORT_TARGETS
 } from "@/lib/imut-indicators";
 import { 
   Search, Camera, Clock, X,
@@ -1016,9 +1015,6 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
 // ======================================================
 export default function ViewJadwalPublic() {
   const [submitting, setSubmitting] = useState(false);
-  const [pasienInputValues, setPasienInputValues] = useState({});
-  const [editingStatus, setEditingStatus] = useState({});
-  const [hasSavedPatientCount, setHasSavedPatientCount] = useState({});
   
   const [selectedDateFull, setSelectedDateFull] = useState(getTanggalJakarta());
   const [startingDoctorId, setStartingDoctorId] = useState(null);
@@ -1090,7 +1086,7 @@ export default function ViewJadwalPublic() {
     Array.isArray(dataImut?.indikatorMutu) ? dataImut.indikatorMutu : [],
     Array.isArray(dataImut?.rekap) ? dataImut.rekap : []
   );
-  const totalTargetsImut = calculateImutTargets(totalKunjunganImut);
+  const totalTargetsImut = IMUT_REPORT_TARGETS;
   const { data: dataSop, error: errorSop, isLoading: loadingSop, mutate: mutateSop } = useSWR(
     "/api/sop",
     fetchJSONWithTimeout,
@@ -1133,18 +1129,11 @@ export default function ViewJadwalPublic() {
   const [modalImutOpen, setModalImutOpen] = useState(null);
   const [modalRiwayatOpen, setModalRiwayatOpen] = useState(null);
   const [imutSaveNotice, setImutSaveNotice] = useState("");
-  const modalImutPopulation = modalImutOpen
-    ? getMonthlyImutPopulation(dataImutQuota?.rekap, modalImutOpen.dokter.klinik)
-    : null;
-  const modalImutFallbackTarget = modalImutOpen
+  const modalImutPicTarget = modalImutOpen
     ? getPoliSampleLimit(modalImutOpen.dokter.klinik)
     : null;
-  const modalImutTargets = modalImutOpen
-    ? modalImutPopulation !== null
-      ? calculateImutTargets(modalImutPopulation)
-      : modalImutFallbackTarget !== null
-        ? inferImutTargetsFromPicTarget(modalImutFallbackTarget)
-        : null
+  const modalImutTargets = modalImutOpen && modalImutPicTarget !== null
+    ? inferImutTargetsFromPicTarget(modalImutPicTarget)
     : null;
 
   const handleCreateSopFromPublicModal = async (event) => {
@@ -1213,19 +1202,7 @@ export default function ViewJadwalPublic() {
     if (ruanganShare) setRuanganAktifGlobal(ruanganShare);
     if (!data) return;
     if (data.summary?.ruangan) setRuanganAktifGlobal(data.summary.ruangan);
-
-    setPasienInputValues((previous) => {
-      const next = { ...previous };
-      data.dokterPraktik?.forEach((dok) => {
-        const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-        const cardKey = `${doctorKey}_${selectedDateFull}`;
-        if (next[cardKey] === undefined) {
-          next[cardKey] = getPatientCount(dok);
-        }
-      });
-      return next;
-    });
-  }, [data, ruanganShare, selectedDateFull]);
+  }, [data, ruanganShare]);
   const handleMulaiPraktik = async (dok, jamMulaiManual = "") => {
     const dokterId = Number(dok.id);
     if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
@@ -1366,59 +1343,6 @@ export default function ViewJadwalPublic() {
       alert(error.message || "Gagal menyimpan jam praktik.");
     } finally {
       setSavingJamPraktikId(null);
-    }
-  };
-
-  const handleUpdatePasienSpesifik = async (dok) => {
-    const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
-    const cardKey = `${doctorKey}_${selectedDateFull}`;
-    const inputValue = pasienInputValues[cardKey];
-    if (inputValue === "" || inputValue == null) return alert("Isi jumlah pasien dengan benar!");
-    const jmlTotal = Number(inputValue);
-    if (!Number.isSafeInteger(jmlTotal) || jmlTotal < 0) return alert("Isi jumlah pasien dengan benar!");
-
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/dashboard?isPublic=true", {
-        method: "PATCH",
-        headers: { 
-            "Content-Type": "application/json",
-            "x-public-access": "true" 
-        },
-        body: JSON.stringify({
-          nama_dokter: dok.nama_dokter,
-          klinik: dok.klinik,
-          tanggal, bulan, tahun,
-          jumlah: jmlTotal
-        })
-      });
-
-      const result = await res.json();
-      if (res.ok && result.success) {
-        alert(`✅ TERSIMPAN!\n${dok.nama_dokter}\nJumlah: ${jmlTotal} Pasien`);
-        setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
-        setHasSavedPatientCount((previous) => ({ ...previous, [cardKey]: true }));
-        setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
-        await mutateDashboard((current) => {
-          if (!current || !Array.isArray(current.dokterPraktik)) return current;
-          return {
-            ...current,
-            dokterPraktik: current.dokterPraktik.map((item) => {
-              const itemKey = item.id || `${item.nama_dokter}-${item.klinik}`;
-              return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
-            })
-          };
-        }, { revalidate: false });
-        void mutateDashboard().catch((error) => {
-          console.error("Gagal memperbarui data dashboard:", error);
-        });
-      } else {
-        alert("❌ Gagal menyimpan total pasien. " + (result.error || result.message || "Periksa koneksi dan akses publik."));
-      }
-    } catch (e) {
-      alert("❌ Gagal menyimpan data ke tabel poli.");
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -1760,12 +1684,20 @@ export default function ViewJadwalPublic() {
                   Ringkasan Perhitungan dan Target Sampel
                 </h3>
                 <p className="mt-1 text-xs leading-5 text-slate-600">
-                  Capaian dihitung dengan rumus Numerator ÷ Denominator × 100. Target sampel ditentukan dari total kunjungan pasien pada periode laporan; sampel indikator 2 di atas kuota poli tidak diikutkan dalam rumus resmi.
+                  Capaian dihitung dengan rumus Numerator ÷ Denominator × 100. Target PIC laporan adalah 128 sampel; perhitungan target validasi: 128 × (48 ÷ 128) = 48 sampel. Target PIC poli mengikuti kuota sampel poli dan target validasinya dihitung dari target PIC poli × (48 ÷ 128), dibulatkan ke sampel terdekat. Sampel indikator 2 di atas kuota poli tidak diikutkan dalam rumus resmi.
                 </p>
-                <dl className="mt-4 grid grid-cols-1 gap-3">
+                <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-lg border border-blue-100 bg-white p-3">
                     <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Populasi · Kunjungan Pasien</dt>
                     <dd className="mt-1 text-lg font-black text-slate-900">{totalKunjunganImut.toLocaleString("id-ID")}</dd>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-white p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Pengumpulan Data · PIC</dt>
+                    <dd className="mt-1 text-lg font-black text-slate-900">{totalTargetsImut.targetPIC.toLocaleString("id-ID")} sampel</dd>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-white p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target Validasi</dt>
+                    <dd className="mt-1 text-lg font-black text-slate-900">{totalTargetsImut.targetValidasi.toLocaleString("id-ID")} sampel</dd>
                   </div>
                 </dl>
                 <div className="mt-4 space-y-2">
@@ -2101,7 +2033,7 @@ export default function ViewJadwalPublic() {
 
             {data?.missingPasien?.length > 0 && (
               <button onClick={() => setShowMissingModal(true)} className="bg-red-500 hover:bg-red-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-red-700 text-white" suppressHydrationWarning={true}>
-                <Bell size={18} /> {data.missingPasien.length} Belum Isi Point
+                <Bell size={18} /> {data.missingPasien.length} Kunjungan Belum Tercatat
               </button>
             )}
 
@@ -2222,7 +2154,6 @@ export default function ViewJadwalPublic() {
                     const cardKey = `${doctorKey}_${selectedDateFull}`;
                     const patientCount = getPatientCount(dok);
                     const monthlyPatientCount = getMonthlyPatientCount(dok);
-                    const isEditing = Boolean(editingStatus[cardKey]);
                     const isBerhalangan = dok.is_berhalangan === true;
                     const keteranganBerhalangan = getBerhalanganLabel(dok.keterangan_berhalangan);
                     const mutuPraktik = getStatusMutuPraktik(dok.jam_praktik, dok.jam_mulai_aktual);
@@ -2493,74 +2424,12 @@ export default function ViewJadwalPublic() {
                               }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
                             </div>
 
-                            {(patientCount > 0 || hasSavedPatientCount[cardKey]) && !isEditing ? (
-                              <div className="flex items-center justify-between gap-3 pt-2">
-                                <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
-                                  <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
-                                      setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
-                                    }}
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
-                                    title="Edit jumlah pasien"
-                                    aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
-                                    suppressHydrationWarning={true}
-                                  >
-                                    <Edit3 size={15} />
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <form
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  handleUpdatePasienSpesifik(dok);
-                                }}
-                                className="flex gap-3 items-end pt-2"
-                              >
-                                <label className="flex-1">
-                                  <span className="mb-1.5 ml-1 block text-[7px] font-black uppercase tracking-widest text-slate-400 italic">Input Kunjungan</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="1"
-                                    inputMode="numeric"
-                                    className="w-full rounded-xl border-2 border-blue-200 bg-white px-4 py-2.5 text-xs font-black text-blue-900 outline-none transition-colors"
-                                    value={pasienInputValues[cardKey] !== undefined ? pasienInputValues[cardKey] : patientCount}
-                                    onChange={(event) => {
-                                      setPasienInputValues((previous) => ({ ...previous, [cardKey]: event.target.value }));
-                                      setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
-                                    }}
-                                    placeholder="Total pasien"
-                                   suppressHydrationWarning={true}/>
-                                </label>
-                                <button
-                                  type="submit"
-                                  onMouseDown={(event) => event.preventDefault()}
-                                  onTouchStart={(event) => event.preventDefault()}
-                                  disabled={submitting}
-                                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[9px] font-black uppercase text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
-                                 suppressHydrationWarning={true}>
-                                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                                  Simpan
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
-                                    setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
-                                  }}
-                                  disabled={submitting}
-                                  className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                                 suppressHydrationWarning={true}>
-                                  Batal
-                                </button>
-                              </form>
-                            )}
+                            <div className="flex items-center gap-2 pt-2">
+                              <CheckCircle2 size={15} className={patientCount > 0 ? "text-emerald-600" : "text-slate-400"} />
+                              <span className="text-[9px] font-bold uppercase text-slate-600">
+                                Kunjungan hari ini: {patientCount} pasien
+                              </span>
+                            </div>
                             <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                               <button
                                 type="button"
@@ -2748,8 +2617,8 @@ export default function ViewJadwalPublic() {
           <div className="bg-white w-full max-w-4xl rounded-[3rem] p-8 md:p-10 shadow-2xl border-4 border-red-500/20 max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex justify-between items-start gap-4 mb-6">
               <div>
-                <h3 className="text-xl font-black uppercase tracking-widest text-slate-900">Detail Entri Belum Input Point</h3>
-                <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] mt-2">Dokter dan perawat yang terjadwal bulan ini tetapi belum mengisi jumlah pasien.</p>
+                <h3 className="text-xl font-black uppercase tracking-widest text-slate-900">Kunjungan Belum Tercatat</h3>
+                <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] mt-2">Dokter dan perawat terjadwal yang belum memiliki catatan kunjungan harian. Rekap bulanan tidak dipakai untuk mengisi atau memperkirakan kunjungan harian.</p>
               </div>
               <button onClick={() => setShowMissingModal(false)} className="p-3 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600" suppressHydrationWarning={true}>
                 <XCircle size={20} />
@@ -2786,7 +2655,7 @@ export default function ViewJadwalPublic() {
                       </div>
                       <span className="text-[10px] font-black uppercase tracking-[0.3em] text-red-600">{entry.tanggal.split('-').reverse().join('/')}</span>
                     </div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Belum Mengisi Total Pasien</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Belum ada data kunjungan</p>
                   </div>
                 ))}
                 {data?.missingPasien?.filter(entry => {

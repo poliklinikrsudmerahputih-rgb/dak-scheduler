@@ -22,6 +22,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-dropzone": "^20.1.4",
+    "read-excel-file": "^9.3.15",
     "recharts": "^3.10.1",
     "swr": "^2.5.1"
   },

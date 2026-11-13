@@ -56,15 +56,6 @@ const getBerhalanganLabel = (value) => {
   return labels[status.toUpperCase()] || status;
 };
 
-const getPatientDoctorKey = (doctor) => {
-  const id = String(doctor?.id ?? "").trim();
-  if (id) return `id:${id}`;
-
-  const namaDokter = String(doctor?.nama_dokter ?? "").trim().toUpperCase();
-  const klinik = String(doctor?.klinik ?? "").trim().toUpperCase();
-  return `doctor:${namaDokter}|clinic:${klinik}`;
-};
-
 const fetchSopList = async (url) => {
   const response = await fetch(url);
   const result = await response.json();
@@ -87,14 +78,11 @@ const getMissingSopFields = (sop) => [
 export default function DashboardUtama() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
-  const [pasienInputValues, setPasienInputValues] = useState({});
-  const [editingStatus, setEditingStatus] = useState({});
   
   // State Filter Waktu (Dropdown Tanggal di Dashboard)
   const [tanggal, setTanggal] = useState(new Date().getDate());
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
   const [tahun, setTahun] = useState(new Date().getFullYear());
-  const tanggalPasienKey = `${tahun}-${String(bulan).padStart(2, "0")}-${String(tanggal).padStart(2, "0")}`;
   const dashboardUrl = `/api/dashboard?tanggal=${tanggal}&bulan=${bulan}&tahun=${tahun}`;
   const dashboardCacheScope = getDashboardCacheScope();
   const {
@@ -157,21 +145,6 @@ export default function DashboardUtama() {
   });
 
   useEffect(() => {
-    if (!data?.dokterPraktik) return;
-    setPasienInputValues((previous) => {
-      const next = { ...previous };
-      data.dokterPraktik.forEach((dok) => {
-        const doctorKey = getPatientDoctorKey(dok);
-        const cardKey = `${doctorKey}_${tanggalPasienKey}`;
-        if (next[cardKey] === undefined) {
-          next[cardKey] = getPatientCount(dok);
-        }
-      });
-      return next;
-    });
-  }, [data, tanggalPasienKey]);
-
-  useEffect(() => {
     if (!activeRoom) return;
     setSopForm((current) => ({ ...current, ruangan: activeRoom }));
   }, [activeRoom]);
@@ -179,67 +152,6 @@ export default function DashboardUtama() {
   useEffect(() => {
     if (dashboardError) console.error("Gagal sinkronisasi dashboard:", dashboardError);
   }, [dashboardError]);
-
-  const handleUpdatePasienSpesifik = async (dok) => {
-    const doctorKey = getPatientDoctorKey(dok);
-    const cardKey = `${doctorKey}_${tanggalPasienKey}`;
-    const inputValue = pasienInputValues[cardKey];
-    const jmlTotal = Number(inputValue);
-    const namaDokter = String(dok?.nama_dokter || "").trim();
-    const klinik = String(dok?.klinik || "").trim();
-    const payload = { nama_dokter: namaDokter, klinik, tanggal, bulan, tahun, jumlah: jmlTotal };
-
-    console.log("PAYLOAD SIMPAN:", payload);
-
-    const tanggalValid = Number.isInteger(tanggal) && Number.isInteger(bulan) && Number.isInteger(tahun)
-      && bulan >= 1 && bulan <= 12 && tanggal >= 1
-      && tanggal <= getDaysInMonth(new Date(tahun, bulan - 1)) && tahun > 0;
-    if (!namaDokter || !klinik || !tanggalValid) {
-      return alert("Data dokter atau tanggal tidak valid. Muat ulang halaman lalu coba lagi.");
-    }
-    if (inputValue === "" || inputValue == null || !Number.isSafeInteger(jmlTotal) || jmlTotal < 0) {
-      return alert("Isi jumlah pasien!");
-    }
-    
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/jadwal", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const result = await res.json().catch(() => ({}));
-      if (res.status === 401) {
-        router.push("/login");
-        throw new Error("Sesi berakhir. Silakan login kembali.");
-      }
-      if (!res.ok || result.success !== true) {
-        throw new Error(result.error || result.message || `Server merespons dengan status ${res.status}.`);
-      }
-
-      setPasienInputValues((previous) => ({ ...previous, [cardKey]: jmlTotal }));
-      setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
-      await mutateDashboard((current) => {
-        if (!current || !Array.isArray(current.dokterPraktik)) return current;
-        return {
-          ...current,
-          dokterPraktik: current.dokterPraktik.map((item) => {
-            const itemKey = getPatientDoctorKey(item);
-            return itemKey === doctorKey ? { ...item, jumlah_pasien_poli: jmlTotal } : item;
-          })
-        };
-      }, { revalidate: false });
-      void mutateDashboard().catch((error) => {
-        console.error("Gagal memperbarui data dashboard:", error);
-      });
-      alert(`✅ TERSIMPAN: ${namaDokter} - ${jmlTotal} Pasien`);
-    } catch (error) {
-      console.error("Error Simpan Pasien:", error);
-      alert("Gagal menyimpan!");
-    }
-    finally { setSubmitting(false); }
-  };
 
   const handleSwapDB = async () => {
     if (!swapData.sdmA || !swapData.sdmB) return alert("Pilih kedua perawat!");
@@ -838,11 +750,9 @@ export default function DashboardUtama() {
         <div className="lg:col-span-2 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {data?.dokterPraktik?.filter(d => d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase())).map((dok) => {
-              const doctorKey = getPatientDoctorKey(dok);
-              const cardKey = `${doctorKey}_${tanggalPasienKey}`;
+              const cardKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
               const patientCount = getPatientCount(dok);
               const monthlyPatientCount = getMonthlyPatientCount(dok);
-              const isEditing = Boolean(editingStatus[cardKey]);
               const isBerhalangan = dok.is_berhalangan === true;
               const keteranganBerhalangan = getBerhalanganLabel(dok.keterangan_berhalangan);
               return (
@@ -884,75 +794,12 @@ export default function DashboardUtama() {
                         ))}
                       </div>
 
-                      {patientCount > 0 && !isEditing ? (
-                        <div className="flex items-center justify-between gap-2 border-t border-slate-200/50 pt-4">
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[9px] font-black uppercase text-emerald-700">
-                            <CheckCircle2 size={13} /> Tercatat: {patientCount} Pasien
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
-                              setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
-                            }}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-amber-400 hover:text-amber-600"
-                            title="Edit jumlah pasien"
-                            aria-label={`Edit jumlah pasien ${dok.nama_dokter}`}
-                            suppressHydrationWarning={true}
-                          >
-                            <Edit3 size={15} />
-                          </button>
-                        </div>
-                      ) : (
-                        <form
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            handleUpdatePasienSpesifik(dok);
-                          }}
-                          className="flex items-end gap-2 border-t border-slate-200/50 pt-4"
-                        >
-                          <label className="flex-1">
-                            <span className="mb-2 ml-1 block text-[8px] font-black uppercase tracking-widest text-slate-400">Jumlah Pasien</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              inputMode="numeric"
-                              className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
-                              value={pasienInputValues[cardKey] !== undefined ? pasienInputValues[cardKey] : patientCount}
-                              onChange={(event) => {
-                                setPasienInputValues((previous) => ({ ...previous, [cardKey]: event.target.value }));
-                                setEditingStatus((previous) => ({ ...previous, [cardKey]: true }));
-                              }}
-                              placeholder="Total pasien"
-                              suppressHydrationWarning={true}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdatePasienSpesifik(dok)}
-                            disabled={submitting}
-                            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-[9px] font-black uppercase text-white hover:bg-blue-800 disabled:opacity-60"
-                            title="Simpan jumlah pasien"
-                            suppressHydrationWarning={true}
-                          >
-                            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                            Simpan
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPasienInputValues((previous) => ({ ...previous, [cardKey]: patientCount }));
-                              setEditingStatus((previous) => ({ ...previous, [cardKey]: false }));
-                            }}
-                            disabled={submitting}
-                            className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-[9px] font-black uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                            suppressHydrationWarning={true}
-                          >
-                            Batal
-                          </button>
-                        </form>
-                      )}
+                      <div className="flex items-center gap-2 border-t border-slate-200/50 pt-4">
+                        <CheckCircle2 size={15} className={patientCount > 0 ? "text-emerald-600" : "text-slate-400"} />
+                        <span className="text-[9px] font-bold uppercase text-slate-600">
+                          Kunjungan hari ini: {patientCount} pasien
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ) : (

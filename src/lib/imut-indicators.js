@@ -53,6 +53,11 @@ export const POLI_SAMPLE_LIMITS = {
   Psi: 2
 };
 
+export const IMUT_REPORT_TARGETS = Object.freeze({
+  targetPIC: 128,
+  targetValidasi: 48
+});
+
 const clinicAliases = new Map([
   ["POLIKLINIK DALAM", "DALAM"],
   ["PENYAKIT DALAM", "DALAM"],
@@ -145,11 +150,17 @@ export function calculateTargetValidator(populasi) {
   return populasi;
 }
 
+export function calculateTargetValidatorFromPIC(targetPIC) {
+  const normalizedTarget = Math.max(0, Math.floor(Number(targetPIC) || 0));
+  return Math.round(normalizedTarget * IMUT_REPORT_TARGETS.targetValidasi / IMUT_REPORT_TARGETS.targetPIC);
+}
+
 export function calculateImutTargets(populasi) {
   const normalizedPopulation = Math.max(0, Math.floor(Number(populasi) || 0));
+  const targetPIC = calculateTargetPIC(normalizedPopulation);
   return {
-    targetPIC: calculateTargetPIC(normalizedPopulation),
-    targetValidasi: calculateTargetValidator(normalizedPopulation)
+    targetPIC,
+    targetValidasi: calculateTargetValidatorFromPIC(targetPIC)
   };
 }
 
@@ -157,9 +168,7 @@ export function inferImutTargetsFromPicTarget(targetPIC) {
   const normalizedTarget = Math.max(0, Math.floor(Number(targetPIC) || 0));
   return {
     targetPIC: normalizedTarget,
-    targetValidasi: normalizedTarget === 128
-      ? 48
-      : calculateTargetValidator(normalizedTarget)
+    targetValidasi: calculateTargetValidatorFromPIC(normalizedTarget)
   };
 }
 

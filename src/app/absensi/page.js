@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Camera, Loader2, ArrowLeft, AlertCircle, CheckCircle2, MapPin, LogIn, LogOut, Clock } from 'lucide-react';
@@ -21,7 +21,7 @@ function KameraKomponen() {
   // State Baru: GPS dan Shift
   const [lokasiGPS, setLokasiGPS] = useState(null);
   const [statusGPS, setStatusGPS] = useState('Mencari sinyal GPS...');
-  const [shiftAktif, setShiftAktif] = useState('PAGI (07:15 - 14:00)');
+  const [shiftAktif, setShiftAktif] = useState('PAGI (07:00 - 07:30)');
   const [tipeAbsen, setTipeAbsen] = useState('MASUK'); // MASUK atau PULANG
 
   // 1. Inisialisasi Kamera & GPS
@@ -59,7 +59,11 @@ function KameraKomponen() {
           setStatusGPS("Titik Koordinat Terkunci ✅");
         },
         (err) => {
-          console.error(err);
+          if (err?.code === 1) {
+            setStatusGPS("Akses lokasi ditolak. Izinkan lokasi di browser untuk mencatat GPS.");
+            return;
+          }
+          console.warn("Gagal GPS:", err?.message || err);
           setStatusGPS("Gagal melacak lokasi. Pastikan GPS / Location Services menyala.");
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -167,7 +171,7 @@ function KameraKomponen() {
                     onChange={(e) => setShiftAktif(e.target.value)}
                     className="w-full bg-transparent text-[10px] font-black text-slate-800 outline-none appearance-none"
                 >
-                    <option value="PAGI (07:15 - 14:00)">PAGI (07:15 - 14:00)</option>
+                    <option value="PAGI (07:00 - 07:30)">PAGI (07:00 - 07:30)</option>
                     <option value="MID 1 (09:00 - 16:00)">MID 1 (09:00 - 16:00)</option>
                     <option value="MID 2 (10:00 - 17:00)">MID 2 (10:00 - 17:00)</option>
                     <option value="MID 3 (11:00 - 18:00)">MID 3 (11:00 - 18:00)</option>

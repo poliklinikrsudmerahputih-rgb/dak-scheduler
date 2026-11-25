@@ -64,6 +64,9 @@ function hitungPenaltiKedisiplinan(shift, jamWIB) {
   }
 
   // Eksekusi Pemotongan Poin Mutu Kualitatif
+  if (shift.includes("PAGI") && waktuDesimal >= 7.0 && waktuDesimal <= 7.5) {
+    return { status: "MET MORNING", penalti: 0 };
+  }
   if (waktuDesimal <= targetJam) return { status: "TEPAT WAKTU", penalti: 0 };
   if (waktuDesimal <= batasRingan) return { status: "TERLAMBAT RINGAN", penalti: 5 };
   if (waktuDesimal <= batasSedang) return { status: "TERLAMBAT SEDANG", penalti: 15 };

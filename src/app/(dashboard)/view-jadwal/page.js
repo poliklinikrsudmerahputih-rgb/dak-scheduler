@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import Image from "next/image";
@@ -578,7 +578,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
   
   const [lokasiGPS, setLokasiGPS] = useState(null);
   const [statusGPS, setStatusGPS] = useState('Mencari sinyal GPS...');
-  const [shiftAktif, setShiftAktif] = useState('PAGI (07:15 - 14:00)');
+  const [shiftAktif, setShiftAktif] = useState('PAGI (07:00 - 07:30)');
   const [tipeAbsen, setTipeAbsen] = useState('MASUK'); 
   const [previewFoto, setPreviewFoto] = useState(null);
 
@@ -634,6 +634,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 
   useEffect(() => {
     let streamReference = null;
+    let cancelled = false;
 
     if (isOpen) {
       setSukses(false);
@@ -642,29 +643,41 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
       setStatusGPS('Mencari sinyal GPS...');
       setErrorKamera(null);
 
-      // Inisialisasi Kamera — prefer rear camera on mobile but fall back to front camera
-      // Use front camera (selfie) for attendance on mobile
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
-        .then(stream => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-          streamReference = stream;
-        })
-        .catch(err => {
-          console.error("Gagal akses kamera:", err);
-          setErrorKamera("Kamera ditolak. Pastikan akses HTTPS dan beri izin kamera di browser.");
-        });
+      if (navigator.mediaDevices?.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+          .then(stream => {
+            if (cancelled) {
+              stream.getTracks().forEach(track => track.stop());
+              return;
+            }
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+            }
+            streamReference = stream;
+          })
+          .catch(err => {
+            if (cancelled) return;
+            console.error("Gagal akses kamera:", err);
+            setErrorKamera("Kamera ditolak. Pastikan akses HTTPS dan beri izin kamera di browser.");
+          });
+      } else {
+        setErrorKamera("Kamera tidak didukung di perangkat/browser ini. Pastikan akses melalui HTTPS.");
+      }
 
-      // Inisialisasi GPS
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            if (cancelled) return;
             setLokasiGPS(`${position.coords.latitude}, ${position.coords.longitude}`);
             setStatusGPS("Titik Koordinat Terkunci ✅");
           },
           (err) => {
-            console.error(err);
+            if (cancelled) return;
+            if (err?.code === 1) {
+              setStatusGPS("Akses lokasi ditolak. Izinkan lokasi di browser untuk mencatat GPS.");
+              return;
+            }
+            console.warn("Gagal GPS:", err?.message || err);
             setStatusGPS("Gagal melacak lokasi. Pastikan GPS / Location Services menyala.");
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -672,14 +685,10 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
       } else {
         setStatusGPS("GPS tidak didukung di perangkat ini.");
       }
-    } else {
-      // Matikan kamera jika modal ditutup
-      if (streamReference) {
-        streamReference.getTracks().forEach(track => track.stop());
-      }
     }
 
     return () => {
+      cancelled = true;
       if (streamReference) {
         streamReference.getTracks().forEach(track => track.stop());
       }
@@ -778,7 +787,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
                     onChange={(e) => setShiftAktif(e.target.value)}
                     className="w-full bg-transparent text-[10px] font-black text-slate-800 outline-none appearance-none cursor-pointer"
                 >
-                    <option value="PAGI (07:15 - 14:00)">PAGI (07:15 - 14:00)</option>
+                    <option value="PAGI (07:00 - 07:30)">PAGI (07:00 - 07:30)</option>
                     <option value="MID 1 (09:00 - 16:00)">MID 1 (09:00 - 16:00)</option>
                     <option value="MID 2 (10:00 - 17:00)">MID 2 (10:00 - 17:00)</option>
                     <option value="MID 3 (11:00 - 18:00)">MID 3 (11:00 - 18:00)</option>
@@ -868,8 +877,19 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 // ======================================================
 function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, onDeleteAbsen }) {
     const [previewImage, setPreviewImage] = useState(null);
+    const [searchAbsen, setSearchAbsen] = useState('');
 
     if (!isOpen) return null;
+
+    const normalizedSearchAbsen = searchAbsen.trim().toLowerCase();
+    const filteredAbsen = normalizedSearchAbsen
+      ? dataAbsen.filter((row) => {
+          const nama = String(row.nama_sdm || '').toLowerCase();
+          const ruangan = String(row.ruangan || '').toLowerCase();
+          const shift = String(row.shift_pilihan || '').toLowerCase();
+          return nama.includes(normalizedSearchAbsen) || ruangan.includes(normalizedSearchAbsen) || shift.includes(normalizedSearchAbsen);
+        })
+      : dataAbsen;
 
     return (
         <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
@@ -882,7 +902,21 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
 
             <div className="mb-6 bg-emerald-50 p-4 rounded-2xl text-[10px] font-black uppercase text-emerald-800 border border-emerald-100">
                 <p>Tanggal: <span className="italic font-black text-slate-900">{tanggalLabel}</span></p>
-                <p>Total Terdaftar: <span className="italic font-black text-emerald-700">{dataAbsen.length} SDM</span></p>
+                <p>Total Terdaftar: <span className="italic font-black text-emerald-700">{filteredAbsen.length}{normalizedSearchAbsen ? ` / ${dataAbsen.length}` : ''} SDM</span></p>
+            </div>
+
+            <div className="mb-6 flex items-center gap-3 bg-slate-100/60 px-5 py-4 rounded-2xl border border-slate-200">
+                <Search size={18} className="text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Cari nama SDM, ruangan, atau shift..."
+                  autoComplete="off"
+                  spellCheck="false"
+                  className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
+                  value={searchAbsen}
+                  onChange={(e) => setSearchAbsen(e.target.value)}
+                  suppressHydrationWarning={true}
+                />
             </div>
 
             {loading ? (
@@ -892,6 +926,13 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                     <div className="text-center">
                         <AlertCircle size={40} className="text-slate-400 mx-auto mb-4" />
                         <p className="text-slate-400 font-black uppercase text-sm italic">Belum ada data absensi untuk tanggal ini</p>
+                    </div>
+                </div>
+            ) : filteredAbsen.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center p-12">
+                    <div className="text-center">
+                        <AlertCircle size={40} className="text-slate-400 mx-auto mb-4" />
+                        <p className="text-slate-400 font-black uppercase text-sm italic">Tidak ada SDM yang cocok dengan pencarian</p>
                     </div>
                 </div>
             ) : (
@@ -912,7 +953,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                             </tr>
                         </thead>
                         <tbody className="text-xs font-bold uppercase tracking-tighter text-slate-700">
-                            {dataAbsen.map((row, i) => (
+                            {filteredAbsen.map((row, i) => (
                                 <tr key={`absen-${row.id || i}`} className="border-b border-slate-100 hover:bg-emerald-50/50 transition-colors">
                                     <td className="p-5 text-slate-900 font-extrabold">{i + 1}</td>
                                     <td className="p-5 font-black italic text-emerald-900">{row.nama_sdm}</td>
@@ -924,6 +965,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                           const statusValue = String(row.status || '').toUpperCase();
                                           return (
                                             <span className={`inline-block px-3 py-1 rounded-lg text-[9px] font-black ${
+                                                statusValue === 'MET MORNING' ? 'bg-sky-100 text-sky-700' :
                                                 statusValue === 'TEPAT WAKTU' ? 'bg-emerald-100 text-emerald-700' :
                                                 statusValue === 'TERLAMBAT RINGAN' ? 'bg-amber-100 text-amber-700' :
                                                 statusValue === 'TERLAMBAT SEDANG' ? 'bg-orange-100 text-orange-700' :
@@ -2062,7 +2104,7 @@ export default function ViewJadwalPublic() {
             <Search size={22} className="text-slate-400" />
             <input 
               type="text" 
-              placeholder="Cari Nama Dokter atau Klinik..." 
+              placeholder="Cari Nama Dokter, Klinik, atau SDM..." 
               autoComplete="off"
               spellCheck="false"
               className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
@@ -2123,9 +2165,11 @@ export default function ViewJadwalPublic() {
               </button>
             </div>
           ) : Object.entries(groupedDokter || {}).map(([simbol, listDokter]) => {
+            const term = searchTerm.toLowerCase().trim();
             const filteredDokter = listDokter.filter(d => 
-              d.nama_dokter.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              d.klinik.toLowerCase().includes(searchTerm.toLowerCase())
+              d.nama_dokter.toLowerCase().includes(term) ||
+              d.klinik.toLowerCase().includes(term) ||
+              (Array.isArray(d.timAsisten) && d.timAsisten.some((as) => String(as?.nama || '').toLowerCase().includes(term)))
             );
 
             if (filteredDokter.length === 0) return null;

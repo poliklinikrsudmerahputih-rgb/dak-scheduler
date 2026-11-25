@@ -389,10 +389,15 @@ function resolveDoctorAndClinic(record, doctorMaps) {
   if (clinicKey) {
     const byClinic = candidates.filter((c) => normalizeClinic(c.klinik) === clinicKey);
     if (byClinic.length === 1) return { doctor: byClinic[0], error: null };
-    if (byClinic.length > 1) return { doctor: null, error: "Klinik cocok dengan lebih dari satu data master dokter. Periksa data master." };
+    if (byClinic.length > 1) {
+      const distinctClinics = new Set(byClinic.map((c) => normalizeClinic(c.klinik)));
+      if (distinctClinics.size === 1) return { doctor: byClinic[0], error: null };
+      return { doctor: null, error: "Klinik cocok dengan lebih dari satu data master dokter. Periksa data master." };
+    }
     return { doctor: null, error: "Klinik pada file tidak cocok dengan klinik dokter di Master Dokter." };
   }
-  if (candidates.length === 1) return { doctor: candidates[0], error: null };
+  const distinctClinics = new Set(candidates.map((c) => normalizeClinic(c.klinik)).filter(Boolean));
+  if (candidates.length === 1 || distinctClinics.size === 1) return { doctor: candidates[0], error: null };
   return { doctor: null, error: "Dokter memiliki lebih dari satu klinik di Master Dokter. Isi kolom KLINIK pada file." };
 }
 

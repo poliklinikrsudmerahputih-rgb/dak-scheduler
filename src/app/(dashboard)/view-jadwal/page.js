@@ -16,7 +16,7 @@ import {
   Search, Camera, Clock, X,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
-  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList
+  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -945,8 +945,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                 <th className="p-5 text-left">Ruangan</th>
                                 <th className="p-5 text-left">Shift</th>
                                 <th className="p-5 text-center bg-emerald-600/30">Jam Masuk</th>
-                                <th className="p-5 text-center bg-blue-600/30">Status Disiplin</th>
-                                <th className="p-5 text-center bg-red-600/30">Potongan Absen</th>
+                                <th className="p-5 text-center bg-sky-600/30">Hadir Metmor</th>
                                 <th className="p-5 text-left">Lokasi (GPS)</th>
                                 <th className="p-5 text-left">Foto</th>
                                 <th className="p-5 text-left">Aksi</th>
@@ -960,24 +959,12 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                     <td className="p-5"><span className="bg-slate-100 px-3 py-1 rounded-md text-[10px] text-slate-600">{row.ruangan}</span></td>
                                     <td className="p-5 text-slate-800 font-black">{row.shift_pilihan}</td>
                                     <td className="p-5 text-center text-emerald-700 bg-emerald-50/30 font-black text-sm">{row.jam_masuk}</td>
-                                    <td className="p-5 text-center">
-                                        {(() => {
-                                          const statusValue = String(row.status || '').toUpperCase();
-                                          return (
-                                            <span className={`inline-block px-3 py-1 rounded-lg text-[9px] font-black ${
-                                                statusValue === 'MET MORNING' ? 'bg-sky-100 text-sky-700' :
-                                                statusValue === 'TEPAT WAKTU' ? 'bg-emerald-100 text-emerald-700' :
-                                                statusValue === 'TERLAMBAT RINGAN' ? 'bg-amber-100 text-amber-700' :
-                                                statusValue === 'TERLAMBAT SEDANG' ? 'bg-orange-100 text-orange-700' :
-                                                'bg-red-100 text-red-700'
-                                            }`}>
-                                              {row.status}
-                                            </span>
-                                          );
-                                        })()}
-                                    </td>
-                                    <td className="p-5 text-center font-black bg-red-50/30">
-                                        <span className="text-red-600">-{row.potongan_absen || row.penalti_mutu || 0} Pts</span>
+                                    <td className="p-5 text-center font-black bg-sky-50/30">
+                                        {row.jam_masuk ? (
+                                          <span role="img" aria-label="Hadir Metmor" title="Hadir Metmor">
+                                            <ThumbsUp size={18} className="inline text-sky-700" />
+                                          </span>
+                                        ) : null}
                                     </td>
                                     <td className="p-5 text-[9px] text-slate-500 max-w-xs">
                                         {row.lokasi_masuk && row.lokasi_masuk.includes('maps') ? (
@@ -998,16 +985,6 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                         )}
                                     </td>
                                     <td className="p-5 text-left flex flex-col gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (!confirm('Yakin ingin menghapus data absen ini?')) return;
-                                            onDeleteAbsen(row.id, false, row);
-                                          }}
-                                          className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-red-500 hover:bg-red-600 text-white"
-                                         suppressHydrationWarning={true}>
-                                          Hapus Absen
-                                        </button>
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -2072,12 +2049,6 @@ export default function ViewJadwalPublic() {
             <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700" suppressHydrationWarning={true}>
                 <Star size={18} className="fill-white" /> Cek Poin Asisten
             </button>
-
-            {data?.missingPasien?.length > 0 && (
-              <button onClick={() => setShowMissingModal(true)} className="bg-red-500 hover:bg-red-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-red-700 text-white" suppressHydrationWarning={true}>
-                <Bell size={18} /> {data.missingPasien.length} Kunjungan Belum Tercatat
-              </button>
-            )}
 
             <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800" suppressHydrationWarning={true}>
                 <Edit3 size={18} /> Ajukan Cuti Staf

@@ -4,6 +4,7 @@ import useSWR from "swr";
 import Image from "next/image";
 import { Lottie } from "lottie-react";
 import catAnimationData from "@/assets/cat-animation.json";
+import dogAnimationData from "@/assets/dog-animation.json";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
@@ -2169,15 +2170,34 @@ export default function ViewJadwalPublic() {
                 <p className="mt-2 text-sm font-medium text-slate-300 sm:text-base">Informasi praktik dokter dan layanan poliklinik</p>
               </div>
             </div>
-            <div className="flex items-center justify-between gap-5 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 backdrop-blur sm:justify-start sm:px-5">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal terpilih</p>
-                <p className="mt-1 text-sm font-bold text-white sm:text-base">{labelHariIni}</p>
+            <div className="flex w-full items-center justify-between gap-3 lg:w-auto lg:gap-4">
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 backdrop-blur sm:px-5 lg:flex-none">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal terpilih</p>
+                  <p className="mt-1 truncate text-sm font-bold text-white sm:text-base">{labelHariIni}</p>
+                </div>
+                <div className="h-9 w-px shrink-0 bg-white/10" />
+                <div className="flex shrink-0 items-center gap-2 text-sm font-semibold text-emerald-200">
+                  <Clock size={16} />
+                  <LiveClock />
+                </div>
               </div>
-              <div className="h-9 w-px bg-white/10" />
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-200">
-                <Clock size={16} />
-                <LiveClock />
+              <div
+                aria-hidden="true"
+                className="grid shrink-0 place-items-center overflow-hidden rounded-full border border-emerald-200/20 bg-white/[0.06] shadow-inner"
+                style={{ width: "clamp(4.5rem, 8vw, 7rem)", height: "clamp(4.5rem, 8vw, 7rem)" }}
+              >
+                <Lottie
+                  src={dogAnimationData}
+                  renderer="svg"
+                  rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
+                  speed={1}
+                  autoplay
+                  loop
+                  aria-hidden="true"
+                  className="block h-full w-full"
+                  style={{ width: "100%", height: "100%" }}
+                />
               </div>
             </div>
           </div>

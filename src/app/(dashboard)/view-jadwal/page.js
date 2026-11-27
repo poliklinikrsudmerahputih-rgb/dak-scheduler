@@ -15,7 +15,7 @@ import {
 import { 
   Search, Camera, Clock, X,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
-  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Download, Lock, Unlock, CalendarRange, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
+  RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Lock, Unlock, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
   ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
@@ -1055,6 +1055,8 @@ export default function ViewJadwalPublic() {
   const tanggalLaporanImut = getTanggalJakarta();
   const [isModalImutOpen, setIsModalImutOpen] = useState(false);
   const [isModalSopOpen, setIsModalSopOpen] = useState(false);
+  const [isModalSarprasOpen, setIsModalSarprasOpen] = useState(false);
+  const [sarprasSessionRoom, setSarprasSessionRoom] = useState("");
   const [activeSopTab, setActiveSopTab] = useState("list");
   const [searchSopTerm, setSearchSopTerm] = useState("");
   const [sopSessionRoom, setSopSessionRoom] = useState("");
@@ -1131,7 +1133,6 @@ export default function ViewJadwalPublic() {
   const [searchMissingTerm, setSearchMissingTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [showCutiModal, setShowCutiModal] = useState(false);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showMissingModal, setShowMissingModal] = useState(false);
   
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
@@ -1198,11 +1199,6 @@ export default function ViewJadwalPublic() {
     return () => window.clearTimeout(timeoutId);
   }, [imutSaveNotice]);
 
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [rentangDownload, setRentangDownload] = useState({
-    awal: format(new Date(tahun, bulan - 1, 1), "yyyy-MM-dd"), 
-    akhir: format(new Date(), "yyyy-MM-dd") 
-  });
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
 
   useEffect(() => {
@@ -1435,116 +1431,6 @@ export default function ViewJadwalPublic() {
     setSubmitting(false);
   };
 
-  const executeDownloadLaporan = async () => {
-    if (!rentangDownload.awal || !rentangDownload.akhir) return alert("Pilih rentang tanggal terlebih dahulu!");
-    
-    setIsDownloading(true);
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const ruanganShare = urlParams.get('ruangan');
-      const shareQuery = ruanganShare ? `&ruangan=${ruanganShare}` : '';
-
-      const res = await fetch(`/api/dashboard?tglAwal=${rentangDownload.awal}&tglAkhir=${rentangDownload.akhir}${shareQuery}`);
-      const dataLaporan = await res.json();
-
-      if (!dataLaporan || !dataLaporan.dokterPraktik || !dataLaporan.leaderboard) {
-        throw new Error("Gagal mengambil data dari server");
-      }
-
-      const tglAwalIndo = format(new Date(rentangDownload.awal), "dd MMMM yyyy", { locale: id });
-      const tglAkhirIndo = format(new Date(rentangDownload.akhir), "dd MMMM yyyy", { locale: id });
-
-      const wordHeader = `
-        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-        <head>
-          <meta charset='utf-8'>
-          <style>
-            @page Section1 { size: 595.3pt 841.9pt; mso-page-orientation: portrait; margin: 2cm; }
-            div.Section1 { page: Section1; font-family: 'Arial', sans-serif; }
-            table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-size: 11pt; }
-            th, td { border: 1pt solid black; padding: 6px; text-align: left; }
-            th { background-color: #e2e8f0; text-align: center; font-weight: bold; }
-            .center { text-align: center; }
-            .title { font-size: 14pt; font-weight: bold; text-align: center; }
-            .subtitle { font-size: 12pt; text-align: center; margin-bottom: 25px; }
-          </style>
-        </head>
-        <body>
-          <div class="Section1">
-            <div class="title">RSUD MERAH PUTIH KABUPATEN MAGELANG</div>
-            <div class="subtitle">
-              LAPORAN KINERJA RUANG RAWAT JALAN<br/>
-              PERIODE: ${tglAwalIndo.toUpperCase()} s.d ${tglAkhirIndo.toUpperCase()}
-            </div>
-
-            <p><b>A. REKAPITULASI KUNJUNGAN PASIEN PER KLINIK</b></p>
-            <table>
-              <tr>
-                <th style="width: 8%;">NO</th>
-                <th>NAMA DOKTER</th>
-                <th>UNIT KLINIK</th>
-                <th style="width: 25%;">TOTAL PASIEN</th>
-              </tr>
-              ${dataLaporan.dokterPraktik.map((dok, i) => `
-                <tr>
-                  <td class="center">${i + 1}</td>
-                  <td>${dok.nama_dokter}</td>
-                  <td>${dok.klinik}</td>
-                  <td class="center"><b>${dok.total_pasien_bulanan || 0}</b> Pasien</td>
-                </tr>
-              `).join('')}
-            </table>
-
-            <p><b>B. REKAPITULASI BEBAN KERJA ASISTEN (BOBOT KLINIK)</b></p>
-            <table>
-              <tr>
-                <th style="width: 8%;">NO</th>
-                <th>NAMA PERAWAT / ASISTEN</th>
-                <th style="width: 25%;">TOTAL POIN KERJA BULAN INI</th>
-              </tr>
-              ${dataLaporan.leaderboard.map((item, i) => `
-                <tr>
-                  <td class="center">${i + 1}</td>
-                  <td>${item.nama}</td>
-                  <td class="center"><b>${item.total_pasien_bulanan || item.total_pasien || 0}</b> Poin</td>
-                </tr>
-              `).join('')}
-            </table>
-
-            <br/><br/>
-            
-            <table style="border:none; width:100%;">
-              <tr>
-                <td style="border:none; text-align:center; width:50%;"></td>
-                <td style="border:none; text-align:center; width:50%;">
-                  Magelang, ${tglAkhirIndo}<br/>
-                  Koordinator Rawat Jalan<br/><br/><br/><br/><br/>
-                  <u><b>DANIEL ARI KRISTIANTO, S.Kep., Ns</b></u><br/>
-                  NIP. 199303042019031006
-                </td>
-              </tr>
-            </table>
-          </div>
-        </body>
-        </html>
-      `;
-
-      const blob = new Blob(['\ufeff', wordHeader], { type: 'application/msword' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `Laporan_Kinerja_Poli_${rentangDownload.awal}_to_${rentangDownload.akhir}.doc`;
-      link.click();
-      
-      setShowDownloadModal(false);
-    } catch (error) {
-      console.error(error);
-      alert("Terjadi kesalahan saat memproses data laporan. Coba lagi.");
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
   const labelHariIni = format(parseISO(selectedDateFull), "eeee, dd MMMM yyyy", { locale: id });
 
   const groupedDokter = data?.dokterPraktik?.reduce((acc, dok) => {
@@ -1752,6 +1638,61 @@ export default function ViewJadwalPublic() {
           </section>
         </div>
       )}
+      {isModalSarprasOpen && (
+        <div
+          className="fixed inset-0 z-[10070] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsModalSarprasOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-sarpras-title"
+            className="max-h-[95vh] w-full max-w-[95vw] overflow-y-auto rounded-xl bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 id="modal-sarpras-title" className="text-lg font-black text-slate-900 sm:text-xl">
+                  Pencatatan Sarpras Rawat Jalan
+                </h2>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Kelola kebutuhan sarana-prasarana tanpa meninggalkan halaman jadwal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalSarprasOpen(false)}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+                aria-label="Tutup pop-up Sarpras"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {sarprasSessionRoom ? (
+              <iframe
+                title="Pencatatan Sarpras Rawat Jalan"
+                src="/shared/sarpras"
+                className="h-[78vh] min-h-[480px] w-full rounded-lg border border-slate-200 bg-white"
+              />
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+                <p className="font-bold">Masuk terlebih dahulu untuk menggunakan Pencatatan Sarpras.</p>
+                <a
+                  href="/login"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800"
+                >
+                  Masuk ke akun
+                </a>
+                <p className="mt-3 text-xs">Setelah masuk, tutup lalu buka kembali pop-up Sarpras.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
       {isModalSopOpen && (
         <div
           className="fixed inset-0 z-[10070] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
@@ -1763,7 +1704,7 @@ export default function ViewJadwalPublic() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-sop-title"
-            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-2xl sm:p-6"
+            className={`max-h-[95vh] w-full ${activeSopTab === "ai" ? "max-w-[95vw]" : "max-w-4xl"} overflow-y-auto rounded-xl bg-white p-5 shadow-2xl sm:p-6`}
           >
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
@@ -1784,7 +1725,7 @@ export default function ViewJadwalPublic() {
               </button>
             </div>
 
-            <div role="tablist" aria-label="Menu Buku Saku SOP" className="mb-5 flex gap-2 border-b border-slate-200">
+            <div role="tablist" aria-label="Menu Buku Saku SOP" className="mb-5 flex flex-wrap gap-2 border-b border-slate-200">
               <button
                 type="button"
                 role="tab"
@@ -1806,6 +1747,18 @@ export default function ViewJadwalPublic() {
                 className={`rounded-t-lg px-4 py-3 text-sm font-bold transition ${activeSopTab === "input" ? "border-b-2 border-green-600 text-green-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
               >
                 ➕ Buat SOP Baru
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeSopTab === "ai"}
+                onClick={() => {
+                  setSopSessionRoom(getClientSessionRoom());
+                  setActiveSopTab("ai");
+                }}
+                className={`rounded-t-lg px-4 py-3 text-sm font-bold transition ${activeSopTab === "ai" ? "border-b-2 border-green-600 text-green-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+              >
+                ✨ Buat/Revisi SPO + AI
               </button>
             </div>
 
@@ -1973,6 +1926,28 @@ export default function ViewJadwalPublic() {
                 </div>
               </form>
             )}
+            {activeSopTab === "ai" && (
+              sopSessionRoom ? (
+                <iframe
+                  title="Manajemen SPO dan Asisten AI"
+                  src="/shared/spo-generator"
+                  className="h-[78vh] min-h-[480px] w-full rounded-lg border border-slate-200 bg-white"
+                />
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+                  <p className="font-bold">Masuk terlebih dahulu untuk menggunakan Manajemen SPO + AI.</p>
+                  <a
+                    href="/login"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800"
+                  >
+                    Masuk ke akun
+                  </a>
+                  <p className="mt-3 text-xs">Setelah masuk, pilih kembali tab “Buat/Revisi SPO + AI”.</p>
+                </div>
+              )
+            )}
           </section>
         </div>
       )}
@@ -2018,6 +1993,18 @@ export default function ViewJadwalPublic() {
                 aria-expanded={isModalSopOpen}
               >
                 📖 Buku Saku SOP
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSarprasSessionRoom(getClientSessionRoom());
+                  setIsModalSarprasOpen(true);
+                }}
+                aria-haspopup="dialog"
+                aria-expanded={isModalSarprasOpen}
+                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+              >
+                📦 Sarpras Rawat Jalan
               </button>
             </nav>
           </div>
@@ -2097,12 +2084,6 @@ export default function ViewJadwalPublic() {
                suppressHydrationWarning={true}/>
             </div>
 
-            <button 
-              onClick={() => setShowDownloadModal(true)}
-              className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white text-[11px] font-black px-8 py-5 rounded-2xl uppercase shadow-lg flex items-center gap-2"
-             suppressHydrationWarning={true}>
-              <Download size={14}/> Laporan
-            </button>
           </div>
         </div>
 
@@ -2773,34 +2754,6 @@ export default function ViewJadwalPublic() {
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
                 <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700" suppressHydrationWarning={true}>EKSEKUSI TUKAR</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DOWNLOAD RENTANG TANGGAL */}
-      {showDownloadModal && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl border-4 border-blue-500/20">
-            <h3 className="text-xl font-black italic uppercase text-slate-800 mb-8 border-l-8 border-blue-500 pl-4 flex items-center gap-3">
-              <CalendarRange size={24} className="text-blue-500" /> Filter Data Laporan
-            </h3>
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Mulai (Awal)</label>
-                <input type="date" value={rentangDownload.awal} onChange={(e) => setRentangDownload({...rentangDownload, awal: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700"  suppressHydrationWarning={true}/>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Tanggal Selesai (Akhir)</label>
-                <input type="date" value={rentangDownload.akhir} onChange={(e) => setRentangDownload({...rentangDownload, akhir: e.target.value})} className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-sm border-2 border-slate-100 outline-none text-slate-700"  suppressHydrationWarning={true}/>
-              </div>
-              <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowDownloadModal(false)} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
-                <button type="button" onClick={executeDownloadLaporan} disabled={isDownloading} className="flex-1 bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-blue-800 active:border-b-0 active:mt-1 flex items-center justify-center gap-2" suppressHydrationWarning={true}>
-                  {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                  {isDownloading ? "MENYUSUN..." : "DOWNLOAD WORD"}
-                </button>
               </div>
             </div>
           </div>

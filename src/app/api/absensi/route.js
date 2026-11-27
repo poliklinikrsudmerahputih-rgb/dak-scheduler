@@ -3,6 +3,14 @@ import { turso } from '@/lib/turso';
 
 export const dynamic = 'force-dynamic';
 
+const excludedScheduleSymbols = new Set(["CT", "CM", "CS", "S", "I", "L", "LIBUR", "OFF", "DL", "DINAS LUAR"]);
+const normalizeAbsenceValue = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+const isExcludedScheduleSymbol = (value) => {
+  const symbol = normalizeAbsenceValue(value);
+  return excludedScheduleSymbols.has(symbol)
+    || /\b(CUTI|SAKIT|LIBUR|DINAS LUAR|OFF)\b/.test(symbol);
+};
+
 // =====================================================================
 // FUNGSI HELPER: WAKTU WIB & KALKULATOR PENALTI
 // =====================================================================
@@ -106,6 +114,52 @@ export async function POST(request) {
         return NextResponse.json({ success: true, message: "Absen Pulang berhasil dicatat!" });
     }
 
+    const ruanganAbsensi = normalizeAbsenceValue(ruangan);
+    if (!Number.isSafeInteger(Number(sdm_id)) || Number(sdm_id) <= 0 || !ruanganAbsensi) {
+      return NextResponse.json({ error: "Data SDM atau ruangan absensi tidak valid." }, { status: 400 });
+    }
+
+    const staffSchedule = await turso.execute({
+      sql: `SELECT s.id AS sdm_id, s.nama AS nama_sdm,
+                   COALESCE(NULLIF(TRIM(j.ruangan), ''), NULLIF(TRIM(s.ruangan), ''), ?) AS ruangan,
+                   TRIM(COALESCE(j.simbol, '')) AS simbol
+            FROM jadwal_dinas j
+            JOIN sdm s ON s.id = j.sdm_id
+            WHERE s.id = ?
+              AND CAST(j.tahun AS INTEGER) = ?
+              AND CAST(j.bulan AS INTEGER) = ?
+              AND CAST(j.tanggal AS INTEGER) = ?
+              AND (j.ruangan IS NULL OR TRIM(j.ruangan) = '' OR UPPER(TRIM(j.ruangan)) = ?)
+              AND (s.ruangan IS NULL OR TRIM(s.ruangan) = '' OR UPPER(TRIM(s.ruangan)) = ?)
+            ORDER BY j.id`,
+      args: [ruanganAbsensi, sdm_id, tahun, bulan, Number(tanggalWIB.slice(8, 10)), ruanganAbsensi, ruanganAbsensi],
+    });
+    const scheduledStaff = staffSchedule.rows.find((row) => !isExcludedScheduleSymbol(row.simbol));
+    if (!scheduledStaff) {
+      return NextResponse.json({ error: "SDM tidak memiliki jadwal absensi yang memenuhi syarat hari ini." }, { status: 400 });
+    }
+
+    const approvedLeave = await turso.execute({
+      sql: `SELECT 1 FROM cuti_sdm
+            WHERE status_acc = 'Disetujui'
+              AND UPPER(TRIM(nama_sdm)) = UPPER(TRIM(?))
+              AND tgl_mulai <= ? AND tgl_selesai >= ?
+              AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)
+            LIMIT 1`,
+      args: [scheduledStaff.nama_sdm, tanggalWIB, tanggalWIB, ruanganAbsensi],
+    });
+    if (approvedLeave.rows.length > 0) {
+      return NextResponse.json({ error: "SDM sedang dalam cuti yang telah disetujui." }, { status: 400 });
+    }
+
+    const existingAbsensi = await turso.execute({
+      sql: `SELECT id FROM absensi WHERE sdm_id = ? AND tanggal = ? LIMIT 1`,
+      args: [sdm_id, tanggalWIB],
+    });
+    if (existingAbsensi.rows.length > 0) {
+      return NextResponse.json({ error: "Absensi masuk untuk SDM ini sudah tercatat hari ini." }, { status: 409 });
+    }
+
     // -------------------------------------------------------------
     // ALUR 2: ABSEN MASUK (Kalkulasi Penalti & Potong Saldo Mutu)
     // -------------------------------------------------------------
@@ -145,7 +199,7 @@ export async function POST(request) {
                 foto_masuk, status_kedisiplinan, penalti_mutu
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
-            sdm_id, nama_sdm, ruangan, shift, tanggalWIB, jamWIB, 
+                  scheduledStaff.sdm_id, scheduledStaff.nama_sdm, scheduledStaff.ruangan, shift, tanggalWIB, jamWIB,
             linkMaps, foto_base64 || null, hasilDisiplin.status, hasilDisiplin.penalti
         ]
     });
@@ -169,31 +223,77 @@ export async function GET(request) {
     const { tanggalWIB } = getWaktuSekarangWIB();
     const url = new URL(request.url);
     const filterTanggal = url.searchParams.get('tanggal') || tanggalWIB;
+    const ruangan = String(url.searchParams.get('ruangan') || 'POLIKLINIK').trim().toUpperCase();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(filterTanggal) || !ruangan) {
+      return NextResponse.json({ success: false, error: 'Tanggal atau ruangan absensi tidak valid.' }, { status: 400 });
+    }
 
-    // Ambil data absensi hari ini (atau sesuai filter tanggal)
-    const dataAbsen = await turso.execute({
-        sql: `SELECT * FROM absensi WHERE tanggal LIKE ? ORDER BY jam_masuk DESC`,
-        args: [`${filterTanggal}%`]
+    const schedule = await turso.execute({
+        sql: `SELECT s.id AS sdm_id, s.nama AS nama_sdm,
+                     COALESCE(NULLIF(TRIM(s.jabatan), ''), NULLIF(TRIM(s.jenis_jabatan), ''), 'Jabatan belum diisi') AS jabatan,
+                     COALESCE(NULLIF(TRIM(j.ruangan), ''), NULLIF(TRIM(s.ruangan), ''), ?) AS ruangan,
+                     TRIM(COALESCE(j.simbol, '')) AS shift_pilihan,
+                     a.id, a.tanggal, a.jam_masuk, a.jam_pulang, a.lokasi_masuk,
+                     a.foto_masuk, a.foto_pulang, a.status_kedisiplinan, a.penalti_mutu
+              FROM jadwal_dinas j
+              JOIN sdm s ON s.id = j.sdm_id
+              LEFT JOIN absensi a
+                ON a.sdm_id = s.id
+               AND a.tanggal = ?
+               AND UPPER(TRIM(COALESCE(NULLIF(TRIM(a.ruangan), ''), NULLIF(TRIM(j.ruangan), ''), NULLIF(TRIM(s.ruangan), ''), ?))) = ?
+              WHERE CAST(j.tahun AS INTEGER) = CAST(? AS INTEGER)
+                AND CAST(j.bulan AS INTEGER) = CAST(? AS INTEGER)
+                AND CAST(j.tanggal AS INTEGER) = CAST(? AS INTEGER)
+                AND (j.ruangan IS NULL OR TRIM(j.ruangan) = '' OR UPPER(TRIM(j.ruangan)) = ?)
+                AND (s.ruangan IS NULL OR TRIM(s.ruangan) = '' OR UPPER(TRIM(s.ruangan)) = ?)
+              ORDER BY s.nama COLLATE NOCASE, j.id`,
+        args: [
+          ruangan,
+          filterTanggal,
+          ruangan,
+          ruangan,
+          Number(filterTanggal.slice(0, 4)),
+          Number(filterTanggal.slice(5, 7)),
+          Number(filterTanggal.slice(8, 10)),
+          ruangan,
+          ruangan,
+        ],
+      });
+    const leave = await turso.execute({
+      sql: `SELECT nama_sdm FROM cuti_sdm
+            WHERE status_acc = 'Disetujui'
+              AND NOT (tgl_selesai < ? OR tgl_mulai > ?)
+              AND (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = ?)`,
+      args: [filterTanggal, filterTanggal, ruangan],
     });
 
-    // Formatting hasil untuk dikirim ke UI
-    const hasil = dataAbsen.rows.map(row => ({
+    const cutiNames = new Set(leave.rows.map((row) => normalizeAbsenceValue(row.nama_sdm)));
+    const seen = new Set();
+    const hasil = schedule.rows
+      .filter((row) => {
+        const key = Number(row.sdm_id);
+        if (!key || seen.has(key) || cutiNames.has(normalizeAbsenceValue(row.nama_sdm)) || isExcludedScheduleSymbol(row.shift_pilihan)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((row) => ({
         id: row.id,
         sdm_id: row.sdm_id,
         nama_sdm: row.nama_sdm,
+        jabatan: row.jabatan || "-",
         ruangan: row.ruangan,
-        shift_pilihan: row.shift,
+        shift_pilihan: row.shift_pilihan,
         tanggal_absen: row.tanggal,
-        jam_masuk: row.jam_masuk,
+        jam_masuk: row.jam_masuk || null,
         jam_pulang: row.jam_pulang || "Belum Pulang",
         lokasi_masuk: row.lokasi_masuk,
         foto_masuk: row.foto_masuk || null,
         foto_pulang: row.foto_pulang || null,
         status: row.status_kedisiplinan,
-        penalti_mutu: row.penalti_mutu
-    }));
+        penalti_mutu: row.penalti_mutu,
+      }));
 
-    return NextResponse.json({ success: true, data: hasil });
+    return NextResponse.json({ success: true, data: hasil, tanggal: filterTanggal, ruangan });
   } catch (error) {
     console.error("Error GET API Absensi:", error);
     return NextResponse.json({ success: false, error: "Gagal mengambil log absensi." }, { status: 500 });

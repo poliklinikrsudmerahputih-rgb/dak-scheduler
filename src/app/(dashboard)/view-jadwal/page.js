@@ -13,10 +13,10 @@ import {
   IMUT_REPORT_TARGETS
 } from "@/lib/imut-indicators";
 import { 
-  Search, Camera, Clock, X,
-  UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Medal, XCircle,
+  Search, Camera, Clock, X, Bot, BookOpen, Package,
+  UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Hospital, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Lock, Unlock, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
-  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp
+  ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp, ClipboardCheck
 } from "lucide-react"; 
 import { simpanCuti } from "../cuti-sdm/actions"; 
 
@@ -568,7 +568,7 @@ function ModalRiwayatImut({ modal, onClose }) {
 // ======================================================
 // 1. MODAL ABSENSI KAMERA & GPS (INTEGRASI LANGSUNG)
 // ======================================================
-function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) {
+function ModalAbsensiKamera({ isOpen, onClose, onSaved, perawatSelected, ruanganAktif }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   
@@ -618,6 +618,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 
       if (res.ok) {
         setSukses(true);
+        onSaved?.();
         setTimeout(() => {
           onClose();
         }, 1500);
@@ -639,6 +640,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
     if (isOpen) {
       setSukses(false);
       setPreviewFoto(null);
+      setTipeAbsen('MASUK');
       setLokasiGPS(null);
       setStatusGPS('Mencari sinyal GPS...');
       setErrorKamera(null);
@@ -732,6 +734,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 
       if (res.ok) {
         setSukses(true);
+        onSaved?.();
         setTimeout(() => {
           onClose(); // Tutup pop-up setelah sukses
         }, 1500);
@@ -750,42 +753,42 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 
   if (sukses) {
     return (
-      <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
-        <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl border-4 border-emerald-500/20 text-center">
-          <CheckCircle2 size={80} className="text-emerald-500 mx-auto mb-6 animate-bounce" />
-          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-widest italic">Berhasil!</h2>
-          <p className="text-emerald-600 font-bold mt-2 text-sm">Data kehadiran & lokasi terkunci.</p>
+      <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-3">
+        <div className="bg-white w-full max-w-sm rounded-3xl p-6 sm:rounded-[3rem] sm:p-10 shadow-2xl border-4 border-emerald-500/20 text-center">
+          <CheckCircle2 size={56} className="text-emerald-500 mx-auto mb-3 sm:mb-6 animate-bounce sm:h-20 sm:w-20" />
+          <h2 className="text-xl sm:text-2xl font-black uppercase text-slate-800 tracking-widest italic">Berhasil!</h2>
+          <p className="text-emerald-600 font-bold mt-2 text-xs sm:text-sm">Data kehadiran & lokasi terkunci.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-[10006] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
-      <div className="w-full max-w-md bg-white rounded-[3rem] p-6 md:p-8 shadow-2xl relative border-4 border-emerald-500/20">
+    <div className="fixed inset-0 z-[10006] flex items-start justify-center overflow-y-auto overscroll-contain bg-slate-900/90 px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:items-center sm:p-4">
+      <div className="relative my-auto max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border-2 border-emerald-500/20 bg-white p-3 shadow-2xl sm:rounded-[3rem] sm:border-4 sm:p-6 md:p-8">
         
-        <button onClick={onClose} className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full" suppressHydrationWarning={true}>
-            <XCircle size={20} />
+        <button onClick={onClose} className="absolute right-3 top-3 z-10 rounded-full bg-slate-100 p-1.5 text-slate-500 hover:text-slate-700 sm:right-6 sm:top-6 sm:p-2" aria-label="Tutup terminal absen" suppressHydrationWarning={true}>
+            <XCircle size={18} />
         </button>
 
-        <div className="text-center mt-4 mb-6">
-            <h1 className="text-2xl font-black uppercase text-slate-800 italic border-b-4 border-emerald-500 inline-block pb-1">TERMINAL ABSEN</h1>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-3">{perawatSelected.nama}</p>
-            <p className="text-[10px] text-emerald-600 font-black bg-emerald-50 w-fit mx-auto px-3 py-1 rounded-full mt-1 border border-emerald-200">{ruanganAktif}</p>
+        <div className="mb-3 mt-1 pr-8 text-left sm:mb-6 sm:mt-4 sm:pr-0 sm:text-center">
+            <h1 className="inline-block border-b-2 border-emerald-500 pb-0.5 text-lg font-black uppercase italic text-slate-800 sm:border-b-4 sm:pb-1 sm:text-2xl">TERMINAL ABSEN</h1>
+            <p className="mt-1 truncate text-xs font-bold uppercase text-slate-600 sm:mt-3 sm:tracking-widest">{perawatSelected.nama}</p>
+            <p className="mt-1 inline-block max-w-full truncate rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[9px] font-black text-emerald-700 sm:px-3 sm:py-1 sm:text-[10px]">{ruanganAktif}</p>
         </div>
 
-        <div className={`mb-6 p-3 rounded-2xl border flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider ${lokasiGPS ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse'}`}>
-            <MapPin size={16} className={lokasiGPS ? 'text-blue-500' : 'text-amber-500'} />
-            {statusGPS}
+        <div className={`mb-3 flex items-center gap-2 rounded-xl border p-2 text-[9px] font-black uppercase sm:mb-6 sm:justify-center sm:rounded-2xl sm:p-3 sm:text-[10px] sm:tracking-wider ${lokasiGPS ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse'}`}>
+            <MapPin size={14} className={`shrink-0 ${lokasiGPS ? 'text-blue-500' : 'text-amber-500'}`} />
+            <span className="truncate">{statusGPS}</span>
         </div>
 
-        <div className="flex gap-2 mb-6">
-            <div className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-2xl p-2 relative">
-                <label className="text-[8px] font-black uppercase text-slate-400 ml-1 block mb-1">Pilih Shift</label>
+        <div className="mb-3 flex gap-2 sm:mb-6">
+            <div className="relative flex-1 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:rounded-2xl sm:border-2">
+                <label className="mb-0.5 ml-1 block text-[8px] font-black uppercase text-slate-400 sm:mb-1">Pilih Shift</label>
                 <select 
                     value={shiftAktif} 
                     onChange={(e) => setShiftAktif(e.target.value)}
-                    className="w-full bg-transparent text-[10px] font-black text-slate-800 outline-none appearance-none cursor-pointer"
+                    className="w-full appearance-none bg-transparent pr-4 text-[9px] font-black text-slate-800 outline-none sm:text-[10px]"
                 >
                     <option value="PAGI (07:00 - 07:30)">PAGI (07:00 - 07:30)</option>
                     <option value="MID 1 (09:00 - 16:00)">MID 1 (09:00 - 16:00)</option>
@@ -793,69 +796,69 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
                     <option value="MID 3 (11:00 - 18:00)">MID 3 (11:00 - 18:00)</option>
                     <option value="MID 4 (12:00 - 19:00)">MID 4 (12:00 - 19:00)</option>
                 </select>
-                <Clock size={12} className="absolute right-3 top-6 text-slate-300 pointer-events-none" />
+                <Clock size={12} className="pointer-events-none absolute right-2 top-5 text-slate-300 sm:right-3 sm:top-6" />
             </div>
 
-            <div className="flex-1 flex p-1 bg-slate-100 rounded-2xl border border-slate-200">
+            <div className="flex flex-1 rounded-xl border border-slate-200 bg-slate-100 p-1 sm:rounded-2xl">
                 <button 
                     onClick={() => setTipeAbsen('MASUK')} 
-                    className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'MASUK' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+                    className={`flex-1 rounded-lg py-2 text-[9px] font-black transition-all sm:rounded-xl ${tipeAbsen === 'MASUK' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
                  suppressHydrationWarning={true}>
-                    <LogIn size={14} className="mb-1" /> MASUK
+                    <LogIn size={14} className="mr-1 inline" /> MASUK
                 </button>
                 <button 
                     onClick={() => setTipeAbsen('PULANG')} 
-                    className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl text-[9px] font-black transition-all ${tipeAbsen === 'PULANG' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+                    className={`flex-1 rounded-lg py-2 text-[9px] font-black transition-all sm:rounded-xl ${tipeAbsen === 'PULANG' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
                  suppressHydrationWarning={true}>
-                    <LogOut size={14} className="mb-1" /> PULANG
+                    <LogOut size={14} className="mr-1 inline" /> PULANG
                 </button>
             </div>
         </div>
 
         {errorKamera ? (
-           <div className="w-full bg-red-50 p-6 rounded-3xl border-2 border-red-200 text-center mb-6">
-               <AlertCircle size={30} className="text-red-400 mx-auto mb-3" />
-               <p className="text-[10px] font-black text-red-700 leading-relaxed uppercase">{errorKamera}</p>
+           <div className="mb-3 w-full rounded-2xl border border-red-200 bg-red-50 p-3 text-center sm:mb-6 sm:rounded-3xl sm:border-2 sm:p-6">
+               <AlertCircle size={24} className="mx-auto mb-2 text-red-400 sm:mb-3" />
+               <p className="text-[10px] font-black uppercase leading-relaxed text-red-700">{errorKamera}</p>
            </div>
         ) : (
-           <div className="w-full bg-slate-900 rounded-3xl mb-6 relative overflow-hidden shadow-inner border-4 border-slate-100 flex items-center justify-center min-h-[220px]">
-               <video ref={videoRef} autoPlay playsInline muted className="w-full h-auto object-cover transform scale-x-[-1]"></video>
+           <div className="relative mb-3 flex aspect-[4/3] max-h-[30dvh] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-slate-100 bg-slate-900 shadow-inner sm:mb-6 sm:aspect-auto sm:min-h-[220px] sm:max-h-none sm:rounded-3xl sm:border-4">
+               <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"></video>
                <canvas ref={canvasRef} className="hidden"></canvas>
                
-               <div className={`absolute inset-0 border-[3px] border-dashed m-6 rounded-2xl pointer-events-none ${tipeAbsen === 'MASUK' ? 'border-emerald-400/40' : 'border-red-400/40'}`}></div>
-               <div className={`absolute bottom-3 text-[8px] font-black px-2 py-1 rounded bg-black/50 text-white ${tipeAbsen === 'MASUK' ? 'text-emerald-400' : 'text-red-400'}`}>
+               <div className={`pointer-events-none absolute inset-3 rounded-xl border-2 border-dashed sm:inset-6 sm:rounded-2xl sm:border-[3px] ${tipeAbsen === 'MASUK' ? 'border-emerald-400/40' : 'border-red-400/40'}`}></div>
+               <div className={`absolute bottom-2 rounded bg-black/50 px-2 py-1 text-[8px] font-black text-white sm:bottom-3 ${tipeAbsen === 'MASUK' ? 'text-emerald-400' : 'text-red-400'}`}>
                    MODE: ABSEN {tipeAbsen}
                </div>
            </div>
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-2 sm:space-y-3">
             {!errorKamera && (
               <>
                 <button 
                     onClick={capturePreviewFoto} 
                     disabled={loading}
-                    className="w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 bg-blue-600 border-blue-800 hover:bg-blue-700 transition-all flex justify-center items-center gap-2"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-b-[3px] border-blue-800 bg-blue-600 py-2.5 text-[10px] font-black uppercase italic tracking-wider text-white shadow-xl transition-all hover:bg-blue-700 disabled:opacity-60 sm:rounded-2xl sm:border-b-4 sm:py-4 sm:text-[11px] sm:tracking-widest"
                  suppressHydrationWarning={true}>
                     <Camera size={16} />
-                    AMBIL FOTO PRATINJAU
+                    {previewFoto ? 'AMBIL ULANG FOTO' : 'AMBIL FOTO PRATINJAU'}
                 </button>
 
                 {previewFoto ? (
-                  <div className="rounded-3xl border border-slate-200 overflow-hidden bg-slate-950 p-2">
-                    <p className="text-[10px] uppercase font-black text-slate-300 mb-2">Pratinjau Foto</p>
-                    <Image src={previewFoto} alt="Pratinjau Absen" width={720} height={480} className="w-full h-auto rounded-[1.5rem] object-cover" unoptimized />
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:rounded-3xl sm:bg-slate-950 sm:p-2">
+                    <Image src={previewFoto} alt="Pratinjau foto absen" width={160} height={100} className="h-14 w-20 shrink-0 rounded-lg object-cover sm:h-20 sm:w-28" unoptimized />
+                    <p className="text-[9px] font-black uppercase text-emerald-700 sm:text-slate-200">Foto siap dikirim</p>
                   </div>
                 ) : (
-                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-[10px] font-black uppercase text-slate-500">
-                    Foto pratinjau akan tampil di sini setelah Anda menekan tombol Ambil Foto.
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-[9px] font-bold text-slate-500 sm:rounded-3xl sm:p-6 sm:text-[10px] sm:font-black sm:uppercase">
+                    Ambil foto sebelum mengirim absensi masuk.
                   </div>
                 )}
 
                 <button 
                     onClick={handleKirimAbsensi} 
                     disabled={loading || (tipeAbsen === 'MASUK' && !previewFoto)}
-                    className={`w-full text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-xl italic tracking-widest border-b-4 transition-all flex justify-center items-center gap-2 ${tipeAbsen === 'MASUK' ? 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700' : 'bg-red-600 border-red-800 hover:bg-red-700'}`}
+                    className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-b-[3px] py-2.5 text-[10px] font-black uppercase italic tracking-wider text-white shadow-xl transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-2xl sm:border-b-4 sm:py-4 sm:text-[11px] sm:tracking-widest ${tipeAbsen === 'MASUK' ? 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700' : 'bg-red-600 border-red-800 hover:bg-red-700'}`}
                  suppressHydrationWarning={true}>
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                     {loading ? 'MEMPROSES...' : `KIRIM ABSEN ${tipeAbsen === 'MASUK' ? 'MASUK' : 'PULANG'}`}
@@ -863,7 +866,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
               </>
             )}
             
-            <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase text-[9px] border-2 border-slate-200 hover:bg-slate-200 transition-all" suppressHydrationWarning={true}>
+            <button onClick={() => handleClockIn('MANUAL')} disabled={loading} className="w-full rounded-xl border border-slate-200 bg-slate-100 py-2 text-[9px] font-black uppercase text-slate-600 transition-all hover:bg-slate-200 disabled:opacity-60 sm:rounded-2xl sm:border-2 sm:py-4" suppressHydrationWarning={true}>
                 Absen Manual (Gagal Kamera)
             </button>
         </div>
@@ -875,7 +878,7 @@ function ModalAbsensiKamera({ isOpen, onClose, perawatSelected, ruanganAktif }) 
 // ======================================================
 // 2. MODAL LAPORAN ABSEN HARIAN
 // ======================================================
-function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, onDeleteAbsen }) {
+function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, isToday, onClockIn, onDeleteAbsen }) {
     const [previewImage, setPreviewImage] = useState(null);
     const [searchAbsen, setSearchAbsen] = useState('');
 
@@ -885,9 +888,9 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
     const filteredAbsen = normalizedSearchAbsen
       ? dataAbsen.filter((row) => {
           const nama = String(row.nama_sdm || '').toLowerCase();
-          const ruangan = String(row.ruangan || '').toLowerCase();
+          const jabatan = String(row.jabatan || '').toLowerCase();
           const shift = String(row.shift_pilihan || '').toLowerCase();
-          return nama.includes(normalizedSearchAbsen) || ruangan.includes(normalizedSearchAbsen) || shift.includes(normalizedSearchAbsen);
+          return nama.includes(normalizedSearchAbsen) || jabatan.includes(normalizedSearchAbsen) || shift.includes(normalizedSearchAbsen);
         })
       : dataAbsen;
 
@@ -902,14 +905,15 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
 
             <div className="mb-6 bg-emerald-50 p-4 rounded-2xl text-[10px] font-black uppercase text-emerald-800 border border-emerald-100">
                 <p>Tanggal: <span className="italic font-black text-slate-900">{tanggalLabel}</span></p>
-                <p>Total Terdaftar: <span className="italic font-black text-emerald-700">{filteredAbsen.length}{normalizedSearchAbsen ? ` / ${dataAbsen.length}` : ''} SDM</span></p>
+                <p>Total Terjadwal: <span className="italic font-black text-emerald-700">{filteredAbsen.length}{normalizedSearchAbsen ? ` / ${dataAbsen.length}` : ''} SDM</span></p>
+                <p>Sudah Absen: <span className="italic font-black text-emerald-700">{filteredAbsen.filter((row) => row.jam_masuk).length} SDM</span></p>
             </div>
 
             <div className="mb-6 flex items-center gap-3 bg-slate-100/60 px-5 py-4 rounded-2xl border border-slate-200">
                 <Search size={18} className="text-slate-400 shrink-0" />
                 <input
                   type="text"
-                  placeholder="Cari nama SDM, ruangan, atau shift..."
+                  placeholder="Cari nama SDM, jabatan, atau shift..."
                   autoComplete="off"
                   spellCheck="false"
                   className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
@@ -925,7 +929,7 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                 <div className="flex-1 flex items-center justify-center p-12">
                     <div className="text-center">
                         <AlertCircle size={40} className="text-slate-400 mx-auto mb-4" />
-                        <p className="text-slate-400 font-black uppercase text-sm italic">Belum ada data absensi untuk tanggal ini</p>
+                        <p className="text-slate-400 font-black uppercase text-sm italic">Tidak ada SDM terjadwal yang memenuhi syarat absensi pada tanggal ini</p>
                     </div>
                 </div>
             ) : filteredAbsen.length === 0 ? (
@@ -942,10 +946,10 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                             <tr>
                                 <th className="p-5 text-left">No</th>
                                 <th className="p-5 text-left">Nama SDM</th>
-                                <th className="p-5 text-left">Ruangan</th>
+                                <th className="p-5 text-left">Jabatan</th>
                                 <th className="p-5 text-left">Shift</th>
                                 <th className="p-5 text-center bg-emerald-600/30">Jam Masuk</th>
-                                <th className="p-5 text-center bg-sky-600/30">Hadir Metmor</th>
+                                <th className="p-5 text-center bg-sky-600/30">Status</th>
                                 <th className="p-5 text-left">Lokasi (GPS)</th>
                                 <th className="p-5 text-left">Foto</th>
                                 <th className="p-5 text-left">Aksi</th>
@@ -953,18 +957,16 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                         </thead>
                         <tbody className="text-xs font-bold uppercase tracking-tighter text-slate-700">
                             {filteredAbsen.map((row, i) => (
-                                <tr key={`absen-${row.id || i}`} className="border-b border-slate-100 hover:bg-emerald-50/50 transition-colors">
+                                <tr key={`absen-${row.sdm_id}`} className="border-b border-slate-100 hover:bg-emerald-50/50 transition-colors">
                                     <td className="p-5 text-slate-900 font-extrabold">{i + 1}</td>
                                     <td className="p-5 font-black italic text-emerald-900">{row.nama_sdm}</td>
-                                    <td className="p-5"><span className="bg-slate-100 px-3 py-1 rounded-md text-[10px] text-slate-600">{row.ruangan}</span></td>
+                                    <td className="p-5"><span className="bg-slate-100 px-3 py-1 rounded-md text-[10px] text-slate-600">{row.jabatan || '-'}</span></td>
                                     <td className="p-5 text-slate-800 font-black">{row.shift_pilihan}</td>
-                                    <td className="p-5 text-center text-emerald-700 bg-emerald-50/30 font-black text-sm">{row.jam_masuk}</td>
+                                    <td className="p-5 text-center text-emerald-700 bg-emerald-50/30 font-black text-sm">{row.jam_masuk || 'Belum Absen'}</td>
                                     <td className="p-5 text-center font-black bg-sky-50/30">
                                         {row.jam_masuk ? (
-                                          <span role="img" aria-label="Hadir Metmor" title="Hadir Metmor">
-                                            <ThumbsUp size={18} className="inline text-sky-700" />
-                                          </span>
-                                        ) : null}
+                                          <span className="inline-flex items-center gap-1 text-sky-700"><ThumbsUp size={18} /> Sudah</span>
+                                        ) : <span className="text-amber-700">Belum</span>}
                                     </td>
                                     <td className="p-5 text-[9px] text-slate-500 max-w-xs">
                                         {row.lokasi_masuk && row.lokasi_masuk.includes('maps') ? (
@@ -977,24 +979,36 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
                                     </td>
                                     <td className="p-5 text-left">
                                         {row.foto_masuk ? (
-                                          <button type="button" onClick={() => setPreviewImage(row.foto_masuk)} className="group block rounded-xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all" suppressHydrationWarning={true}>
-                                            <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={220} height={154} className="rounded-xl object-cover transition-transform duration-200 group-hover:scale-105" unoptimized />
+                                          <button type="button" onClick={() => setPreviewImage(row.foto_masuk)} className="group block w-56 overflow-hidden rounded-xl border border-slate-200 hover:border-emerald-500 transition-all sm:w-72" suppressHydrationWarning={true}>
+                                            <Image src={row.foto_masuk} alt={`Foto ${row.nama_sdm}`} width={288} height={216} className="h-48 w-full rounded-xl object-cover transition-transform duration-200 group-hover:scale-105 sm:h-56" unoptimized />
                                           </button>
                                         ) : (
                                           <span className="text-[10px] text-slate-400 uppercase font-black">Tidak ada</span>
                                         )}
                                     </td>
                                     <td className="p-5 text-left flex flex-col gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (!confirm('Ulang absen? Data ini akan dihapus sehingga bisa diinput ulang.')) return;
-                                            onDeleteAbsen(row.id, true, row);
-                                          }}
-                                          className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white"
-                                         suppressHydrationWarning={true}>
-                                          Ulang Absen
-                                        </button>
+                                        {row.jam_masuk && isToday ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (!confirm('Ulang absen? Data ini akan dihapus sehingga bisa diinput ulang.')) return;
+                                              onDeleteAbsen(row.id, true, row);
+                                            }}
+                                            className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white"
+                                            suppressHydrationWarning={true}>
+                                            Ulang Absen
+                                          </button>
+                                        ) : !row.jam_masuk && isToday ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => onClockIn(row)}
+                                            className="text-[10px] font-black uppercase tracking-[.2em] px-3 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            suppressHydrationWarning={true}>
+                                            Absen Sekarang
+                                          </button>
+                                        ) : (
+                                          <span className="text-[9px] font-black text-slate-400">Tidak ada catatan</span>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -1029,6 +1043,87 @@ function ModalLaporanAbsen({ isOpen, onClose, dataAbsen, loading, tanggalLabel, 
     );
 }
 
+function ModalMetmor({ isOpen, onClose, selectedDate, entries, history, loading, error }) {
+  if (!isOpen) return null;
+
+  const historyDates = [...new Set(history.map((entry) => entry.tanggal))];
+
+  return (
+    <div
+      className="fixed inset-0 z-[10030] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="metmor-modal-title"
+        className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:rounded-3xl"
+      >
+        <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-slate-950 to-teal-900 p-5 text-white sm:p-7">
+          <div className="flex items-start gap-3">
+            <span className="rounded-xl bg-white/10 p-2 text-teal-200"><ClipboardCheck size={22} /></span>
+            <div>
+              <h2 id="metmor-modal-title" className="text-base font-black uppercase tracking-wide sm:text-lg">Meeting Morning</h2>
+              <p className="mt-1 text-[10px] font-bold uppercase text-teal-100 sm:text-xs">
+                Informasi tanggal {format(parseISO(selectedDate), "dd MMMM yyyy", { locale: id })}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Tutup informasi Metmor" className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20" suppressHydrationWarning={true}>
+            <X size={20} />
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-7">
+          <section>
+            <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-teal-800">Informasi Tanggal Dipilih</h3>
+            {entries.length ? (
+              <div className="space-y-3">
+                {entries.map((entry, index) => (
+                  <article key={`selected-${entry.id || index}`} className="rounded-2xl border border-teal-200 bg-teal-50 p-4 sm:p-5">
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.informasi}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs font-semibold text-slate-500">
+                Belum ada informasi Metmor untuk tanggal ini.
+              </p>
+            )}
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Riwayat Metmor</h3>
+              {!loading && <span className="text-[10px] font-bold text-slate-400">{historyDates.length} tanggal</span>}
+            </div>
+            {loading ? (
+              <div className="flex justify-center p-8"><Loader2 className="animate-spin text-teal-700" /></div>
+            ) : error ? (
+              <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-800">{error}</p>
+            ) : history.length ? (
+              <div className="space-y-3">
+                {history.map((entry, index) => (
+                  <article key={`history-${entry.id || `${entry.tanggal}-${index}`}`} className={`rounded-2xl border p-4 ${entry.tanggal === selectedDate ? "border-teal-200 bg-teal-50/60" : "border-slate-200 bg-slate-50"}`}>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                      {format(parseISO(entry.tanggal), "EEEE, dd MMMM yyyy", { locale: id })}
+                    </p>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.informasi}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs font-semibold text-slate-500">Belum ada riwayat Metmor.</p>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ======================================================
 // 3. KOMPONEN UTAMA
 // ======================================================
@@ -1056,7 +1151,7 @@ export default function ViewJadwalPublic() {
   const [isModalImutOpen, setIsModalImutOpen] = useState(false);
   const [isModalSopOpen, setIsModalSopOpen] = useState(false);
   const [isModalSarprasOpen, setIsModalSarprasOpen] = useState(false);
-  const [sarprasSessionRoom, setSarprasSessionRoom] = useState("");
+  const [isQuickServicesOpen, setIsQuickServicesOpen] = useState(false);
   const [activeSopTab, setActiveSopTab] = useState("list");
   const [searchSopTerm, setSearchSopTerm] = useState("");
   const [sopSessionRoom, setSopSessionRoom] = useState("");
@@ -1141,6 +1236,12 @@ export default function ViewJadwalPublic() {
   const [showLaporanAbsenModal, setShowLaporanAbsenModal] = useState(false);
   const [dataLaporanAbsen, setDataLaporanAbsen] = useState([]);
   const [loadingAbsen, setLoadingAbsen] = useState(false);
+  const [metmorEntries, setMetmorEntries] = useState([]);
+  const [metmorError, setMetmorError] = useState("");
+  const [isMetmorModalOpen, setIsMetmorModalOpen] = useState(false);
+  const [metmorHistory, setMetmorHistory] = useState([]);
+  const [loadingMetmorHistory, setLoadingMetmorHistory] = useState(false);
+  const [metmorHistoryError, setMetmorHistoryError] = useState("");
   
   // State: Modal Absensi Kamera Langsung
   const [showKameraModal, setShowKameraModal] = useState(false);
@@ -1218,6 +1319,59 @@ export default function ViewJadwalPublic() {
     if (!data) return;
     if (data.summary?.ruangan) setRuanganAktifGlobal(data.summary.ruangan);
   }, [data, ruanganShare]);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams({
+      tanggal: selectedDateFull,
+      ruangan: String(ruanganShare || ruanganAktifGlobal || "POLIKLINIK").trim().toUpperCase(),
+    });
+
+    fetch(`/api/metmor/public?${params.toString()}`)
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || result.success !== true || !Array.isArray(result.data)) {
+          throw new Error(result.error || "Gagal memuat informasi Meeting Morning.");
+        }
+        if (active) {
+          setMetmorEntries(result.data);
+          setMetmorError("");
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error("Gagal memuat informasi Meeting Morning:", error);
+        setMetmorEntries([]);
+        setMetmorError(error.message || "Gagal memuat informasi Meeting Morning.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedDateFull, ruanganAktifGlobal, ruanganShare]);
+
+  const handleOpenMetmor = async () => {
+    setIsMetmorModalOpen(true);
+    setLoadingMetmorHistory(true);
+    setMetmorHistoryError("");
+    const ruangan = String(ruanganShare || ruanganAktifGlobal || "POLIKLINIK").trim().toUpperCase();
+    const params = new URLSearchParams({ ruangan, history: "true" });
+
+    try {
+      const response = await fetch(`/api/metmor/public?${params.toString()}`);
+      const result = await response.json();
+      if (!response.ok || result.success !== true || !Array.isArray(result.data)) {
+        throw new Error(result.error || "Gagal memuat riwayat Metmor.");
+      }
+      setMetmorHistory(result.data);
+    } catch (error) {
+      console.error("Gagal memuat riwayat Metmor:", error);
+      setMetmorHistory([]);
+      setMetmorHistoryError(error.message || "Gagal memuat riwayat Metmor.");
+    } finally {
+      setLoadingMetmorHistory(false);
+    }
+  };
   const handleMulaiPraktik = async (dok, jamMulaiManual = "") => {
     const dokterId = Number(dok.id);
     if (!Number.isSafeInteger(dokterId) || dokterId <= 0) {
@@ -1379,6 +1533,7 @@ export default function ViewJadwalPublic() {
       if (isRepeat) {
         setShowLaporanAbsenModal(false);
         setPerawatTarget({ id: row?.sdm_id || null, nama: row?.nama_sdm || '' });
+        setRuanganAktifGlobal(row?.ruangan || ruanganAktifGlobal);
         setShowKameraModal(true);
       }
     } catch (err) {
@@ -1387,6 +1542,31 @@ export default function ViewJadwalPublic() {
     } finally {
       setLoadingAbsen(false);
     }
+  };
+
+  const loadDataLaporanAbsen = async () => {
+    setLoadingAbsen(true);
+    try {
+      const params = new URLSearchParams({
+        tanggal: selectedDateFull,
+        ruangan: ruanganAktifGlobal || "POLIKLINIK",
+      });
+      const res = await fetch(`/api/absensi?${params.toString()}`);
+      const result = await res.json();
+      if (!res.ok || !result.success || !Array.isArray(result.data)) {
+        throw new Error(result.error || 'Gagal mengambil laporan absensi.');
+      }
+      setDataLaporanAbsen(result.data);
+    } finally {
+      setLoadingAbsen(false);
+    }
+  };
+
+  const handleOpenAbsensiFromReport = (row) => {
+    setPerawatTarget({ id: row.sdm_id, nama: row.nama_sdm });
+    setRuanganAktifGlobal(row.ruangan || "POLIKLINIK");
+    setShowLaporanAbsenModal(false);
+    setShowKameraModal(true);
   };
 
   const handleSwapDB = async () => {
@@ -1450,8 +1630,39 @@ export default function ViewJadwalPublic() {
     <div className="fixed inset-0 overflow-y-auto bg-slate-50 font-sans z-[9999] pb-20 scrollbar-hide">
       
       {/* RENDER MODALS */}
-      <ModalLaporanAbsen isOpen={showLaporanAbsenModal} onClose={() => setShowLaporanAbsenModal(false)} dataAbsen={dataLaporanAbsen} loading={loadingAbsen} tanggalLabel={labelHariIni} onDeleteAbsen={handleDeleteAbsen} />
-      <ModalAbsensiKamera isOpen={showKameraModal} onClose={() => setShowKameraModal(false)} perawatSelected={perawatTarget} ruanganAktif={ruanganAktifGlobal} />
+      <ModalMetmor
+        isOpen={isMetmorModalOpen}
+        onClose={() => setIsMetmorModalOpen(false)}
+        selectedDate={selectedDateFull}
+        entries={metmorEntries}
+        history={metmorHistory}
+        loading={loadingMetmorHistory}
+        error={metmorHistoryError}
+      />
+      <ModalLaporanAbsen
+        isOpen={showLaporanAbsenModal}
+        onClose={() => setShowLaporanAbsenModal(false)}
+        dataAbsen={dataLaporanAbsen}
+        loading={loadingAbsen}
+        tanggalLabel={labelHariIni}
+        isToday={selectedDateFull === getTanggalJakarta()}
+        onClockIn={handleOpenAbsensiFromReport}
+        onDeleteAbsen={handleDeleteAbsen}
+      />
+      <ModalAbsensiKamera
+        isOpen={showKameraModal}
+        onClose={() => setShowKameraModal(false)}
+        onSaved={() => {
+          loadDataLaporanAbsen()
+            .then(() => setShowLaporanAbsenModal(true))
+            .catch((error) => {
+              console.error("Gagal memperbarui laporan absensi:", error);
+              alert(error.message || "Gagal memperbarui laporan absensi.");
+            });
+        }}
+        perawatSelected={perawatTarget}
+        ruanganAktif={ruanganAktifGlobal}
+      />
       {modalImutOpen && (
         <ModalImutPasien
           modal={modalImutOpen}
@@ -1669,26 +1880,11 @@ export default function ViewJadwalPublic() {
                 <X size={18} />
               </button>
             </div>
-            {sarprasSessionRoom ? (
-              <iframe
-                title="Pencatatan Sarpras Rawat Jalan"
-                src="/shared/sarpras"
-                className="h-[78vh] min-h-[480px] w-full rounded-lg border border-slate-200 bg-white"
-              />
-            ) : (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
-                <p className="font-bold">Masuk terlebih dahulu untuk menggunakan Pencatatan Sarpras.</p>
-                <a
-                  href="/login"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800"
-                >
-                  Masuk ke akun
-                </a>
-                <p className="mt-3 text-xs">Setelah masuk, tutup lalu buka kembali pop-up Sarpras.</p>
-              </div>
-            )}
+            <iframe
+              title="Pencatatan Sarpras Rawat Jalan"
+              src="/shared/sarpras"
+              className="h-[78vh] min-h-[480px] w-full rounded-lg border border-slate-200 bg-white"
+            />
           </section>
         </div>
       )}
@@ -1953,32 +2149,79 @@ export default function ViewJadwalPublic() {
       )}
 
       {/* HEADER SECTION */}
-      <div className="bg-slate-900 text-white p-8 md:p-16 rounded-b-[4rem] shadow-2xl relative overflow-hidden transition-all">
-        <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none"><Activity size={300} /></div>
-        <div className="max-w-7xl mx-auto flex flex-col gap-7 relative z-10">
-          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-6">
-            <div className="flex items-center gap-6">
-             <div className="p-5 bg-emerald-600 rounded-[2rem] shadow-2xl rotate-3">
-                <Medal size={40} className="text-white" />
-             </div>
-             <div>
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-tight text-white">
-                  Jadwal Praktik Poliklinik Rawat Jalan
+      <header className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white shadow-xl">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-32 h-96 w-96 rounded-full bg-emerald-400/10 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 left-1/3 h-72 w-72 rounded-full bg-teal-400/10 blur-3xl" />
+        <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pb-24">
+          <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-start gap-4 sm:gap-5">
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-emerald-300/25 bg-gradient-to-br from-emerald-400/20 to-teal-300/10 text-emerald-200 shadow-lg shadow-emerald-950/20 sm:h-14 sm:w-14">
+                <Hospital size={28} strokeWidth={1.8} />
+              </div>
+              <div className="min-w-0">
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">Pusat Informasi Poliklinik</p>
+                <h1 className="max-w-2xl text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl lg:text-4xl">
+                  Jadwal &amp; Informasi Poliklinik
                 </h1>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mt-3 italic leading-none">
-                  DAK-<span className="text-emerald-500">SYSTEMS</span> · Polyclinic Resource Transparency v.4.0
-                </p>
-             </div>
+                <p className="mt-2 text-sm font-medium text-slate-300 sm:text-base">Informasi praktik dokter dan layanan poliklinik</p>
+              </div>
             </div>
-            <nav aria-label="Navigasi dashboard publik" className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center justify-between gap-5 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 backdrop-blur sm:justify-start sm:px-5">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal terpilih</p>
+                <p className="mt-1 text-sm font-bold text-white sm:text-base">{labelHariIni}</p>
+              </div>
+              <div className="h-9 w-px bg-white/10" />
+              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-200">
+                <Clock size={16} />
+                <LiveClock />
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-[10020] flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        {isQuickServicesOpen && (
+          <section
+            id="quick-services-panel"
+            aria-label="Widget layanan"
+            className="max-h-[min(72vh,36rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/20"
+          >
+            <div className="sticky top-0 flex items-center justify-between bg-gradient-to-r from-slate-950 to-emerald-900 px-4 py-4 text-white">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-emerald-200/20 bg-emerald-300/10 text-emerald-200">
+                  <span aria-hidden="true" className="absolute inset-0 rounded-2xl bg-emerald-300/20 animate-pulse motion-reduce:animate-none" />
+                  <Bot size={22} className="relative motion-safe:animate-pulse" />
+                </span>
+                <div>
+                  <h2 className="text-sm font-bold">Akses Cepat</h2>
+                  <p className="mt-1 text-[11px] text-slate-300">Layanan informasi poliklinik</p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsModalImutOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+                onClick={() => setIsQuickServicesOpen(false)}
+                aria-label="Tutup widget layanan"
+                className="grid h-9 w-9 place-items-center rounded-xl text-slate-200 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <nav aria-label="Layanan informasi dan referensi" className="grid grid-cols-2 gap-2 p-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsQuickServicesOpen(false);
+                  setIsModalImutOpen(true);
+                }}
+                className="flex min-h-[5.25rem] flex-col items-start justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-haspopup="dialog"
                 aria-expanded={isModalImutOpen}
+                suppressHydrationWarning={true}
               >
-                📊 Capaian Mutu
+                <PieChart size={19} className="text-emerald-700" />
+                <span className="text-xs font-bold text-slate-800">Capaian Mutu</span>
               </button>
               <button
                 type="button"
@@ -1986,118 +2229,184 @@ export default function ViewJadwalPublic() {
                   const room = getClientSessionRoom() || "POLIKLINIK";
                   setSopSessionRoom(room);
                   setSopForm((current) => ({ ...current, ruangan: room }));
+                  setIsQuickServicesOpen(false);
                   setIsModalSopOpen(true);
                 }}
-                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+                className="flex min-h-[5.25rem] flex-col items-start justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-haspopup="dialog"
                 aria-expanded={isModalSopOpen}
+                suppressHydrationWarning={true}
               >
-                📖 Buku Saku SOP
+                <BookOpen size={19} className="text-emerald-700" />
+                <span className="text-xs font-bold text-slate-800">Buku Saku SOP</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setSarprasSessionRoom(getClientSessionRoom());
+                  setIsQuickServicesOpen(false);
                   setIsModalSarprasOpen(true);
                 }}
+                className="flex min-h-[5.25rem] flex-col items-start justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-haspopup="dialog"
                 aria-expanded={isModalSarprasOpen}
-                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition-all hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+                suppressHydrationWarning={true}
               >
-                📦 Sarpras Rawat Jalan
+                <Package size={19} className="text-emerald-700" />
+                <span className="text-xs font-bold text-slate-800">Sarpras Rawat Jalan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsQuickServicesOpen(false);
+                  handleOpenMetmor();
+                }}
+                className="flex min-h-[5.25rem] flex-col items-start justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                aria-haspopup="dialog"
+                aria-expanded={isMetmorModalOpen}
+                suppressHydrationWarning={true}
+              >
+                <ClipboardCheck size={19} className="text-emerald-700" />
+                <span className="text-xs font-bold text-slate-800">Meeting Morning</span>
               </button>
             </nav>
+          </section>
+        )}
+        <button
+          type="button"
+          onClick={() => setIsQuickServicesOpen((open) => !open)}
+          aria-label={isQuickServicesOpen ? "Tutup layanan" : "Buka layanan"}
+          aria-expanded={isQuickServicesOpen}
+          aria-controls={isQuickServicesOpen ? "quick-services-panel" : undefined}
+          className="group inline-flex min-h-14 items-center gap-3 rounded-full border border-emerald-300/50 bg-gradient-to-r from-emerald-700 to-teal-700 px-5 text-sm font-bold text-white shadow-xl shadow-emerald-950/25 transition hover:-translate-y-0.5 hover:from-emerald-800 hover:to-teal-800 focus:outline-none focus:ring-4 focus:ring-emerald-300/60 sm:min-h-16 sm:px-6"
+          suppressHydrationWarning={true}
+        >
+          {isQuickServicesOpen ? (
+            <X size={19} />
+          ) : (
+            <span className="relative grid h-8 w-8 place-items-center rounded-full bg-white/15">
+              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-white/15 animate-ping motion-reduce:animate-none" />
+              <Bot size={19} className="relative transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
+            </span>
+          )}
+          <span>{isQuickServicesOpen ? "Tutup" : "Akses Cepat"}</span>
+        </button>
+      </div>
+
+      {(metmorEntries.length > 0 || metmorError) && (
+        <section className="mx-auto -mt-5 mb-6 w-[calc(100%-2rem)] max-w-7xl rounded-3xl border border-teal-100 bg-white p-5 shadow-xl sm:p-7">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="rounded-xl bg-teal-50 p-2.5 text-teal-700"><ClipboardCheck size={21} /></span>
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Informasi Meeting Morning</h2>
+              <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">{format(parseISO(selectedDateFull), "EEEE, dd MMMM yyyy", { locale: id })}</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-            <button 
+          {metmorError ? (
+            <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Informasi Meeting Morning belum dapat dimuat.</p>
+          ) : (
+            <div className="space-y-3">
+              {metmorEntries.map((entry, index) => (
+                <article key={`${entry.tanggal}-${index}`} className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 sm:p-5">
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.informasi}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <div className="mx-auto max-w-7xl space-y-6 px-4 pb-10 sm:px-6 lg:px-8 -mt-12 relative z-10">
+        <section aria-label="Aksi cepat" className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-lg shadow-slate-900/5 sm:p-4">
+          <div className="mb-3 flex items-center justify-between px-1">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Aksi cepat</h2>
+              <p className="mt-0.5 text-[11px] text-slate-500">Kelola aktivitas dan informasi staf</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <button
+              type="button"
               onClick={async () => {
-                setLoadingAbsen(true);
                 try {
-                  const res = await fetch(`/api/absensi?tanggal=${selectedDateFull}`);
-                  const result = await res.json();
-                  if (!res.ok || !result.success || !Array.isArray(result.data)) {
-                    throw new Error(result.error || 'Gagal mengambil laporan absensi.');
-                  }
-                  setDataLaporanAbsen(result.data);
+                  await loadDataLaporanAbsen();
                 } catch (err) {
                   console.error("Gagal fetch laporan absen:", err);
                   alert(err?.message || 'Gagal mengambil laporan absensi.');
                   setDataLaporanAbsen([]);
-                } finally {
-                  setLoadingAbsen(false);
                 }
                 setShowLaporanAbsenModal(true);
               }}
-              className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800 text-white"
-             suppressHydrationWarning={true}>
-              <UserCheck size={18} /> Laporan Absen
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 sm:text-sm"
+              suppressHydrationWarning={true}
+            >
+              <UserCheck size={17} /> Laporan Absen
             </button>
-            
-            <button onClick={() => setShowLeaderboardModal(true)} className="bg-amber-500 hover:bg-amber-600 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase text-white border-b-4 border-amber-700" suppressHydrationWarning={true}>
-                <Star size={18} className="fill-white" /> Cek Poin Asisten
+            <button
+              type="button"
+              onClick={() => setShowLeaderboardModal(true)}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-700 transition hover:bg-amber-50 hover:text-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 sm:text-sm"
+              suppressHydrationWarning={true}
+            >
+              <Star size={17} className="text-amber-500" /> Poin Asisten
             </button>
-
-            <button onClick={() => setShowCutiModal(true)} className="bg-blue-600 hover:bg-blue-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-blue-800" suppressHydrationWarning={true}>
-                <Edit3 size={18} /> Ajukan Cuti Staf
+            <button
+              type="button"
+              onClick={() => setShowCutiModal(true)}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 sm:text-sm"
+              suppressHydrationWarning={true}
+            >
+              <Edit3 size={17} className="text-blue-600" /> Ajukan Cuti
             </button>
-            <button onClick={() => setShowSwap(true)} className="bg-emerald-600 hover:bg-emerald-700 px-6 py-5 rounded-2xl flex items-center gap-3 transition-all shadow-xl font-black text-[10px] uppercase border-b-4 border-emerald-800" suppressHydrationWarning={true}>
-                <RefreshCw size={18} /> Tukar Asisten
+            <button
+              type="button"
+              onClick={() => setShowSwap(true)}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-700 transition hover:bg-violet-50 hover:text-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:ring-offset-2 sm:text-sm"
+              suppressHydrationWarning={true}
+            >
+              <ArrowLeftRight size={17} className="text-violet-600" /> Tukar Asisten
             </button>
-            
-            <div className="bg-white/5 border border-white/10 p-6 rounded-[2rem] backdrop-blur-md text-center md:text-right shadow-inner flex flex-col justify-center">
-              <p className="text-lg font-black uppercase text-white leading-none tracking-tighter">{labelHariIni}</p>
-              <div className="mt-3 flex items-center justify-center md:justify-end gap-2">
-                 <Clock size={14} className="text-emerald-400" />
-                 <LiveClock />
-              </div>
-            </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="max-w-7xl mx-auto p-4 md:p-8 -mt-16 space-y-8">
-        {/* FILTER CONTROL (INPUT DATE TUNGGAL) */}
-        <div className="bg-white/80 backdrop-blur-xl p-6 rounded-[3rem] shadow-2xl border border-white flex flex-col lg:flex-row gap-6 items-center">
-          <div className="flex-1 flex items-center gap-4 bg-slate-100/50 px-8 py-5 rounded-[2rem] w-full border border-slate-100">
-            <Search size={22} className="text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Cari Nama Dokter, Klinik, atau SDM..." 
+        <section aria-label="Filter jadwal" className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
+          <label className="flex min-h-12 flex-1 items-center gap-3 rounded-xl bg-slate-50 px-4 ring-1 ring-inset ring-slate-200 transition focus-within:ring-2 focus-within:ring-emerald-500">
+            <Search size={18} className="shrink-0 text-slate-400" />
+            <span className="sr-only">Cari nama dokter, klinik, atau SDM</span>
+            <input
+              type="search"
+              placeholder="Cari dokter, klinik, atau SDM..."
               autoComplete="off"
               spellCheck="false"
-              className="bg-transparent border-none outline-none text-xs font-black w-full uppercase text-slate-900 placeholder:text-slate-400"
-              value={searchTerm} 
+              className="w-full border-0 bg-transparent text-sm font-medium text-slate-900 outline-none placeholder:text-slate-400"
+              value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-             suppressHydrationWarning={true}/>
-          </div>
-          <div className="flex gap-4 w-full lg:w-auto items-center">
-            
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                <CalendarIcon size={16} className="text-emerald-200 group-hover:text-white transition-colors" />
-              </div>
-              <input 
-                type="date" 
-                value={selectedDateFull}
-                onChange={(e) => setSelectedDateFull(e.target.value)}
-                className="bg-emerald-600 text-white text-[11px] font-black pl-12 pr-6 py-5 rounded-2xl uppercase shadow-lg outline-none cursor-pointer appearance-none hover:bg-emerald-700 transition-colors [&::-webkit-calendar-picker-indicator]:invert"
-               suppressHydrationWarning={true}/>
-            </div>
-
-          </div>
-        </div>
+              suppressHydrationWarning={true}
+            />
+          </label>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 ring-1 ring-inset ring-slate-200 focus-within:ring-2 focus-within:ring-emerald-500 sm:w-auto">
+            <CalendarIcon size={17} className="shrink-0 text-emerald-700" />
+            <span className="text-xs font-semibold text-slate-500">Tanggal</span>
+            <input
+              type="date"
+              value={selectedDateFull}
+              onChange={(e) => setSelectedDateFull(e.target.value)}
+              className="min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold text-slate-800 outline-none sm:flex-none"
+              suppressHydrationWarning={true}
+            />
+          </label>
+        </section>
 
         {!loading && !dashboardError && (
           <BannerPengingat doctors={dokterPraktikTanggalIni} />
         )}
 
         {/* GRID UNIT CONTAINER (GROUPED CARD) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
           {loading ? Array.from({ length: 4 }).map((_, cardIndex) => (
-            <section key={`dokter-skeleton-${cardIndex}`} aria-label="Memuat jadwal dokter" className="bg-white p-8 md:p-10 rounded-[4rem] border-2 border-white shadow-xl space-y-6">
-              <div className="animate-pulse rounded-[2.5rem] bg-slate-200 h-24" />
+            <section key={`dokter-skeleton-${cardIndex}`} aria-label="Memuat jadwal dokter" className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="animate-pulse h-20 rounded-2xl bg-slate-200" />
               {Array.from({ length: 3 }).map((__, rowIndex) => (
-                <div key={`dokter-skeleton-${cardIndex}-${rowIndex}`} className="animate-pulse rounded-[2.5rem] border-2 border-slate-100 bg-slate-50 p-6 space-y-4">
+                <div key={`dokter-skeleton-${cardIndex}-${rowIndex}`} className="animate-pulse space-y-4 rounded-2xl border border-slate-100 bg-slate-50 p-5">
                   <div className="h-4 w-2/5 rounded bg-slate-200" />
                   <div className="h-3 w-1/3 rounded bg-slate-200" />
                   <div className="h-10 w-full rounded-2xl bg-slate-200" />
@@ -2127,24 +2436,24 @@ export default function ViewJadwalPublic() {
             if (filteredDokter.length === 0) return null;
 
             return (
-              <div key={simbol} className="bg-white p-8 md:p-10 rounded-[4rem] border-2 border-white shadow-xl space-y-6 relative overflow-hidden">
+              <div key={simbol} className="relative space-y-5 overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                 
-                <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] flex justify-between items-center shadow-lg italic">
+                <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-900 px-4 py-4 text-white shadow-sm sm:px-5">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-md">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500 text-sm font-bold text-white shadow-sm">
                       {simbol}
                     </div>
                     <div>
-                      <h3 className="text-sm font-black uppercase tracking-wider">STASIUN UTAMA {simbol}</h3>
-                      <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Sektor Pelayanan Rawat Jalan</p>
+                      <h3 className="text-xs font-bold uppercase tracking-wider sm:text-sm">Stasiun {simbol}</h3>
+                      <p className="mt-1 text-[10px] font-medium text-slate-400">Sektor pelayanan rawat jalan</p>
                     </div>
                   </div>
-                  <span className="bg-white/10 text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase">
+                  <span className="whitespace-nowrap rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-semibold text-slate-200">
                     {filteredDokter.length} Dokter Aktif
                   </span>
                 </div>
 
-                <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="max-h-[600px] space-y-4 overflow-y-auto pr-1 custom-scrollbar">
                   {filteredDokter.map((dok, idx) => {
                     const doctorKey = dok.id || `${dok.nama_dokter}-${dok.klinik}`;
                     const cardKey = `${doctorKey}_${selectedDateFull}`;
@@ -2170,11 +2479,11 @@ export default function ViewJadwalPublic() {
                     const lateQuotaUnavailable = poliSampleLimit !== null && !quotaDataReady;
 
                     return (
-                      <div key={cardKey} className={`p-6 rounded-[2.5rem] border-2 transition-all ${isBerhalangan ? 'border-red-100 bg-red-50/30 opacity-75' : 'border-slate-100 bg-slate-50/50 hover:border-blue-400'}`}>
+                      <div key={cardKey} className={`rounded-2xl border p-4 transition-all sm:p-5 ${isBerhalangan ? 'border-red-200 bg-red-50/60 opacity-80' : 'border-slate-200 bg-white hover:border-emerald-300 hover:shadow-md hover:shadow-slate-900/5'}`}>
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div>
-                            <h4 className="text-sm font-black text-slate-800 uppercase italic tracking-tight">{dok.nama_dokter}</h4>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 tracking-wider">{dok.klinik} • {dok.jam_praktik || "Jam Pelayanan"}</p>
+                            <h4 className="text-sm font-bold tracking-tight text-slate-900">{dok.nama_dokter}</h4>
+                            <p className="mt-1 text-xs font-medium text-slate-500">{dok.klinik} · {dok.jam_praktik || "Jam Pelayanan"}</p>
                             {isBerhalangan && (
                               <span className="mt-2 inline-flex rounded-full border border-red-200 bg-red-100 px-2.5 py-1 text-[8px] font-black uppercase tracking-wide text-red-800">
                                 🚫 {keteranganBerhalangan || "Dokter Berhalangan"}
@@ -2400,21 +2709,6 @@ export default function ViewJadwalPublic() {
                                       </div>
                                     )}
                                     
-                                    {/* Tombol Absensi Kamera Saja */}
-                                    {!isAbsen && (
-                                      <button 
-                                        type="button"
-                                        onClick={() => { 
-                                          setPerawatTarget(as); 
-                                          setRuanganAktifGlobal(simbol); 
-                                          setShowKameraModal(true); 
-                                        }} 
-                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-emerald-500 hover:text-white border border-slate-200 rounded-lg transition-all text-slate-600 shadow-sm ml-1" 
-                                        title="Terminal Absensi Kamera"
-                                       suppressHydrationWarning={true}>
-                                          <Camera size={12} /> <span className="text-[8px] not-italic font-black">ABSEN</span>
-                                      </button>
-                                    )}
                                   </div>
                                 );
                               }) : <p className="text-[10px] font-black text-slate-300 italic">--- Belum Ada Asisten Ditugaskan ---</p>}
@@ -2468,7 +2762,10 @@ export default function ViewJadwalPublic() {
             <div className="flex-1">
               <div className="flex items-center gap-3 px-4 mb-6">
                 <div className="w-2 h-6 bg-amber-500 rounded-full shadow-lg"></div>
-                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest italic leading-none">Monitor Izin & Cuti SDM</h3>
+                  <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Pengajuan bulan ini dan bulan depan</p>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-3 px-4 mb-6">
@@ -2490,7 +2787,7 @@ export default function ViewJadwalPublic() {
 
               {data?.sdmIzinList?.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  {data?.sdmIzinList?.filter(s => s.nama_sdm.toLowerCase().includes(searchCutiTerm.toLowerCase()) || s.jenis_cuti.toLowerCase().includes(searchCutiTerm.toLowerCase())).map((s, i) => (
+                  {data?.sdmIzinList?.filter(s => String(s.nama_sdm || '').toLowerCase().includes(searchCutiTerm.toLowerCase()) || String(s.jenis_cuti || '').toLowerCase().includes(searchCutiTerm.toLowerCase())).map((s, i) => (
                     <div key={`s-${i}`} className={`p-6 rounded-[2rem] border-l-8 flex justify-between items-center shadow-sm border transition-all ${s.status_acc === 'Disetujui' || s.status_acc === 'Tercatat' ? 'bg-white border-emerald-100 border-l-emerald-500' : s.status_acc === 'Ditolak' ? 'bg-red-50 border-red-100 border-l-red-500' : 'bg-amber-50/50 border-amber-100 border-l-amber-500'}`}>
                       <div className="max-w-[220px]">
                         <div className="flex items-center gap-2 mb-2">
@@ -2498,6 +2795,7 @@ export default function ViewJadwalPublic() {
                           <h4 className="text-[11px] font-black text-slate-800 uppercase leading-none truncate italic">{s.nama_sdm}</h4>
                         </div>
                         <p className="text-[9px] font-bold text-slate-500 uppercase italic leading-none">{format(parseISO(s.tgl_mulai), 'dd MMM yyyy')} - {format(parseISO(s.tgl_selesai), 'dd MMM yyyy')}</p>
+                        {s.alasan && <p className="mt-2 line-clamp-2 text-[9px] font-medium normal-case text-slate-500">{s.alasan}</p>}
                       </div>
                       <div className="text-right">
                         <span className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase ${s.status_acc === 'Disetujui' || s.status_acc === 'Tercatat' ? 'bg-emerald-100 text-emerald-700' : s.status_acc === 'Ditolak' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{s.status_acc}</span>
@@ -2505,14 +2803,14 @@ export default function ViewJadwalPublic() {
                     </div>
                   ))}
 
-                  {data?.sdmIzinList?.filter(s => s.nama_sdm.toLowerCase().includes(searchCutiTerm.toLowerCase()) || s.jenis_cuti.toLowerCase().includes(searchCutiTerm.toLowerCase())).length === 0 && (
+                  {data?.sdmIzinList?.filter(s => String(s.nama_sdm || '').toLowerCase().includes(searchCutiTerm.toLowerCase()) || String(s.jenis_cuti || '').toLowerCase().includes(searchCutiTerm.toLowerCase())).length === 0 && (
                     <div className="col-span-1 lg:col-span-2 text-center text-xs font-black text-slate-400 uppercase italic py-12 border border-dashed border-slate-200 rounded-[2rem]">
                       Tidak ditemukan pengajuan atau catatan sakit/DL dengan kata kunci tersebut.
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest border-2 border-dashed border-slate-200 rounded-3xl">Tidak ada pengajuan izin/cuti/sakit di bulan ini.</p>
+                <p className="text-center text-xs font-black text-slate-400 italic py-8 uppercase tracking-widest border-2 border-dashed border-slate-200 rounded-3xl">Tidak ada pengajuan izin/cuti/sakit dalam bulan ini atau bulan depan.</p>
               )}
             </div>
 

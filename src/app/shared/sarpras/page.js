@@ -3,5 +3,5 @@
 import SarprasWorkspace from "@/components/SarprasWorkspace";
 
 export default function SharedSarprasPage() {
-  return <SarprasWorkspace />;
+  return <SarprasWorkspace readOnly />;
 }

@@ -152,6 +152,18 @@ export async function GET(request) {
       turso.execute({ sql: sqlMasterDokter, args: [kunciRuangan] })
     ]);
 
+    const monitorCutiStart = format(new Date(pTahun, pBulan - 1, 1), "yyyy-MM-dd");
+    const monitorCutiEnd = format(new Date(pTahun, pBulan + 2, 0), "yyyy-MM-dd");
+    const resCutiMonitor = await turso.execute({
+      sql: `SELECT * FROM cuti_sdm
+            WHERE (ruangan IS NULL OR TRIM(ruangan) = '' OR UPPER(TRIM(ruangan)) = UPPER(TRIM(?)))
+              AND NOT (tgl_selesai < ? OR tgl_mulai > ?)
+            ORDER BY CASE WHEN COALESCE(status_acc, 'Menunggu') = 'Menunggu' THEN 0 ELSE 1 END,
+                     tgl_mulai ASC, id DESC
+            LIMIT 100`,
+      args: [kunciRuangan, monitorCutiStart, monitorCutiEnd]
+    });
+
     const dokterRowsForCard = (isModeLaporan ? resMasterDokterAll.rows : resMasterDokterAll.rows.filter(dok =>
       String(dok.jadwal_hari || "").trim().toUpperCase() === namaHariIndo.trim().toUpperCase()
     ));
@@ -519,20 +531,21 @@ const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
     // Sorting Descending
     leaderboardBeban.sort((a, b) => b.total_pasien_bulanan - a.total_pasien_bulanan);
 
-    const dataCutiSdmMapped = resSdmCuti.rows.map(s => ({
+    const dataCutiSdmMapped = resCutiMonitor.rows.map(s => ({
       nama_sdm: s.nama_sdm,
       jenis_cuti: s.jenis_cuti,
       status_acc: s.status_acc || "Menunggu",
-      tgl_mulai: format(new Date(s.tgl_mulai), "dd MMM"),
-      tgl_selesai: format(new Date(s.tgl_selesai), "dd MMM")
+      tgl_mulai: s.tgl_mulai,
+      tgl_selesai: s.tgl_selesai
     }));
 
-    const sdmIzinRaw = resSdmCuti.rows.map(s => ({
+    const sdmIzinRaw = resCutiMonitor.rows.map(s => ({
       nama_sdm: s.nama_sdm,
       jenis_cuti: s.jenis_cuti || 'Izin',
       status_acc: s.status_acc || 'Menunggu',
       tgl_mulai: s.tgl_mulai,
       tgl_selesai: s.tgl_selesai,
+      alasan: s.alasan,
       ruangan: s.ruangan,
       sumber: 'cuti'
     }));

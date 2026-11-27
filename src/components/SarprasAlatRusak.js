@@ -39,9 +39,12 @@ function formatDate(value) {
     : new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(date);
 }
 
-export default function SarprasAlatRusak() {
+export default function SarprasAlatRusak({ readOnly = false }) {
   const router = useRouter();
   const [records, setRecords] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [proposalError, setProposalError] = useState("");
+  const [processingProposalId, setProcessingProposalId] = useState(null);
   const [poliRuanganOptions, setPoliRuanganOptions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -59,9 +62,10 @@ export default function SarprasAlatRusak() {
     setIsLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sarpras/alat-rusak", { cache: "no-store" });
+      const url = readOnly ? "/api/sarpras/publik?view=rusak" : "/api/sarpras/alat-rusak";
+      const response = await fetch(url, { cache: "no-store" });
       const result = await response.json();
-      if (response.status === 401) {
+      if (response.status === 401 && !readOnly) {
         router.push("/login");
         return;
       }
@@ -76,11 +80,34 @@ export default function SarprasAlatRusak() {
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
+  }, [readOnly, router]);
+
+  const loadProposals = useCallback(async () => {
+    if (readOnly) return;
+    try {
+      const response = await fetch("/api/sarpras/alat-rusak-usulan", { cache: "no-store" });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok || !result.success || !Array.isArray(result.data)) {
+        throw new Error(result.error || "Antrean usulan laporan gagal dimuat.");
+      }
+      setProposalError("");
+      setProposals(result.data);
+    } catch (error) {
+      setProposalError(error.message || "Antrean usulan laporan gagal dimuat.");
+    }
+  }, [readOnly, router]);
 
   useEffect(() => {
     loadRecords();
   }, [loadRecords]);
+
+  useEffect(() => {
+    loadProposals();
+  }, [loadProposals]);
 
   const totals = useMemo(() => records.reduce((result, record) => {
     result[record.status === "SELESAI" ? "selesai" : "menunggu"]++;
@@ -151,9 +178,9 @@ export default function SarprasAlatRusak() {
       };
       delete payload.poli_ruangan_lainnya;
       const response = await fetch(
-        editingId ? `/api/sarpras/alat-rusak/${editingId}` : "/api/sarpras/alat-rusak",
+        readOnly ? "/api/sarpras/alat-rusak-usulan" : editingId ? `/api/sarpras/alat-rusak/${editingId}` : "/api/sarpras/alat-rusak",
         {
-          method: editingId ? "PUT" : "POST",
+          method: readOnly ? "POST" : editingId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         }
@@ -170,13 +197,46 @@ export default function SarprasAlatRusak() {
       setEditingId(null);
       setNotice({
         success: true,
-        text: editingId ? "Laporan alat rusak berhasil diperbarui." : `Laporan alat rusak nomor ${result.nomor} berhasil disimpan.`,
+        text: readOnly
+          ? "Usulan laporan alat rusak berhasil dikirim dan menunggu persetujuan."
+          : editingId ? "Laporan alat rusak berhasil diperbarui." : `Laporan alat rusak nomor ${result.nomor} berhasil disimpan.`,
       });
-      await loadRecords();
+      if (!readOnly) await loadRecords();
     } catch (error) {
       setNotice({ success: false, text: error.message || "Laporan alat rusak gagal disimpan." });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const reviewProposal = async (proposal, action) => {
+    const actionLabel = action === "approve" ? "menyetujui" : "menolak";
+    if (!window.confirm(`Apakah Anda yakin ingin ${actionLabel} laporan ${proposal.nama_barang}?`)) return;
+    setProcessingProposalId(proposal.id);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/sarpras/alat-rusak-usulan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: proposal.id, action }),
+      });
+      const result = await response.json();
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!response.ok || !result.success) throw new Error(result.error || "Usulan laporan gagal diproses.");
+      setNotice({
+        success: true,
+        text: action === "approve"
+          ? `Laporan disetujui dan ditambahkan dengan nomor ${result.nomor}.`
+          : "Usulan laporan alat rusak ditolak.",
+      });
+      await Promise.all([loadProposals(), ...(action === "approve" ? [loadRecords()] : [])]);
+    } catch (error) {
+      setNotice({ success: false, text: error.message || "Usulan laporan gagal diproses." });
+    } finally {
+      setProcessingProposalId(null);
     }
   };
 
@@ -188,7 +248,9 @@ export default function SarprasAlatRusak() {
     <div className="space-y-5">
       <div className="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-amber-950">
-          Catat laporan kerusakan untuk ditindaklanjuti IPSRS. Laporan yang belum memiliki tanggal selesai tetap berada pada daftar menunggu.
+          {readOnly
+            ? "Lihat status tindak lanjut laporan kerusakan, termasuk nama pelapor dan petugas IPSRS."
+            : "Catat laporan kerusakan untuk ditindaklanjuti IPSRS. Laporan yang belum memiliki tanggal selesai tetap berada pada daftar menunggu."}
         </p>
         <button
           type="button"
@@ -196,7 +258,7 @@ export default function SarprasAlatRusak() {
           disabled={isLoading}
           className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-700 px-4 py-3 text-sm font-black text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Plus size={17} /> Buat Laporan
+          <Plus size={17} /> {readOnly ? "Buat Laporan" : "Buat Laporan"}
         </button>
       </div>
 
@@ -227,15 +289,57 @@ export default function SarprasAlatRusak() {
         ))}
       </section>
 
+      {!readOnly && (
+        <section className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-amber-950">Usulan Laporan Menunggu Persetujuan</h2>
+              <p className="mt-1 text-sm text-amber-900">Laporan baru akan dicatat setelah disetujui.</p>
+            </div>
+            <button type="button" onClick={loadProposals} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-900">Muat ulang</button>
+          </div>
+          {proposalError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{proposalError}</p>}
+          {proposals.length === 0 ? (
+            <p className="rounded-lg bg-white p-4 text-sm text-slate-600">Tidak ada usulan laporan yang menunggu persetujuan.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+              <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
+                <thead className="bg-amber-100 text-[10px] uppercase tracking-wide text-amber-950">
+                  <tr>{["Diajukan", "Tanggal", "Poli/Ruang", "Nama Alat", "Deskripsi Kerusakan", "Pelapor", "Aksi"].map((heading) => <th key={heading} scope="col" className="border-b border-amber-200 px-3 py-3">{heading}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {proposals.map((proposal) => (
+                    <tr key={proposal.id} className="border-b border-slate-100">
+                      <td className="whitespace-nowrap px-3 py-3 text-xs">{proposal.created_at}</td>
+                      <td className="whitespace-nowrap px-3 py-3">{formatDate(proposal.tanggal_pelaporan)}</td>
+                      <td className="px-3 py-3">{proposal.poli_ruangan}</td>
+                      <td className="px-3 py-3 font-bold">{proposal.nama_barang}</td>
+                      <td className="max-w-72 whitespace-pre-wrap px-3 py-3">{proposal.deskripsi_kerusakan}</td>
+                      <td className="px-3 py-3">{proposal.nama_pelapor}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => reviewProposal(proposal, "approve")} disabled={processingProposalId === proposal.id} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{processingProposalId === proposal.id ? "Memproses..." : "Setujui"}</button>
+                          <button type="button" onClick={() => reviewProposal(proposal, "reject")} disabled={processingProposalId === proposal.id} className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Tolak</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {isFormOpen && (
         <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-5 flex items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-black text-slate-900">
-                {editingId ? "Perbarui Laporan Alat Rusak" : "Buat Laporan Alat Rusak"}
+                {readOnly ? "Ajukan Laporan Alat Rusak" : editingId ? "Perbarui Laporan Alat Rusak" : "Buat Laporan Alat Rusak"}
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Tanggal selesai dapat diisi setelah IPSRS menuntaskan penanganan.
+                {readOnly ? "Laporan akan dicatat setelah usulan disetujui." : "Tanggal selesai dapat diisi setelah IPSRS menuntaskan penanganan."}
               </p>
             </div>
             <button
@@ -361,7 +465,7 @@ export default function SarprasAlatRusak() {
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-700 px-5 py-3 text-sm font-black text-white hover:bg-amber-800 disabled:opacity-50"
               >
                 {isSaving && <Loader2 size={16} className="animate-spin" />}
-                {isSaving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Simpan Laporan"}
+                {isSaving ? (readOnly ? "Mengirim..." : "Menyimpan...") : readOnly ? "Kirim Usulan" : editingId ? "Simpan Perubahan" : "Simpan Laporan"}
               </button>
             </div>
           </form>
@@ -424,7 +528,7 @@ export default function SarprasAlatRusak() {
             <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
               <thead className="bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
                 <tr>
-                  {["No.", "Tgl. Pelaporan", "Poli / Ruangan", "Nama Barang / Alat", "Deskripsi Kerusakan", "Nama Pelapor", "Petugas IPSRS", "Tgl. Selesai", "Status", "Aksi"].map((heading) => (
+                  {["No.", "Tgl. Pelaporan", "Poli / Ruangan", "Nama Barang / Alat", "Deskripsi Kerusakan", "Nama Pelapor", "Petugas IPSRS", "Tgl. Selesai", "Status", ...(!readOnly ? ["Aksi"] : [])].map((heading) => (
                     <th key={heading} scope="col" className="border-b border-slate-200 px-3 py-3">{heading}</th>
                   ))}
                 </tr>
@@ -449,7 +553,7 @@ export default function SarprasAlatRusak() {
                         {record.status === "SELESAI" ? "Selesai" : "Menunggu"}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    {!readOnly && <td className="px-3 py-3">
                       <button
                         type="button"
                         onClick={() => openEditForm(record)}
@@ -458,12 +562,12 @@ export default function SarprasAlatRusak() {
                       >
                         <Pencil size={16} />
                       </button>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
                 {filteredRecords.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="p-10 text-center text-sm text-slate-500">
+                    <td colSpan={readOnly ? 9 : 10} className="p-10 text-center text-sm text-slate-500">
                       {records.length ? "Tidak ada laporan yang cocok dengan pencarian atau filter." : "Belum ada laporan alat rusak untuk ruangan ini."}
                     </td>
                   </tr>

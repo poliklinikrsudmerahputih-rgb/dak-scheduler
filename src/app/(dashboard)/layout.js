@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
   Users, Stethoscope, Calendar, PlaneTakeoff, Timer, Sparkles,
-  LayoutDashboard, Menu, X, Code, Cpu, LogOut, BrainCircuit, ChevronRight, ShieldCheck, FileSpreadsheet, ChartColumnIncreasing, Boxes
+  LayoutDashboard, Menu, X, Code, Cpu, LogOut, BrainCircuit, ChevronRight, ShieldCheck, FileSpreadsheet, ChartColumnIncreasing, Boxes, ClipboardCheck
 } from "lucide-react";
 
 export default function DashboardLayout({ children }) {
@@ -43,6 +43,7 @@ export default function DashboardLayout({ children }) {
         { name: "Laporan Kunjungan", icon: <ChartColumnIncreasing size={19}/>, href: "/laporan-kunjungan" },
         { name: "Sarpras Rawat Jalan", icon: <Boxes size={19}/>, href: "/sarpras" },
         { name: "Buat Jadwal", icon: <Calendar size={19}/>, href: "/buat-jadwal" },
+        { name: "Metmor (Meeting Morning)", icon: <ClipboardCheck size={19}/>, href: "/metmor" },
         { name: "Cuti SDM", icon: <PlaneTakeoff size={19}/>, href: "/cuti-sdm" },
         { name: "Cuti Dokter", icon: <PlaneTakeoff size={19}/>, href: "/cuti-dokter" },
       ],

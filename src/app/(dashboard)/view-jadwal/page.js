@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import Image from "next/image";
+import { Lottie } from "lottie-react";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
@@ -13,7 +14,7 @@ import {
   IMUT_REPORT_TARGETS
 } from "@/lib/imut-indicators";
 import { 
-  Search, Camera, Clock, X, Bot, BookOpen, Package,
+  Search, Camera, Clock, X, Cat, BookOpen, Package,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Hospital, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Lock, Unlock, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
   ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp, ClipboardCheck
@@ -1152,6 +1153,7 @@ export default function ViewJadwalPublic() {
   const [isModalSopOpen, setIsModalSopOpen] = useState(false);
   const [isModalSarprasOpen, setIsModalSarprasOpen] = useState(false);
   const [isQuickServicesOpen, setIsQuickServicesOpen] = useState(false);
+  const [catAnimation, setCatAnimation] = useState(null);
   const [activeSopTab, setActiveSopTab] = useState("list");
   const [searchSopTerm, setSearchSopTerm] = useState("");
   const [sopSessionRoom, setSopSessionRoom] = useState("");
@@ -1166,6 +1168,26 @@ export default function ViewJadwalPublic() {
   const [sopSubmitError, setSopSubmitError] = useState("");
   const [sopSubmitNotice, setSopSubmitNotice] = useState("");
   const [sopSubmitting, setSopSubmitting] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadCatAnimation() {
+      try {
+        const response = await fetch("/cat.json", { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const animation = await response.json();
+        if (!Array.isArray(animation.layers)) throw new Error("Format animasi kucing tidak valid.");
+        setCatAnimation(animation);
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        console.error("Gagal memuat animasi kucing:", error);
+      }
+    }
+
+    loadCatAnimation();
+    return () => controller.abort();
+  }, []);
   const imutParams = new URLSearchParams({
     tipe: "bulanan",
     bulan: String(Number(tanggalLaporanImut.slice(5, 7))),
@@ -2189,11 +2211,7 @@ export default function ViewJadwalPublic() {
             className="max-h-[min(72vh,36rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/20"
           >
             <div className="sticky top-0 flex items-center justify-between bg-gradient-to-r from-slate-950 to-emerald-900 px-4 py-4 text-white">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-emerald-200/20 bg-emerald-300/10 text-emerald-200">
-                  <span aria-hidden="true" className="absolute inset-0 rounded-2xl bg-emerald-300/20 animate-pulse motion-reduce:animate-none" />
-                  <Bot size={22} className="relative motion-safe:animate-pulse" />
-                </span>
+              <div className="min-w-0">
                 <div>
                   <h2 className="text-sm font-bold">Akses Cepat</h2>
                   <p className="mt-1 text-[11px] text-slate-300">Layanan informasi poliklinik</p>
@@ -2274,21 +2292,31 @@ export default function ViewJadwalPublic() {
         <button
           type="button"
           onClick={() => setIsQuickServicesOpen((open) => !open)}
-          aria-label={isQuickServicesOpen ? "Tutup layanan" : "Buka layanan"}
+          aria-label={isQuickServicesOpen ? "Tutup menu layanan" : "Klik kucing untuk membuka layanan"}
           aria-expanded={isQuickServicesOpen}
           aria-controls={isQuickServicesOpen ? "quick-services-panel" : undefined}
-          className="group inline-flex min-h-14 items-center gap-3 rounded-full border border-emerald-300/50 bg-gradient-to-r from-emerald-700 to-teal-700 px-5 text-sm font-bold text-white shadow-xl shadow-emerald-950/25 transition hover:-translate-y-0.5 hover:from-emerald-800 hover:to-teal-800 focus:outline-none focus:ring-4 focus:ring-emerald-300/60 sm:min-h-16 sm:px-6"
+          className="group flex min-h-0 w-28 flex-col items-center gap-0 rounded-2xl bg-transparent p-0 text-slate-800 drop-shadow-[0_2px_3px_rgba(255,255,255,0.9)] transition-transform duration-300 hover:-translate-y-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 sm:w-32"
           suppressHydrationWarning={true}
         >
-          {isQuickServicesOpen ? (
-            <X size={19} />
+          {catAnimation ? (
+            <Lottie
+              src={catAnimation}
+              autoplay
+              loop
+              aria-hidden="true"
+              className="h-24 w-24 transition-transform duration-300 group-hover:scale-110 sm:h-28 sm:w-28"
+            />
           ) : (
-            <span className="relative grid h-8 w-8 place-items-center rounded-full bg-white/15">
-              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-white/15 animate-ping motion-reduce:animate-none" />
-              <Bot size={19} className="relative transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
-            </span>
+            <Cat
+              size={76}
+              strokeWidth={1.5}
+              className="h-24 w-24 text-emerald-700 transition-transform duration-300 group-hover:scale-110 sm:h-28 sm:w-28"
+              aria-hidden="true"
+            />
           )}
-          <span>{isQuickServicesOpen ? "Tutup" : "Akses Cepat"}</span>
+          <span className="pb-1 text-xs font-extrabold tracking-wide text-slate-900">
+            {isQuickServicesOpen ? "Tutup menu" : "Klik kucing"}
+          </span>
         </button>
       </div>
 

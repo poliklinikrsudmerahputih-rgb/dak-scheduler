@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import Image from "next/image";
 import { Lottie } from "lottie-react";
+import catAnimationData from "@/assets/cat-animation.json";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
@@ -2279,7 +2280,7 @@ export default function ViewJadwalPublic() {
           suppressHydrationWarning={true}
         >
           <Lottie
-            src="/cat.json"
+            src={catAnimationData}
             renderer="svg"
             rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
             speed={1}

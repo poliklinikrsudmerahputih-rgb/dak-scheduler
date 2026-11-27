@@ -14,7 +14,7 @@ import {
   IMUT_REPORT_TARGETS
 } from "@/lib/imut-indicators";
 import { 
-  Search, Camera, Clock, X, Cat, BookOpen, Package,
+  Search, Camera, Clock, X, BookOpen, Package,
   UserCheck, AlertCircle, Save, CheckCircle2, Activity, Edit3, Hospital, XCircle,
   RefreshCw, ArrowLeftRight, Loader2, TrendingUp, Lock, Unlock, Star, Calendar as CalendarIcon, FileText, Trash2, PieChart, MapPin, Bell,
   ShieldCheck, ShieldAlert, Scale, MinusCircle, PlusCircle, LogIn, LogOut, ClipboardList, ThumbsUp, ClipboardCheck
@@ -1153,7 +1153,6 @@ export default function ViewJadwalPublic() {
   const [isModalSopOpen, setIsModalSopOpen] = useState(false);
   const [isModalSarprasOpen, setIsModalSarprasOpen] = useState(false);
   const [isQuickServicesOpen, setIsQuickServicesOpen] = useState(false);
-  const [catAnimation, setCatAnimation] = useState(null);
   const [activeSopTab, setActiveSopTab] = useState("list");
   const [searchSopTerm, setSearchSopTerm] = useState("");
   const [sopSessionRoom, setSopSessionRoom] = useState("");
@@ -1169,25 +1168,6 @@ export default function ViewJadwalPublic() {
   const [sopSubmitNotice, setSopSubmitNotice] = useState("");
   const [sopSubmitting, setSopSubmitting] = useState(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadCatAnimation() {
-      try {
-        const response = await fetch("/cat.json", { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const animation = await response.json();
-        if (!Array.isArray(animation.layers)) throw new Error("Format animasi kucing tidak valid.");
-        setCatAnimation(animation);
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        console.error("Gagal memuat animasi kucing:", error);
-      }
-    }
-
-    loadCatAnimation();
-    return () => controller.abort();
-  }, []);
   const imutParams = new URLSearchParams({
     tipe: "bulanan",
     bulan: String(Number(tanggalLaporanImut.slice(5, 7))),
@@ -2298,22 +2278,16 @@ export default function ViewJadwalPublic() {
           className="group flex min-h-0 w-28 flex-col items-center gap-0 rounded-2xl bg-transparent p-0 text-slate-800 drop-shadow-[0_2px_3px_rgba(255,255,255,0.9)] transition-transform duration-300 hover:-translate-y-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 sm:w-32"
           suppressHydrationWarning={true}
         >
-          {catAnimation ? (
-            <Lottie
-              src={catAnimation}
-              autoplay
-              loop
-              aria-hidden="true"
-              className="h-24 w-24 transition-transform duration-300 group-hover:scale-110 sm:h-28 sm:w-28"
-            />
-          ) : (
-            <Cat
-              size={76}
-              strokeWidth={1.5}
-              className="h-24 w-24 text-emerald-700 transition-transform duration-300 group-hover:scale-110 sm:h-28 sm:w-28"
-              aria-hidden="true"
-            />
-          )}
+          <Lottie
+            src="/cat.json"
+            renderer="svg"
+            rendererSettings={{ preserveAspectRatio: "xMidYMid meet" }}
+            speed={1}
+            autoplay
+            loop
+            aria-hidden="true"
+            className="h-24 w-24 sm:h-28 sm:w-28"
+          />
           <span className="pb-1 text-xs font-extrabold tracking-wide text-slate-900">
             {isQuickServicesOpen ? "Tutup menu" : "Klik kucing"}
           </span>

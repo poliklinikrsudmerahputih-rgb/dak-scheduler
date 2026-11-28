@@ -1,6 +1,7 @@
 import { turso } from "@/lib/turso";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { parseSessionValue } from "@/lib/session";
 
 // Fungsi Validasi Sesi Ruangan Terpusat
 async function getSessionRuangan() {
@@ -8,12 +9,9 @@ async function getSessionRuangan() {
   const session = cookieStore.get("session_dak_pro");
   if (!session) return null;
 
-  try {
-    const userData = JSON.parse(session.value);
-    return userData.ruangan ? userData.ruangan.toUpperCase() : "POLIKLINIK";
-  } catch {
-    return null;
-  }
+  const userData = parseSessionValue(session);
+  const ruangan = String(userData?.ruangan || "").trim();
+  return ruangan ? ruangan.toUpperCase() : null;
 }
 
 // --- 1. GET: MENGAMBIL DATA JADWAL (TERISOLASI) ---
@@ -39,14 +37,43 @@ export async function GET(req) {
       sql: `SELECT j.*, s.nama AS sdm_nama, s.jabatan AS sdm_jabatan, s.is_aktif AS sdm_is_aktif, s.ruangan_aktif AS sdm_ruangan_aktif
             FROM jadwal_dinas j
             LEFT JOIN sdm s ON s.id = j.sdm_id
-            WHERE j.bulan = ? AND j.tahun = ? AND UPPER(TRIM(j.ruangan)) = ?`,
+            WHERE j.bulan = ? AND j.tahun = ?
+              AND UPPER(TRIM(j.ruangan)) = UPPER(TRIM(?))`,
       args: [bulan, tahun, ruanganTarget]
     });
 
-    return NextResponse.json(res.rows);
+    const substitutions = await turso.execute({
+      sql: `SELECT * FROM pergantian_asisten_dokter
+            WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+              AND strftime('%m', tanggal) = printf('%02d', CAST(? AS INTEGER))
+              AND strftime('%Y', tanggal) = CAST(? AS TEXT)`,
+      args: [ruanganTarget, bulan, tahun],
+    });
+    const rows = res.rows.map((row) => {
+      const date = `${String(row.tahun).padStart(4, "0")}-${String(row.bulan).padStart(2, "0")}-${String(row.tanggal).padStart(2, "0")}`;
+      const related = substitutions.rows.filter(substitution =>
+        substitution.tanggal === date
+        && [substitution.asisten_awal_id, substitution.asisten_pengganti_id]
+          .some(personId => String(personId) === String(row.sdm_id)),
+      );
+      return {
+        ...row,
+        pergantian_asisten: related,
+        ...(related.length === 1 ? {
+          asisten_awal_id: related[0].asisten_awal_id,
+          asisten_awal_nama: related[0].asisten_awal_nama,
+          asisten_pengganti_id: related[0].asisten_pengganti_id,
+          asisten_pengganti_nama: related[0].asisten_pengganti_nama,
+          alasan_pergantian: related[0].alasan_pergantian,
+          catatan_pergantian: related[0].catatan_pergantian,
+        } : {}),
+      };
+    });
+
+    return NextResponse.json(rows, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET Error:", error);
-    return NextResponse.json([]);
+    return NextResponse.json({ error: "Gagal mengambil data jadwal." }, { status: 500 });
   }
 }
 

@@ -12,6 +12,8 @@ import {
   FileText, CalendarRange, Download, ClipboardList, Edit3, Trash2, X
 } from "lucide-react";
 import { daftarKlinikSop } from "@/lib/sop-constants";
+import AsistenPenggantiEditor from "@/components/AsistenPenggantiEditor";
+import { createAsistenPenggantiWhatsAppUrl } from "@/lib/asisten-pengganti-whatsapp";
 
 const getDashboardCacheScope = () => {
   if (typeof document === "undefined") return "server";
@@ -113,6 +115,7 @@ export default function DashboardUtama() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showSwap, setShowSwap] = useState(false);
   const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
+  const [editingAsistenDoctor, setEditingAsistenDoctor] = useState(null);
   const [isSopModalOpen, setIsSopModalOpen] = useState(false);
   const [isSopMenuOpen, setIsSopMenuOpen] = useState(false);
   const [showOnlyIncompleteSop, setShowOnlyIncompleteSop] = useState(false);
@@ -414,6 +417,26 @@ export default function DashboardUtama() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-4 md:p-10 space-y-8 bg-slate-50 min-h-screen pb-20 font-sans">
+      {editingAsistenDoctor && (
+        <AsistenPenggantiEditor
+          dokter={editingAsistenDoctor}
+          tanggal={`${tahun}-${String(bulan).padStart(2, "0")}-${String(tanggal).padStart(2, "0")}`}
+          ruangan={data?.summary?.ruangan || "POLIKLINIK"}
+          existing={editingAsistenDoctor.asisten_pengganti_id ? {
+            tanggal: `${tahun}-${String(bulan).padStart(2, "0")}-${String(tanggal).padStart(2, "0")}`,
+            asisten_awal_id: editingAsistenDoctor.asisten_awal_id,
+            asisten_awal_nama: editingAsistenDoctor.asisten_awal_nama,
+            asisten_pengganti_id: editingAsistenDoctor.asisten_pengganti_id,
+            asisten_pengganti_nama: editingAsistenDoctor.asisten_pengganti_nama,
+            alasan_pergantian: editingAsistenDoctor.alasan_pergantian,
+            catatan_pergantian: editingAsistenDoctor.catatan_pergantian,
+          } : null}
+          onClose={() => setEditingAsistenDoctor(null)}
+          onSaved={() => {
+            void mutateDashboard();
+          }}
+        />
+      )}
       
       {/* --- HEADER DASHBOARD --- */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-slate-900 p-8 md:p-12 rounded-[3.5rem] shadow-2xl text-white relative overflow-hidden transition-all">
@@ -765,6 +788,50 @@ export default function DashboardUtama() {
 
                 <h4 className="text-lg font-black text-slate-800 uppercase italic tracking-tighter leading-tight">{dok.nama_dokter}</h4>
                 <p className="text-[10px] font-bold text-blue-600 uppercase mt-1 tracking-widest">{dok.klinik}</p>
+                {dok.asisten_pengganti_nama && (
+                  <div className="mt-3 space-y-1">
+                    <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[9px] font-black uppercase tracking-wide text-amber-900">
+                      ⚠️ Ganti Asisten
+                    </span>
+                    <p className="text-xs font-semibold text-amber-950">
+                      Asisten Pengganti: {dok.asisten_pengganti_nama} (Menggantikan {dok.asisten_awal_nama} • Alasan: {dok.alasan_pergantian})
+                    </p>
+                  </div>
+                )}
+                {dok.asisten_pengganti_nama ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.open(createAsistenPenggantiWhatsAppUrl({
+                        entry: {
+                          tanggal: `${tahun}-${String(bulan).padStart(2, "0")}-${String(tanggal).padStart(2, "0")}`,
+                          nama_dokter: dok.nama_dokter,
+                          klinik: dok.klinik,
+                          asisten_awal_nama: dok.asisten_awal_nama,
+                          asisten_pengganti_nama: dok.asisten_pengganti_nama,
+                          alasan_pergantian: dok.alasan_pergantian,
+                        },
+                        dokter: dok,
+                        ruangan: data?.summary?.ruangan || "POLIKLINIK",
+                        origin: window.location.origin,
+                      }), "_blank", "noopener,noreferrer")}
+                      className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-[9px] font-black uppercase text-white transition hover:bg-emerald-700"
+                    >
+                      <Share2 size={13} /> Kirim Info ke WA Rajal
+                    </button>
+                    <button type="button" onClick={() => setEditingAsistenDoctor(dok)} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[9px] font-black uppercase text-amber-900 hover:bg-amber-100">
+                      Ubah Pergantian
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingAsistenDoctor(dok)}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[9px] font-black uppercase text-amber-900 transition hover:bg-amber-100"
+                  >
+                    <Share2 size={13} /> Ganti Asisten
+                  </button>
+                )}
                 {isBerhalangan && (
                   <span className="mt-3 inline-flex rounded-full border border-red-200 bg-red-100 px-3 py-1.5 text-[9px] font-black uppercase tracking-wide text-red-800">
                     🚫 {keteranganBerhalangan || "Dokter Berhalangan"}

@@ -114,7 +114,7 @@ export async function GET(request) {
     }
     const reportMonthStart = firstMonthlyDate.getUTCFullYear() * 100 + firstMonthlyDate.getUTCMonth() + 1;
     const reportMonthEnd = lastMonthlyDate.getUTCFullYear() * 100 + lastMonthlyDate.getUTCMonth() + 1;
-    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resRekapKunjunganBulanan, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll] = await Promise.all([
+    const [sdmCountRes, dokterCountRes, resJadwal, resPasienPoli, resRekapKunjunganBulanan, resAbsensiHariIni, resWaktuPraktik, resSdmCuti, resDokterCuti, resMasterDokterAll, resPergantianAsisten] = await Promise.all([
       turso.execute({ sql: "SELECT COUNT(*) as total FROM sdm WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: "SELECT COUNT(DISTINCT nama_dokter) as total FROM master_dokter WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))", args: [kunciRuangan] }),
       turso.execute({ sql: sqlJadwal, args: argsJadwal }),
@@ -149,7 +149,13 @@ export async function GET(request) {
                 AND NOT (tgl_selesai < ? OR tgl_mulai > ?)`,
         args: [kunciRuangan, cutiRangeStart, cutiRangeEnd]
       }),
-      turso.execute({ sql: sqlMasterDokter, args: [kunciRuangan] })
+      turso.execute({ sql: sqlMasterDokter, args: [kunciRuangan] }),
+      turso.execute({
+        sql: `SELECT * FROM pergantian_asisten_dokter
+              WHERE UPPER(TRIM(ruangan)) = UPPER(TRIM(?))
+                AND tanggal BETWEEN ? AND ?`,
+        args: [kunciRuangan, queryTglAwalBulan, queryTglAkhirBulan]
+      })
     ]);
 
     const monitorCutiStart = format(new Date(pTahun, pBulan - 1, 1), "yyyy-MM-dd");
@@ -370,6 +376,11 @@ export async function GET(request) {
         : patientStats?.total || 0;
 
       const timHarian = jadwalHariIni.filter(j => isAsistenUntukDokter(j, dok));
+      const pergantianAsisten = !isModeLaporan
+        ? resPergantianAsisten.rows.find(row =>
+          Number(row.dokter_id) === Number(dok.id) && row.tanggal === formatTglTarget
+        ) || null
+        : null;
 
       const cutiDokter = !isModeLaporan
         ? resDokterCuti.rows
@@ -391,17 +402,58 @@ export async function GET(request) {
         );
         const isSakit = ['CS', 'S'].includes(amanStr(t.simbol));
         const absensi = absensiMap[t.sdm_id] || null;
+        const isAsistenDiganti = pergantianAsisten
+          && String(t.sdm_id) === String(pergantianAsisten.asisten_awal_id);
 
         return { 
           id: t.sdm_id, 
           nama: t.nama, 
-          isCuti: isCutiSDM,
-          isSakit: isSakit,
+          isCuti: isCutiSDM || Boolean(isAsistenDiganti),
+          isSakit,
+          isAsistenDiganti: Boolean(isAsistenDiganti),
           status_absen: absensi?.status_kedisiplinan || null,
           potongan_absen: absensi?.penalti_mutu || 0,
           foto_masuk: absensi?.foto_masuk || null
         };
       });
+      if (pergantianAsisten && !asistenMapped.some(asisten =>
+        String(asisten.id) === String(pergantianAsisten.asisten_awal_id)
+      )) {
+        asistenMapped.push({
+          id: pergantianAsisten.asisten_awal_id,
+          nama: pergantianAsisten.asisten_awal_nama,
+          isCuti: true,
+          isSakit: pergantianAsisten.alasan_pergantian === "Sakit",
+          isAsistenDiganti: true,
+          status_absen: null,
+          potongan_absen: 0,
+          foto_masuk: null,
+        });
+      }
+      if (pergantianAsisten && !asistenMapped.some(asisten =>
+        String(asisten.id) === String(pergantianAsisten.asisten_pengganti_id)
+      )) {
+        const replacementIsCuti = resSdmCuti.rows.some(c =>
+          amanStr(c.nama_sdm) === amanStr(pergantianAsisten.asisten_pengganti_nama)
+          && c.status_acc === "Disetujui"
+          && formatTglTarget >= c.tgl_mulai
+          && formatTglTarget <= c.tgl_selesai
+        );
+        const replacementIsSick = jadwalHariIni.some(j =>
+          String(j.sdm_id) === String(pergantianAsisten.asisten_pengganti_id)
+          && ["CS", "S"].includes(amanStr(j.simbol))
+        );
+        asistenMapped.push({
+          id: pergantianAsisten.asisten_pengganti_id,
+          nama: pergantianAsisten.asisten_pengganti_nama,
+          isCuti: replacementIsCuti,
+          isSakit: replacementIsSick,
+          isAsistenPengganti: true,
+          status_absen: null,
+          potongan_absen: 0,
+          foto_masuk: null,
+        });
+      }
 
       return {
         ...dok,
@@ -412,7 +464,13 @@ export async function GET(request) {
         keterangan_berhalangan: cutiDokter?.jenis_cuti || null,
         jumlah_pasien_poli: !isModeLaporan ? totalPasienHarian : 0,
         total_pasien_bulanan: totalPasienRentang, 
-        timAsisten: asistenMapped
+        timAsisten: asistenMapped,
+        asisten_awal_id: pergantianAsisten?.asisten_awal_id || null,
+        asisten_awal_nama: pergantianAsisten?.asisten_awal_nama || null,
+        asisten_pengganti_id: pergantianAsisten?.asisten_pengganti_id || null,
+        asisten_pengganti_nama: pergantianAsisten?.asisten_pengganti_nama || null,
+        alasan_pergantian: pergantianAsisten?.alasan_pergantian || null,
+        catatan_pergantian: pergantianAsisten?.catatan_pergantian || null,
       };
     }).filter(dokter =>
       !(dokter.is_berhalangan && isMaternityLeave(dokter.keterangan_berhalangan))
@@ -444,7 +502,38 @@ export async function GET(request) {
         dailyPointsDict[dateKey].totalPoinBobot += (hitunganPasien * bobotDokter);
     });
 
-    // b. Hitung Asisten Hadir (Exclude yang Sakit/Cuti/Libur)
+    // b. Hitung peserta praktik yang hadir; pergantian mengalihkan slot ke pengganti.
+    const pointDistributionEvents = [];
+    const masterDokterByIdForSubstitution = new Map(
+        resMasterDokterAll.rows.map(doctor => [Number(doctor.id), doctor]),
+    );
+    const substitutionsBySession = new Map();
+    for (const substitution of resPergantianAsisten.rows) {
+        const doctor = masterDokterByIdForSubstitution.get(Number(substitution.dokter_id));
+        if (!doctor) continue;
+        const symbol = normalizeSimbol(getSimbolGrup(doctor.simbol_praktik));
+        const [year, month, day] = substitution.tanggal.split("-").map(Number);
+        const pointDateKey = `${year}-${month}-${day}`;
+        const key = `${pointDateKey}_${symbol}`;
+        const entries = substitutionsBySession.get(key) || [];
+        entries.push({ ...substitution, matched: false, pointDateKey, symbol });
+        substitutionsBySession.set(key, entries);
+    }
+
+    const absentPersonIdsByDate = new Set();
+    semuaJadwalBulanIni.forEach(j => {
+        const dateStr = `${String(j.tahun).padStart(4, "0")}-${String(j.bulan).padStart(2, "0")}-${String(j.tanggal).padStart(2, "0")}`;
+        const isCutiAcc = resSdmCuti.rows.some(c =>
+          amanStr(c.nama_sdm) === amanStr(j.nama)
+          && c.status_acc === "Disetujui"
+          && dateStr >= c.tgl_mulai
+          && dateStr <= c.tgl_selesai
+        );
+        if (isCutiAcc || ["CT", "CM", "CS", "S", "I", "L", "OFF"].includes(normalizeSimbol(j.simbol))) {
+          absentPersonIdsByDate.add(`${dateStr}_${j.sdm_id}`);
+        }
+    });
+
     semuaJadwalBulanIni.forEach(j => {
         const targetSimbolGroup = normalizeSimbol(getSimbolGrup(j.simbol));
         const dateKey = `${Number(j.tahun)}-${Number(j.bulan)}-${Number(j.tanggal)}_${targetSimbolGroup}`;
@@ -464,8 +553,63 @@ export async function GET(request) {
         const isSimbolAbsen = ['CT', 'CM', 'CS', 'S', 'I', 'L', 'OFF'].includes(simbolAsisten);
 
         if (!isCutiAcc && !isSimbolAbsen) {
-             dailyPointsDict[dateKey].jumlahAsistenHadir += 1;
+          const substitutions = substitutionsBySession.get(dateKey) || [];
+          const substitution = substitutions.find(row =>
+            !row.matched && String(row.asisten_awal_id) === String(j.sdm_id)
+          );
+          if (substitution) {
+            substitution.matched = true;
+            if (!absentPersonIdsByDate.has(`${dateStr}_${substitution.asisten_pengganti_id}`)) {
+              pointDistributionEvents.push({
+                dateKey,
+                sdm_id: substitution.asisten_pengganti_id,
+                nama: substitution.asisten_pengganti_nama,
+                tanggal: Number(j.tanggal),
+                bulan: Number(j.bulan),
+                tahun: Number(j.tahun),
+              });
+            }
+          } else {
+            pointDistributionEvents.push({
+              dateKey,
+              sdm_id: j.sdm_id,
+              nama: j.nama,
+              tanggal: Number(j.tanggal),
+              bulan: Number(j.bulan),
+              tahun: Number(j.tahun),
+            });
+          }
         }
+    });
+
+    for (const substitutions of substitutionsBySession.values()) {
+      substitutions.forEach(substitution => {
+        if (substitution.matched) return;
+        const [year, month, day] = substitution.pointDateKey.split("-").map(Number);
+        const date = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        if (absentPersonIdsByDate.has(`${date}_${substitution.asisten_pengganti_id}`)) return;
+        pointDistributionEvents.push({
+          dateKey: `${substitution.pointDateKey}_${substitution.symbol}`,
+          sdm_id: substitution.asisten_pengganti_id,
+          nama: substitution.asisten_pengganti_nama,
+          tanggal: day,
+          bulan: month,
+          tahun: year,
+        });
+        substitution.matched = true;
+      });
+    }
+
+    pointDistributionEvents.forEach(event => {
+      if (!dailyPointsDict[event.dateKey]) {
+        dailyPointsDict[event.dateKey] = {
+          totalPasienKotor: 0,
+          totalPoinBobot: 0,
+          jumlahAsistenHadir: 0,
+          poinFinal: 0,
+        };
+      }
+      dailyPointsDict[event.dateKey].jumlahAsistenHadir += 1;
     });
 
     // c. Kalkulasi Poin Akhir per Poli per Hari
@@ -476,50 +620,41 @@ export async function GET(request) {
     }
 
     // Distribusi Poin ke Leaderboard Individu
-    const perawatUnik = [...new Set(semuaJadwalBulanIni.map(j => j.sdm_id))];
+    const perawatUnik = [...new Set([
+      ...semuaJadwalBulanIni.map(j => String(j.sdm_id)),
+      ...pointDistributionEvents.map(event => String(event.sdm_id)),
+    ])];
     const leaderboardBeban = perawatUnik.map(idSdm => {
-      const infoSdm = semuaJadwalBulanIni.find(j => j.sdm_id === idSdm);
+      const infoSdm = semuaJadwalBulanIni.find(j => String(j.sdm_id) === idSdm)
+        || pointDistributionEvents.find(event => String(event.sdm_id) === idSdm);
       let totalBebanBulanan = 0;
       let totalBebanHariIni = 0;
       const daftarPoliDibantuHariIni = new Set(); 
 
-      const riwayatJadwalSdm = semuaJadwalBulanIni.filter(j => j.sdm_id === idSdm);
+      pointDistributionEvents
+        .filter(event => String(event.sdm_id) === idSdm)
+        .forEach(event => {
+          const targetSimbolGroup = getSimbolKey(event.dateKey.slice(event.dateKey.indexOf("_") + 1));
+          const poinHarian = dailyPointsDict[event.dateKey]?.poinFinal || 0;
+          totalBebanBulanan += poinHarian;
 
-      riwayatJadwalSdm.forEach(jadwal => {
-const targetSimbolGroup = getSimbolKey(getSimbolGrup(jadwal.simbol));
-        const dateKey = `${Number(jadwal.tahun)}-${Number(jadwal.bulan)}-${Number(jadwal.tanggal)}_${targetSimbolGroup}`;
-        
-        const dateStr = `${jadwal.tahun}-${String(jadwal.bulan).padStart(2,'0')}-${String(jadwal.tanggal).padStart(2,'0')}`;
-        const simbolAsisten = normalizeSimbol(jadwal.simbol);
-        const isCutiAcc = resSdmCuti.rows.some(c => 
-             amanStr(c.nama_sdm) === amanStr(infoSdm.nama) &&
-             c.status_acc === 'Disetujui' &&
-             dateStr >= c.tgl_mulai && dateStr <= c.tgl_selesai
-        );
-        const isSimbolAbsen = ['CT', 'CM', 'CS', 'S', 'I', 'L', 'OFF'].includes(simbolAsisten);
-
-        if (!isCutiAcc && !isSimbolAbsen) {
-             const poinHarian = dailyPointsDict[dateKey] ? dailyPointsDict[dateKey].poinFinal : 0;
-             totalBebanBulanan += poinHarian;
-
-             if (Number(jadwal.tanggal) === pTanggal && Number(jadwal.bulan) === pBulan && Number(jadwal.tahun) === pTahun) {
-                 totalBebanHariIni += poinHarian;
-                 if (targetSimbolGroup.startsWith('NERS')) {
-                     daftarPoliDibantuHariIni.add(targetSimbolGroup); 
-                 } else {
-                     const namaPoliBersih = targetSimbolGroup.replace('POLI', '').trim();
-                     daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`); 
-                 }
-             }
-        }
-      });
+          if (event.tanggal === pTanggal && event.bulan === pBulan && event.tahun === pTahun) {
+            totalBebanHariIni += poinHarian;
+            if (targetSimbolGroup.startsWith("NERS")) {
+              daftarPoliDibantuHariIni.add(targetSimbolGroup);
+            } else {
+              const namaPoliBersih = targetSimbolGroup.replace("POLI", "").trim();
+              daftarPoliDibantuHariIni.add(`POLI ${namaPoliBersih}`);
+            }
+          }
+        });
 
       let teksPoli = Array.from(daftarPoliDibantuHariIni).join(", ");
       if (!teksPoli) teksPoli = "OFF / LIBUR";
 
       return {
         id: idSdm,
-        nama: infoSdm.nama,
+        nama: infoSdm?.nama || infoSdm?.asisten_pengganti_nama || "SDM",
         total_pasien_bulanan: parseFloat(totalBebanBulanan.toFixed(1)),
         total_pasien: parseFloat(totalBebanBulanan.toFixed(1)),
         total_pasien_hari_ini: parseFloat(totalBebanHariIni.toFixed(1)),

@@ -8,6 +8,7 @@ import dogAnimationData from "@/assets/dog-animation.json";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 import { daftarKlinikSop } from "@/lib/sop-constants";
+import { createAsistenPenggantiWhatsAppUrl } from "@/lib/asisten-pengganti-whatsapp";
 import {
   applyImutSampleLimits,
   getMonthlyImutSampleCount,
@@ -1134,6 +1135,10 @@ export default function ViewJadwalPublic() {
   const [submitting, setSubmitting] = useState(false);
   
   const [selectedDateFull, setSelectedDateFull] = useState(getTanggalJakarta());
+  useEffect(() => {
+    const requestedDate = new URLSearchParams(window.location.search).get("tanggal");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate || "")) setSelectedDateFull(requestedDate);
+  }, []);
   const [startingDoctorId, setStartingDoctorId] = useState(null);
   const [manualDoctorId, setManualDoctorId] = useState(null);
   const [manualStartTime, setManualStartTime] = useState("");
@@ -1242,6 +1247,10 @@ export default function ViewJadwalPublic() {
   const [loadingAbsen, setLoadingAbsen] = useState(false);
   const [metmorEntries, setMetmorEntries] = useState([]);
   const [metmorError, setMetmorError] = useState("");
+  const [approvedSwapRows, setApprovedSwapRows] = useState([]);
+  const [approvedSwapError, setApprovedSwapError] = useState("");
+  const [swapNotice, setSwapNotice] = useState("");
+  const [swapError, setSwapError] = useState("");
   const [isMetmorModalOpen, setIsMetmorModalOpen] = useState(false);
   const [metmorHistory, setMetmorHistory] = useState([]);
   const [loadingMetmorHistory, setLoadingMetmorHistory] = useState(false);
@@ -1304,7 +1313,7 @@ export default function ViewJadwalPublic() {
     return () => window.clearTimeout(timeoutId);
   }, [imutSaveNotice]);
 
-  const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "" });
+  const [swapData, setSwapData] = useState({ sdmA: "", sdmB: "", keterangan: "" });
 
   useEffect(() => {
     const sidebar = document.querySelector('aside'); 
@@ -1347,6 +1356,36 @@ export default function ViewJadwalPublic() {
         console.error("Gagal memuat informasi Meeting Morning:", error);
         setMetmorEntries([]);
         setMetmorError(error.message || "Gagal memuat informasi Meeting Morning.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedDateFull, ruanganAktifGlobal, ruanganShare]);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams({
+      tanggal: selectedDateFull,
+      ruangan: String(ruanganShare || ruanganAktifGlobal || "POLIKLINIK").trim().toUpperCase(),
+    });
+
+    fetch(`/api/permohonan-tukar-jadwal?${params.toString()}`)
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || result.success !== true || !Array.isArray(result.data)) {
+          throw new Error(result.error || "Gagal memuat keterangan tukar jadwal.");
+        }
+        if (active) {
+          setApprovedSwapRows(result.data);
+          setApprovedSwapError("");
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error("Gagal memuat keterangan tukar jadwal:", error);
+        setApprovedSwapRows([]);
+        setApprovedSwapError("Keterangan tukar jadwal belum dapat dimuat.");
       });
 
     return () => {
@@ -1574,26 +1613,37 @@ export default function ViewJadwalPublic() {
   };
 
   const handleSwapDB = async () => {
-    if (!swapData.sdmA || !swapData.sdmB) return alert("Pilih kedua perawat!");
+    if (!swapData.sdmA || !swapData.sdmB || swapData.sdmA === swapData.sdmB) {
+      setSwapError("Pilih dua perawat yang berbeda.");
+      return;
+    }
+    if (!swapData.keterangan.trim()) {
+      setSwapError("Keterangan atau alasan tukar jadwal wajib diisi.");
+      return;
+    }
     setSubmitting(true);
+    setSwapError("");
     try {
-      const res = await fetch("/api/jadwal/swap", {
+      const requestRoom = String(ruanganShare || ruanganAktifGlobal || "POLIKLINIK").trim().toUpperCase();
+      const res = await fetch(`/api/permohonan-tukar-jadwal?ruangan=${encodeURIComponent(requestRoom)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sdmA: swapData.sdmA,
           sdmB: swapData.sdmB,
-          tanggal, bulan, tahun
+          tanggal: selectedDateFull,
+          keterangan: swapData.keterangan,
         })
       });
-      if (res.ok) {
-        alert("🔄 Penugasan & Beban Berhasil Ditukar!");
-        setShowSwap(false);
-        setSwapData({ sdmA: "", sdmB: "" });
-        mutateDashboard();
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || "Permohonan tukar jadwal gagal dikirim.");
       }
-    } catch (e) { 
-      alert("❌ Gagal tukar asisten."); 
+      setSwapNotice(result.message || "Permohonan terkirim dan menunggu persetujuan.");
+      setShowSwap(false);
+      setSwapData({ sdmA: "", sdmB: "", keterangan: "" });
+    } catch (error) {
+      setSwapError(error.message || "Permohonan tukar jadwal gagal dikirim.");
     } finally { 
       setSubmitting(false); 
     }
@@ -2315,27 +2365,65 @@ export default function ViewJadwalPublic() {
         </button>
       </div>
 
-      {(metmorEntries.length > 0 || metmorError) && (
-        <section className="mx-auto -mt-5 mb-6 w-[calc(100%-2rem)] max-w-7xl rounded-3xl border border-teal-100 bg-white p-5 shadow-xl sm:p-7">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="rounded-xl bg-teal-50 p-2.5 text-teal-700"><ClipboardCheck size={21} /></span>
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Informasi Meeting Morning</h2>
-              <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">{format(parseISO(selectedDateFull), "EEEE, dd MMMM yyyy", { locale: id })}</p>
-            </div>
-          </div>
-          {metmorError ? (
-            <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Informasi Meeting Morning belum dapat dimuat.</p>
-          ) : (
-            <div className="space-y-3">
-              {metmorEntries.map((entry, index) => (
-                <article key={`${entry.tanggal}-${index}`} className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 sm:p-5">
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.informasi}</p>
-                </article>
-              ))}
-            </div>
+      {(metmorEntries.length > 0 || metmorError || approvedSwapRows.length > 0 || approvedSwapError || swapNotice) && (
+        <div className="mx-auto -mt-5 mb-6 grid w-[calc(100%-2rem)] max-w-7xl gap-4 lg:grid-cols-2">
+          {(metmorEntries.length > 0 || metmorError) && (
+            <section className="rounded-3xl border border-teal-100 bg-white p-5 shadow-xl sm:p-7">
+              <div className="mb-4 flex items-center gap-3">
+                <span className="rounded-xl bg-teal-50 p-2.5 text-teal-700"><ClipboardCheck size={21} /></span>
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Informasi Meeting Morning</h2>
+                  <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">{format(parseISO(selectedDateFull), "EEEE, dd MMMM yyyy", { locale: id })}</p>
+                </div>
+              </div>
+              {metmorError ? (
+                <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Informasi Meeting Morning belum dapat dimuat.</p>
+              ) : (
+                <div className="space-y-3">
+                  {metmorEntries.map((entry, index) => (
+                    <article key={`${entry.tanggal}-${index}`} className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 sm:p-5">
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.informasi}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
-        </section>
+          {(approvedSwapRows.length > 0 || approvedSwapError || swapNotice) && (
+            <section className="rounded-3xl border border-sky-200 bg-white p-5 shadow-xl sm:p-7">
+              <div className="mb-4 flex items-center gap-3">
+                <span className="rounded-xl bg-sky-50 p-2.5 text-sky-700"><ArrowLeftRight size={21} /></span>
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Keterangan Tukar Jadwal</h2>
+                  <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">{format(parseISO(selectedDateFull), "EEEE, dd MMMM yyyy", { locale: id })}</p>
+                </div>
+              </div>
+              {swapNotice && (
+                <p role="status" className="mb-3 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">{swapNotice}</p>
+              )}
+              {approvedSwapError ? (
+                <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">{approvedSwapError}</p>
+              ) : approvedSwapRows.length > 0 ? (
+                <div className="space-y-3">
+                  {approvedSwapRows.map(entry => (
+                    <article key={entry.id} className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+                      <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-900">Tukar disetujui</span>
+                      <p className="mt-2 text-sm font-black text-slate-900">
+                        {entry.nama_sdm_a_terkini || entry.sdm_a_nama} ↔ {entry.nama_sdm_b_terkini || entry.sdm_b_nama}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-600">
+                        Shift: {entry.simbol_a || "-"} ↔ {entry.simbol_b || "-"}
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                        <span className="font-black">Keterangan:</span> {entry.keterangan}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          )}
+        </div>
       )}
 
       <div className="mx-auto max-w-7xl space-y-6 px-4 pb-10 sm:px-6 lg:px-8 -mt-12 relative z-10">
@@ -2382,7 +2470,7 @@ export default function ViewJadwalPublic() {
             </button>
             <button
               type="button"
-              onClick={() => setShowSwap(true)}
+              onClick={() => { setSwapError(""); setShowSwap(true); }}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-700 transition hover:bg-violet-50 hover:text-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:ring-offset-2 sm:text-sm"
               suppressHydrationWarning={true}
             >
@@ -2507,6 +2595,35 @@ export default function ViewJadwalPublic() {
                           <div>
                             <h4 className="text-sm font-bold tracking-tight text-slate-900">{dok.nama_dokter}</h4>
                             <p className="mt-1 text-xs font-medium text-slate-500">{dok.klinik} · {dok.jam_praktik || "Jam Pelayanan"}</p>
+                            {dok.asisten_pengganti_nama && (
+                              <div className="mt-2 space-y-1">
+                                <span className="inline-flex rounded-full border border-amber-400 bg-amber-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-amber-950">
+                                  ⚠️ Ganti Asisten
+                                </span>
+                                <p className="text-xs font-semibold text-amber-950">
+                                  Asisten Pengganti: {dok.asisten_pengganti_nama} (Menggantikan {dok.asisten_awal_nama} • Alasan: {dok.alasan_pergantian})
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => window.open(createAsistenPenggantiWhatsAppUrl({
+                                    entry: {
+                                      tanggal: selectedDateFull,
+                                      nama_dokter: dok.nama_dokter,
+                                      klinik: dok.klinik,
+                                      asisten_awal_nama: dok.asisten_awal_nama,
+                                      asisten_pengganti_nama: dok.asisten_pengganti_nama,
+                                      alasan_pergantian: dok.alasan_pergantian,
+                                    },
+                                    dokter: dok,
+                                    ruangan: ruanganShare || "POLIKLINIK",
+                                    origin: window.location.origin,
+                                  }), "_blank", "noopener,noreferrer")}
+                                  className="mt-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[9px] font-black uppercase text-white hover:bg-emerald-700"
+                                >
+                                  Kirim Info ke WA Rajal
+                                </button>
+                              </div>
+                            )}
                             {isBerhalangan && (
                               <span className="mt-2 inline-flex rounded-full border border-red-200 bg-red-100 px-2.5 py-1 text-[8px] font-black uppercase tracking-wide text-red-800">
                                 🚫 {keteranganBerhalangan || "Dokter Berhalangan"}
@@ -3043,15 +3160,15 @@ export default function ViewJadwalPublic() {
             </h3>
             <div className="space-y-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Perawat A (Asal)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Nama Anda (SDM Pemohon)</label>
                 <select 
                   value={swapData.sdmA} 
-                  onChange={(e) => setSwapData({...swapData, sdmA: e.target.value})} 
+                  onChange={(e) => { setSwapData({...swapData, sdmA: e.target.value}); setSwapError(""); }}
                   className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
                 >
                   <option value="">-- PILIH SEMUA PERAWAT DINAS --</option>
                   {data?.leaderboard?.map((item) => (
-                    <option key={`swap-A-${item.id}`} value={item.id}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
+                    <option key={`swap-A-${item.id}`} value={item.id} disabled={String(item.id) === String(swapData.sdmB)}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
                   ))}
                 </select>
               </div>
@@ -3060,21 +3177,38 @@ export default function ViewJadwalPublic() {
                 <div className="relative bg-white p-2 rounded-full border-2 border-emerald-500 shadow-lg"><ArrowLeftRight size={24} className="text-emerald-500 animate-pulse" /></div>
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih Perawat B (Tujuan)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Pilih SDM yang Diajak Tukar</label>
                 <select 
                   value={swapData.sdmB} 
-                  onChange={(e) => setSwapData({...swapData, sdmB: e.target.value})} 
+                  onChange={(e) => { setSwapData({...swapData, sdmB: e.target.value}); setSwapError(""); }}
                   className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-[10px] border-2 border-slate-100 outline-none focus:border-emerald-500 text-slate-800"
                 >
                   <option value="">-- PILIH SEMUA PERAWAT DINAS --</option>
                   {data?.leaderboard?.map((item) => (
-                    <option key={`swap-B-${item.id}`} value={item.id}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
+                    <option key={`swap-B-${item.id}`} value={item.id} disabled={String(item.id) === String(swapData.sdmA)}>{item.nama} (Tugas: {item.detail_poli || "Cadangan"})</option>
                   ))}
                 </select>
               </div>
+              <div className="space-y-2">
+                <label htmlFor="keterangan-tukar-jadwal" className="text-[10px] font-black text-slate-400 uppercase italic ml-2 block">Keterangan / Alasan Tukar</label>
+                <textarea
+                  id="keterangan-tukar-jadwal"
+                  value={swapData.keterangan}
+                  onChange={(event) => { setSwapData({...swapData, keterangan: event.target.value}); setSwapError(""); }}
+                  maxLength={500}
+                  rows={3}
+                  required
+                  placeholder="Jelaskan alasan atau kesepakatan tukar jadwal"
+                  className="w-full resize-y rounded-2xl border-2 border-slate-100 bg-slate-50 p-4 text-xs font-semibold text-slate-800 outline-none focus:border-emerald-500"
+                />
+              </div>
+              <p className="text-[10px] font-semibold leading-relaxed text-slate-500">
+                Permohonan tidak langsung mengubah jadwal. Perubahan berlaku setelah disetujui di menu Buat Jadwal.
+              </p>
+              {swapError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{swapError}</p>}
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "" }); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
-                <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700" suppressHydrationWarning={true}>EKSEKUSI TUKAR</button>
+                <button type="button" onClick={() => { setShowSwap(false); setSwapData({ sdmA: "", sdmB: "", keterangan: "" }); setSwapError(""); }} className="flex-1 py-5 font-black uppercase text-[10px] text-slate-400 hover:text-red-500 transition-colors" suppressHydrationWarning={true}>Batal</button>
+                <button type="button" onClick={handleSwapDB} disabled={submitting || !swapData.sdmA || !swapData.sdmB || !swapData.keterangan.trim() || swapData.sdmA === swapData.sdmB} className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] shadow-xl disabled:opacity-50 transition-all italic tracking-widest border-b-4 border-emerald-700" suppressHydrationWarning={true}>{submitting ? "MENGIRIM..." : "AJUKAN TUKAR"}</button>
               </div>
             </div>
           </div>

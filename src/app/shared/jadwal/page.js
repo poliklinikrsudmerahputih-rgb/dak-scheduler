@@ -3,11 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { format, getDaysInMonth } from "date-fns";
 import { id } from "date-fns/locale";
+import { createAsistenPenggantiWhatsAppUrl } from "@/lib/asisten-pengganti-whatsapp";
 
 export default function SharedJadwal() {
   const [jadwalRows, setJadwalRows] = useState([]);
   const [sdmList, setSdmList] = useState([]);
   const [dokterLegend, setDokterLegend] = useState([]);
+  const [pergantianAsistenRows, setPergantianAsistenRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterText, setFilterText] = useState("");
   const [showPersonLegend, setShowPersonLegend] = useState(false);
@@ -38,18 +40,21 @@ export default function SharedJadwal() {
       setLoading(true);
       try {
         const q = `?bulan=${bulan}&tahun=${tahun}&ruangan=${ruangan}&isPublic=true`;
-        const [resJadwal, resSdm, resDokter] = await Promise.all([
+        const [resJadwal, resSdm, resDokter, resPergantian] = await Promise.all([
           fetch(`/api/jadwal${q}`),
           fetch(`/api/sdm?ruangan=${ruangan}`),
-          fetch(`/api/dokter?ruangan=${ruangan}`)
+          fetch(`/api/dokter?ruangan=${ruangan}`),
+          fetch(`/api/pergantian-asisten?bulan=${bulan}&tahun=${tahun}&ruangan=${encodeURIComponent(ruangan)}`)
         ]);
         const jd = await resJadwal.json();
         const sdm = await resSdm.json();
         const dk = await resDokter.json();
+        const substitutions = await resPergantian.json();
 
         setJadwalRows(Array.isArray(jd) ? jd : []);
         setSdmList(Array.isArray(sdm) ? sdm : []);
         setDokterLegend(Array.isArray(dk) ? dk : []);
+        setPergantianAsistenRows(Array.isArray(substitutions) ? substitutions : []);
       } catch (e) {
         console.error(e);
       } finally {
@@ -60,6 +65,15 @@ export default function SharedJadwal() {
   }, [bulan, tahun, ruangan]);
 
   const jumlahHari = getDaysInMonth(new Date(tahun, bulan - 1));
+  const shareReplacementOnWhatsApp = (row) => {
+    const url = createAsistenPenggantiWhatsAppUrl({
+      entry: row,
+      dokter: row,
+      ruangan,
+      origin: window.location.origin,
+    });
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   // build map of jadwal by key sdm_id-tanggal
   const jadwalMap = new Map();
@@ -189,6 +203,28 @@ export default function SharedJadwal() {
               </table>
             </div>
           </div>
+        )}
+
+        {pergantianAsistenRows.length > 0 && (
+          <section className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <h2 className="text-sm font-black uppercase tracking-wide text-amber-950">Informasi Pergantian Asisten</h2>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {pergantianAsistenRows.map(row => (
+                <article key={`${row.dokter_id}-${row.tanggal}`} className="rounded-lg border border-amber-300 bg-white p-3">
+                  <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black uppercase text-amber-950">⚠️ Ganti Asisten</span>
+                  <h3 className="mt-2 text-sm font-black text-slate-900">{row.nama_dokter}</h3>
+                  <p className="text-xs font-semibold text-slate-600">{row.klinik} · {format(new Date(`${row.tanggal}T00:00:00`), "dd MMMM yyyy", { locale: id })}</p>
+                  <p className="mt-2 text-xs font-semibold text-amber-950">
+                    Asisten Pengganti: {row.asisten_pengganti_nama} (Menggantikan {row.asisten_awal_nama} • Alasan: {row.alasan_pergantian})
+                  </p>
+                  {row.catatan_pergantian && <p className="mt-1 text-xs text-slate-600">Catatan: {row.catatan_pergantian}</p>}
+                  <button type="button" onClick={() => shareReplacementOnWhatsApp(row)} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-emerald-700">
+                    Kirim Info ke WA Rajal
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
         )}
 
         {showLegend && (
